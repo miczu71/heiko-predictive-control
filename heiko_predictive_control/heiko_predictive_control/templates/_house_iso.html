@@ -1,0 +1,119 @@
+{# Izometryczny model domu. Cała geometria przychodzi z rooms.build_scene() —
+   tu wyłącznie malowanie w kolejności od najdalszych płaszczyzn:
+   ściany → elementy ścian → dach → podłogi (hotspoty) → deski → meble →
+   krawędzie/otwory przednie → etykiety → urządzenia. #}
+<svg class="house" viewBox="{{ scene.viewbox }}" xmlns="http://www.w3.org/2000/svg"
+     role="group" aria-label="Model domu — dotknij pokój lub urządzenie, żeby zobaczyć szczegóły">
+  <defs>
+    <symbol id="i-snow" viewBox="0 0 24 24">
+      <path d="M12 2v20M3.3 7l17.4 10M3.3 17l17.4-10M9 3.5l3 2.5 3-2.5M9 20.5l3-2.5 3 2.5"
+            fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-fan" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M12 10.3c-.4-2.8.6-5 3.4-5.2M13.6 12.9c2.5 1.2 3.6 3.4 2 5.6M10.4 12.9c-2.3 1.6-4.7 1.5-5.8-1"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="1.6" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-vent" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M6.5 9.5h11M6.5 12h11M6.5 14.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+
+  {# Ściany tylne (przekrój „domku dla lalek") i ich elementy #}
+  {% for f in scene.faces_back %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+  <g class="decor">
+    {% for f in scene.wall_features %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+    {% for f in scene.wall_lines %}<polyline class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+  </g>
+  {% for f in scene.roof %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+  {% for f in scene.pv %}<polygon class="pv" points="{{ f.points }}"/>{% endfor %}
+
+  {# Podłogi pomieszczeń — to one są hotspotami (meble mają pointer-events: none) #}
+  {% for rs in scene.rooms %}
+    {% set r = rs.room %}
+    {% set fs = ' floor-' ~ r.floor_style if r.floor_style else '' %}
+    {% if r.entity %}
+      {% set lv = live.rooms[r.key] %}
+      <g class="hotspot room {{ lv.cls }} {{ 'zone' if lv.zone else 'extra' }}{{ fs }}"
+         data-card="{{ r.card_key }}" data-tclass="{{ r.key }}"
+         role="button" tabindex="0" aria-label="{{ r.label }}: {{ lv.text }}">
+        <polygon points="{{ rs.points }}"/>
+      </g>
+    {% else %}
+      <g class="room bg {{ r.kind }}{{ fs }}"><polygon points="{{ rs.points }}"/></g>
+    {% endif %}
+  {% endfor %}
+  <g class="decor">
+    {% for f in scene.floor_lines %}<polyline class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+    {% for f in scene.overlays %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+    {% for f in scene.furniture %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+  </g>
+
+  {# Krawędzie stropów od frontu, otwory w ścianach przednich, krokwie #}
+  {% for f in scene.faces_front %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+  <g class="decor">
+    {% for f in scene.fronts %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+    {% for line in scene.rafters %}<polyline class="rafter" points="{{ line }}"/>{% endfor %}
+  </g>
+
+  {% if scene.pump %}
+  {# Jednostka zewnętrzna pompy ciepła — dotknięcie otwiera kartę pętli A #}
+  <g class="hotspot pump-box" data-card="loop_heiko" aria-hidden="true">
+    {% for f in scene.pump %}<polygon class="{{ f.cls }}" points="{{ f.points }}"/>{% endfor %}
+  </g>
+  {% endif %}
+
+  {# Etykiety pokoi — nad meblami. Pokoje z realistyczną podłogą dostają
+     „pigułkę" w kolorze temperatury (podłoga nie niesie już tej informacji). #}
+  <g class="labels">
+  {% for rs in scene.rooms %}
+    {% set r = rs.room %}
+    {% if r.entity %}
+      {% set lv = live.rooms[r.key] %}
+      {% if r.floor_style %}
+      <rect class="temp-pill {{ lv.cls }}" data-tclass="{{ r.key }}"
+            x="{{ rs.label_xy[0] - 40 }}" y="{{ rs.label_xy[1] - 20 }}" width="80" height="44" rx="10"/>
+      {% endif %}
+      <text class="room-temp" x="{{ rs.label_xy[0] }}" y="{{ rs.label_xy[1] }}"
+            data-live="rooms.{{ r.key }}.text">{{ lv.text }}</text>
+      <text class="room-name" x="{{ rs.label_xy[0] }}" y="{{ rs.label_xy[1] }}" dy="1.3em">{{ r.label }}</text>
+    {% else %}
+      <text class="room-name" x="{{ rs.label_xy[0] }}" y="{{ rs.label_xy[1] + 4 }}">{{ r.label }}</text>
+    {% endif %}
+  {% endfor %}
+  {% for label, xy in scene.floor_labels %}
+    <text class="floor-label" x="{{ xy[0] }}" y="{{ xy[1] }}">{{ label }}</text>
+  {% endfor %}
+  </g>
+
+  {# Urządzenia: klimatyzatory + pompa. Większe przezroczyste koło = cel dotyku.
+     Klimatyzacja kanałowa nie ma ikony jednostki — tylko nawiewy w pokojach, a
+     każdy z nich otwiera tę samą kartę. #}
+  {% for es in scene.equipment %}
+    {% set e = es.eq %}{% set ev = live.equipment[e.key] %}
+    <g class="hotspot equip {{ e.kind }} {{ 'controlled' if e.controlled else 'view-only' }} {{ 'is-on' if ev.on }}"
+       data-card="{{ e.card }}" data-on="{{ e.key }}"
+       role="button" tabindex="0" aria-label="{{ e.label }}: {{ ev.state }}">
+      {% if es.leader %}
+      <polyline class="leader" points="{{ es.leader }}"/>
+      <circle class="leader-end" cx="{{ es.leader_end[0] }}" cy="{{ es.leader_end[1] }}" r="4"/>
+      {% endif %}
+      {% if es.xy %}
+      <g transform="translate({{ es.xy[0] }} {{ es.xy[1] }})">
+        <circle class="hit" r="30"/>
+        <circle class="badge" r="17"/>
+        <use href="#i-{{ 'snow' if e.kind == 'ac' else 'fan' }}" x="-11" y="-11" width="22" height="22"/>
+      </g>
+      {% endif %}
+      {% for v in es.vents %}
+      <g class="vent" transform="translate({{ v[0] }} {{ v[1] }})">
+        <circle class="hit" r="22"/>
+        <circle class="badge" r="12"/>
+        <use href="#i-vent" x="-8" y="-8" width="16" height="16"/>
+      </g>
+      {% endfor %}
+    </g>
+  {% endfor %}
+</svg>

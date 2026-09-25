@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Pulpit{% endblock %}
+{% block content %}
+{% if house_warnings %}
+<section class="notice" role="status">
+  {% for w in house_warnings %}<p>{{ w }}</p>{% endfor %}
+  <p class="sub">Ścieżkę pliku ustawisz w konfiguracji add-onu (<code>house_layout_file</code>).</p>
+</section>
+{% endif %}
+<section class="stat-strip">
+  <div class="stat">
+    <span class="stat-label">Taryfa teraz</span>
+    <span class="stat-value {{ 'peak' if live.tariff.peak }}" id="tariff-label" data-live="tariff.label">{{ live.tariff.label }}</span>
+    <span class="stat-sub" data-live="tariff.price">{{ live.tariff.price }}</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Pompa dziś — realnie</span>
+    <span class="stat-value" id="cost-baseline">—</span>
+    <span class="stat-sub">koszt energii pompy wg licznika</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Szac. oszczędność dziś</span>
+    <span class="stat-value" id="cost-savings">—</span>
+    <span class="stat-sub">profil {{ (settings.heiko_active_profile or 'ekonomia')|capitalize }} · dry-run</span>
+  </div>
+</section>
+
+<section class="house-layout" data-heiko-profile="{{ settings.heiko_active_profile or 'ekonomia' }}">
+  <div class="house-wrap">
+    {% include "_house_iso.html" %}
+    <ul class="legend" aria-label="Legenda">
+      <li><i class="sw t-cold"></i>&lt; 19,5°</li>
+      <li><i class="sw t-cool"></i>19,5–21°</li>
+      <li><i class="sw t-ok"></i>21–23,5°</li>
+      <li><i class="sw t-warm"></i>≥ 23,5°</li>
+      <li><i class="sw zone-mark"></i>w średniej stref dziennych</li>
+      <li><i class="sw ring controlled"></i>steruje add-on</li>
+      <li><i class="sw ring"></i>tylko podgląd</li>
+    </ul>
+  </div>
+  <aside class="details" aria-live="polite">
+    {% include "_cards.html" %}
+  </aside>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/dashboard.js?v={{ version }}"></script>
+{% endblock %}

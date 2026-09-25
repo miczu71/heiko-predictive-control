@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Statystyki{% endblock %}
+{% block content %}
+<section class="stats">
+  <h2>Heiko — historia (ostatnie cykle)</h2>
+  <div id="heiko-history" class="history-table" data-loop="heiko">ładowanie…</div>
+
+  <h2>AC poddasze — historia (ostatnie cykle)</h2>
+  <div id="attic-history" class="history-table" data-loop="attic">ładowanie…</div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/statistics.js?v={{ version }}"></script>
+{% endblock %}

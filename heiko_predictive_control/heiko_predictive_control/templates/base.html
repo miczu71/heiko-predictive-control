@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Pulpit{% endblock %} — Heiko Predictive Control</title>
+<link rel="stylesheet" href="{{ base }}/static/app.css?v={{ version }}">
+<meta name="theme-color" content="#faf9f7">
+</head>
+<body>
+<nav class="nav">
+  <span class="nav-brand">Heiko Predictive Control</span>
+  <div class="nav-links">
+    <a href="{{ base }}/" {% if active == 'dashboard' %}class="active"{% endif %}>Pulpit</a>
+    <a href="{{ base }}/statistics" {% if active == 'statistics' %}class="active"{% endif %}>Statystyki</a>
+    <a href="{{ base }}/options" {% if active == 'options' %}class="active"{% endif %}>Opcje</a>
+  </div>
+  <span class="nav-version">v{{ version }}</span>
+</nav>
+<main class="main">
+{% block content %}{% endblock %}
+</main>
+<script>window.APP_BASE = {{ base|tojson }};</script>
+<script src="{{ base }}/static/app.js?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

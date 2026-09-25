@@ -1,0 +1,47 @@
+{
+  "_comment": "Neutralny przykład układu domu — pokazywany, gdy brak prywatnego pliku (opcja house_layout_file). Jednostki: cm. x: od lewej tylnej ściany, y: od tylnej elewacji.",
+  "footprint": [800, 900],
+  "levels": [
+    {"key": "parter", "label": "Parter", "z": 0},
+    {"key": "pietro", "label": "Piętro", "z": 1150},
+    {"key": "poddasze", "label": "Poddasze", "z": 2300, "attic": true}
+  ],
+  "rooms": [
+    {"key": "salon", "floor": "parter", "label": "Salon", "rect": [0, 0, 800, 450],
+     "entity": "sensor.salon_temperature", "floor_style": "wood"},
+    {"key": "kuchnia", "floor": "parter", "label": "Kuchnia", "rect": [0, 450, 400, 450],
+     "entity": "sensor.kuchnia_temperature"},
+    {"key": "hol", "floor": "parter", "label": "Hol", "rect": [400, 450, 400, 200], "kind": "stairs"},
+    {"key": "lazienka", "floor": "parter", "label": "Łazienka", "rect": [400, 650, 400, 250],
+     "entity": "sensor.lazienka_temperature", "note": "Tu stoi jednostka wewnętrzna pompy ciepła."},
+    {"key": "sypialnia", "floor": "pietro", "label": "Sypialnia", "rect": [0, 0, 400, 450],
+     "entity": "sensor.sypialnia_temperature"},
+    {"key": "pokoj_1", "floor": "pietro", "label": "Pokój 1", "rect": [400, 0, 400, 450],
+     "entity": "sensor.pokoj_1_temperature"},
+    {"key": "korytarz", "floor": "pietro", "label": "Korytarz", "rect": [0, 450, 800, 150], "kind": "stairs"},
+    {"key": "pokoj_2", "floor": "pietro", "label": "Pokój 2", "rect": [0, 600, 400, 300],
+     "entity": "sensor.pokoj_2_temperature"},
+    {"key": "lazienka_gora", "floor": "pietro", "label": "Łazienka góra", "rect": [400, 600, 400, 300],
+     "entity": "sensor.lazienka_gora_temperature"},
+    {"key": "poddasze", "floor": "poddasze", "label": "Poddasze", "rect": [0, 0, 800, 900],
+     "entity": "sensor.poddasze_temperature", "card": "loop_attic"}
+  ],
+  "stair_opening": [620, 420, 160, 150],
+  "pv": [6, 3],
+  "pump_box": [830, 700, 110, 80, 95],
+  "equipment": [
+    {"key": "ac_salon", "kind": "ac", "label": "Klimatyzacja salon", "entity": "climate.salon",
+     "card": "ac_salon", "pos": [400, 0, 200], "controlled": false, "note": "Split ścienny."},
+    {"key": "ac_poddasze", "kind": "ac", "label": "Klimatyzacja poddasze", "entity": "climate.poddasze",
+     "card": "loop_attic", "pos": [700, 495, 2500], "leader_to": [700, 495, 2300], "controlled": true},
+    {"key": "pump", "kind": "pump", "label": "Pompa ciepła", "entity": "sensor.heiko_heat_pump_working_mode_2",
+     "card": "loop_heiko", "pos": [885, 740, 150], "leader_to": [780, 740, 60], "controlled": true,
+     "note": "Jednostka wewnętrzna w łazience, zewnętrzna za jej ścianą."}
+  ],
+  "walls": [
+    {"floor": "parter", "wall": "y0", "start": 120, "end": 280, "z0": 90, "z1": 220, "style": "window"}
+  ],
+  "boxes": [
+    {"floor": "parter", "rect": [560, 180, 200, 90], "h": 42, "style": "fabric"}
+  ]
+}

@@ -1,0 +1,94 @@
+{# Karty szczegółów — jedna widoczna naraz, przełączana dotknięciem hotspotu.
+   Domyślnie otwarta karta pompy (najważniejsza dla celu: koszt). Nie zna
+   kluczy konkretnego domu — pokoje/urządzenia i opisy przychodzą z układu. #}
+{% set heiko_profile = settings.heiko_active_profile or 'ekonomia' %}
+{% set attic_profile = settings.attic_active_profile or 'ekonomia' %}
+{% set loop_cards = ('loop_heiko', 'loop_attic') %}
+
+<section class="detail" data-card="loop_heiko">
+  <header>
+    <h2><svg class="ico"><use href="#i-fan"/></svg> {{ pump_eq.label if pump_eq else 'Pompa ciepła' }}</h2>
+    <span class="status {{ 'on' if settings.heiko_enabled }}">{{ 'steruje' if settings.heiko_enabled else 'tylko obserwacja' }}</span>
+  </header>
+  <p class="sub">Podłogówka całego domu · pętla A — przesuwanie grzania do tańszych godzin.
+    {% if pump_eq and pump_eq.note %}{{ pump_eq.note }}{% endif %}</p>
+  <div class="profiles" aria-label="Aktywny profil">
+    <span class="{{ 'active' if heiko_profile == 'komfort' }}">Komfort</span>
+    <span class="{{ 'active' if heiko_profile == 'ekonomia' }}">Ekonomia</span>
+  </div>
+  <dl class="kv">
+    <dt>Tryb pracy</dt><dd data-live="heiko.mode">{{ live.heiko.mode }}</dd>
+    <dt>Krzywa grzewcza</dt><dd data-live="heiko.curve">{{ live.heiko.curve }}</dd>
+    <dt>Setpoint pompy teraz</dt><dd data-live="heiko.setpoint">{{ live.heiko.setpoint }}</dd>
+    <dt>Symulacja — Komfort</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
+    <dt>Symulacja — Ekonomia</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
+    <dt>Temp. zewnętrzna</dt><dd data-live="heiko.outdoor">{{ live.heiko.outdoor }}</dd>
+    <dt>Średnia stref dziennych</dt><dd data-live="heiko.avg">{{ live.heiko.avg }}</dd>
+  </dl>
+  <div class="cost" id="heiko-cost">ładowanie…</div>
+</section>
+
+<section class="detail" data-card="loop_attic" hidden>
+  <header>
+    <h2><svg class="ico"><use href="#i-snow"/></svg> {{ attic_room.label if attic_room else 'Poddasze' }}</h2>
+    <span class="status {{ 'on' if settings.attic_enabled }}">{{ 'steruje' if settings.attic_enabled else 'tylko obserwacja' }}</span>
+  </header>
+  <p class="sub">{{ attic_eq.label if attic_eq else 'Klimatyzacja' }} · pętla B — komfort w godzinach pracy.
+    {% if attic_eq and attic_eq.note %}{{ attic_eq.note }}{% endif %}</p>
+  <div class="profiles" aria-label="Aktywny profil">
+    <span class="{{ 'active' if attic_profile == 'komfort' }}">Komfort</span>
+    <span class="{{ 'active' if attic_profile == 'ekonomia' }}">Ekonomia</span>
+  </div>
+  <dl class="kv">
+    {% if attic_room %}
+    <dt>Temperatura</dt><dd data-live="rooms.{{ attic_room.key }}.text">{{ live.rooms[attic_room.key].text }}</dd>
+    {% endif %}
+    <dt>Cel — Komfort</dt><dd>{{ settings.attic_comfort_target_c|temp }}</dd>
+    <dt>Cel — Ekonomia</dt><dd>{{ settings.attic_economy_target_c|temp }}</dd>
+    <dt>Okno pracy</dt>
+    <dd>{{ settings.attic_work_start_hour }}:00–{{ settings.attic_work_end_hour }}:00 ·
+        {{ 'aktywne teraz' if attic and attic.setpoint_komfort is not none else 'poza oknem' }}</dd>
+    {% if attic_eq %}
+    <dt>Klimatyzator</dt><dd data-live="equipment.{{ attic_eq.key }}.state">{{ live.equipment[attic_eq.key].state }}</dd>
+    <dt>Nastawa klimatyzatora</dt><dd data-live="equipment.{{ attic_eq.key }}.target">{{ live.equipment[attic_eq.key].target }}</dd>
+    {% endif %}
+    {% if settings.attic_door_entity %}
+    <dt>Drzwi</dt><dd data-live="attic.door">{{ live.attic.door }}</dd>
+    {% endif %}
+  </dl>
+  <p class="note">Symulacja kosztu klimatyzatora — od Etapu 2 (licznik mocy AC).</p>
+</section>
+
+{% for e in house.equipment if e.card not in loop_cards %}
+<section class="detail" data-card="{{ e.card }}" hidden>
+  <header>
+    <h2><svg class="ico"><use href="#i-snow"/></svg> {{ e.label }}</h2>
+    <span class="status">tylko podgląd</span>
+  </header>
+  {% if e.note %}<p class="sub">{{ e.note }}</p>{% endif %}
+  <dl class="kv">
+    <dt>Stan</dt><dd data-live="equipment.{{ e.key }}.state">{{ live.equipment[e.key].state }}</dd>
+    {% if e.kind == 'ac' %}
+    <dt>Temp. w pomieszczeniu</dt><dd data-live="equipment.{{ e.key }}.current">{{ live.equipment[e.key].current }}</dd>
+    <dt>Nastawa</dt><dd data-live="equipment.{{ e.key }}.target">{{ live.equipment[e.key].target }}</dd>
+    {% endif %}
+  </dl>
+  <p class="note">Add-on nie steruje tym urządzeniem — tylko je pokazuje.</p>
+</section>
+{% endfor %}
+
+{% for rs in scene.rooms if rs.room.entity and not rs.room.card %}
+{% set r = rs.room %}{% set lv = live.rooms[r.key] %}
+<section class="detail" data-card="{{ r.card_key }}" hidden>
+  <header>
+    <h2>{{ r.label }}</h2>
+    <span class="status">{{ house.floor_labels[r.floor] }}</span>
+  </header>
+  <p class="big-temp" data-live="rooms.{{ r.key }}.text">{{ lv.text }}</p>
+  <p class="sub">{% if lv.zone %}Wlicza się do średniej stref dziennych — na niej pracuje pętla Heiko.{% else %}Tylko odczyt — nie wlicza się do średniej stref dziennych.{% endif %}</p>
+  {% for e in house.equipment if r.key in e.vents %}
+  <p class="note">Nawiew: {{ e.label|lower }} — stan <span data-live="equipment.{{ e.key }}.state">{{ live.equipment[e.key].state }}</span>.</p>
+  {% endfor %}
+  {% if r.note %}<p class="note">{{ r.note }}</p>{% endif %}
+</section>
+{% endfor %}

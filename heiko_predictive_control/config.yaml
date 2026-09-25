@@ -1,0 +1,105 @@
+name: Heiko Predictive Control
+version: "0.3.0"
+slug: heiko_predictive_control
+description: >-
+  Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
+  poddasza pod taryfę G12w. Etap 1: tylko odczyt, dry-run kosztu/oszczędności,
+  zero zapisów do pompy/AC.
+url: "https://github.com/miczu71/heiko-predictive-control"
+arch:
+  - aarch64
+  - amd64
+  - armv7
+init: false
+homeassistant_api: true
+services:
+  - mqtt:need
+# Układ domu (pokoje, meble, urządzenia) jest prywatny — czytany z konfiguracji
+# HA, nie z tego publicznego repo. Tylko odczyt.
+map:
+  - homeassistant_config:ro
+ingress: true
+ingress_port: 8101
+panel_icon: mdi:radiator
+options:
+  # Układ domu na pulpicie — plik JSON w konfiguracji HA (brak = przykładowy dom)
+  house_layout_file: "/homeassistant/heiko_predictive/house.json"
+  # Pętla A — Heiko (podłogówka)
+  day_zone_temp_entities: "sensor.salon_temperature,sensor.kuchnia_temperature,sensor.sypialnia_temperature,sensor.pokoj_1_temperature,sensor.pokoj_2_temperature"
+  outdoor_temp_entity: "sensor.heiko_heat_pump_ambient_air_temperature"
+  weather_entity: "weather.forecast_home"
+  solcast_remaining_today_entity: "sensor.solcast_pv_forecast_forecast_remaining_today"
+  tariff_state_entity: "sensor.power_tauron_g12w_current_tariff"
+  tariff_price_entity: "sensor.power_tauron_g12w_current_price"
+  pump_energy_entity: "sensor.energia_pompa_ciepla_energy"
+  heiko_setpoint_entity: "number.heiko_heat_pump_heating_setpoint"
+  heiko_curve_switch_entity: "switch.heiko_heat_pump_heating_curve"
+  heiko_comfort_band_day_c: 1.0
+  heiko_comfort_band_night_c: 1.5
+  heiko_economy_band_day_c: 1.5
+  heiko_economy_band_night_c: 2.0
+  heiko_day_start_hour: 6
+  heiko_day_end_hour: 22
+  heiko_write_throttle_min: 15
+  heiko_enabled: false
+  heiko_active_profile: "ekonomia"
+  # Pętla B — AC poddasze
+  attic_ac_entity: "climate.poddasze"
+  attic_temp_entity: "sensor.poddasze_temperature"
+  attic_door_entity: ""
+  attic_power_entity: ""
+  attic_work_start_hour: 8
+  attic_work_end_hour: 16
+  attic_comfort_target_c: 22.0
+  attic_economy_target_c: 20.5
+  attic_preheat_lead_min: 45
+  attic_enabled: false
+  attic_active_profile: "ekonomia"
+  # Wspólne
+  cycle_interval_min: 15
+  notify_service: ""
+  mqtt_host: "core-mosquitto"
+  mqtt_port: 1883
+  mqtt_user: ""
+  mqtt_password: ""
+  log_level: "info"
+  timezone: "Europe/Warsaw"
+schema:
+  house_layout_file: str?
+  day_zone_temp_entities: str
+  outdoor_temp_entity: str
+  weather_entity: str?
+  solcast_remaining_today_entity: str?
+  tariff_state_entity: str
+  tariff_price_entity: str?
+  pump_energy_entity: str
+  heiko_setpoint_entity: str
+  heiko_curve_switch_entity: str
+  heiko_comfort_band_day_c: float
+  heiko_comfort_band_night_c: float
+  heiko_economy_band_day_c: float
+  heiko_economy_band_night_c: float
+  heiko_day_start_hour: int
+  heiko_day_end_hour: int
+  heiko_write_throttle_min: int
+  heiko_enabled: bool
+  heiko_active_profile: "list(komfort|ekonomia)"
+  attic_ac_entity: str
+  attic_temp_entity: str
+  attic_door_entity: str?
+  attic_power_entity: str?
+  attic_work_start_hour: int
+  attic_work_end_hour: int
+  attic_comfort_target_c: float
+  attic_economy_target_c: float
+  attic_preheat_lead_min: int
+  attic_enabled: bool
+  attic_active_profile: "list(komfort|ekonomia)"
+  cycle_interval_min: int
+  notify_service: str?
+  mqtt_host: str
+  mqtt_port: int
+  mqtt_user: str
+  mqtt_password: password
+  log_level: "list(debug|info|warning|error)?"
+  timezone: str?

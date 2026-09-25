@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Opcje{% endblock %}
+{% block content %}
+<section class="options">
+  <form id="options-form">
+
+    <fieldset>
+      <legend>🔥 Heiko — podłogówka</legend>
+      <p class="hint">Wyłącznik gasi tylko zapis do pompy — obserwacja i dry-run
+        działają zawsze. <strong>Zapis pojawi się dopiero w Etapie 3</strong> —
+        do tego czasu ten przełącznik nic nie zmienia w pompie.</p>
+      <label><input type="checkbox" name="heiko_enabled" {{ 'checked' if settings.heiko_enabled }}>
+        Sterowanie aktywne (Heiko)</label>
+
+      <label>Aktywny profil
+        <select name="heiko_active_profile">
+          <option value="komfort" {{ 'selected' if settings.heiko_active_profile == 'komfort' }}>Komfort</option>
+          <option value="ekonomia" {{ 'selected' if settings.heiko_active_profile == 'ekonomia' }}>Ekonomia</option>
+        </select>
+      </label>
+
+      <div class="grid2">
+        <label>Pasmo Komfort — dzień (°C)
+          <input type="number" step="0.1" name="heiko_comfort_band_day_c" value="{{ settings.heiko_comfort_band_day_c }}"></label>
+        <label>Pasmo Komfort — noc (°C)
+          <input type="number" step="0.1" name="heiko_comfort_band_night_c" value="{{ settings.heiko_comfort_band_night_c }}"></label>
+        <label>Pasmo Ekonomia — dzień (°C)
+          <input type="number" step="0.1" name="heiko_economy_band_day_c" value="{{ settings.heiko_economy_band_day_c }}"></label>
+        <label>Pasmo Ekonomia — noc (°C)
+          <input type="number" step="0.1" name="heiko_economy_band_night_c" value="{{ settings.heiko_economy_band_night_c }}"></label>
+        <label>Dzień od (godz.)
+          <input type="number" min="0" max="23" name="heiko_day_start_hour" value="{{ settings.heiko_day_start_hour }}"></label>
+        <label>Dzień do (godz.)
+          <input type="number" min="0" max="23" name="heiko_day_end_hour" value="{{ settings.heiko_day_end_hour }}"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>❄️ Klimatyzacja poddasza</legend>
+      <p class="hint">Wyłącznik gasi tylko zapis do AC — obserwacja i dry-run
+        działają zawsze. <strong>Zapis pojawi się dopiero w Etapie 2</strong>.</p>
+      <label><input type="checkbox" name="attic_enabled" {{ 'checked' if settings.attic_enabled }}>
+        Sterowanie aktywne (AC poddasze)</label>
+
+      <label>Aktywny profil
+        <select name="attic_active_profile">
+          <option value="komfort" {{ 'selected' if settings.attic_active_profile == 'komfort' }}>Komfort</option>
+          <option value="ekonomia" {{ 'selected' if settings.attic_active_profile == 'ekonomia' }}>Ekonomia</option>
+        </select>
+      </label>
+
+      <div class="grid2">
+        <label>Cel Komfort (°C)
+          <input type="number" step="0.5" name="attic_comfort_target_c" value="{{ settings.attic_comfort_target_c }}"></label>
+        <label>Cel Ekonomia (°C)
+          <input type="number" step="0.5" name="attic_economy_target_c" value="{{ settings.attic_economy_target_c }}"></label>
+        <label>Okno pracy od (godz.)
+          <input type="number" min="0" max="23" name="attic_work_start_hour" value="{{ settings.attic_work_start_hour }}"></label>
+        <label>Okno pracy do (godz.)
+          <input type="number" min="0" max="23" name="attic_work_end_hour" value="{{ settings.attic_work_end_hour }}"></label>
+        <label>Wyprzedzenie dogrzewania (min)
+          <input type="number" min="0" name="attic_preheat_lead_min" value="{{ settings.attic_preheat_lead_min }}"></label>
+      </div>
+    </fieldset>
+
+    <button type="submit">Zapisz</button>
+    <span id="save-status"></span>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/options.js?v={{ version }}"></script>
+{% endblock %}
