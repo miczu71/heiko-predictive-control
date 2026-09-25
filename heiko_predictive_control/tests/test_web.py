@@ -167,3 +167,8 @@ def test_dashboard_and_api_show_attic_controller_from_db(tmp_path):
     assert api["offset"] == "+2,0°C" and api["window"] == "otwarte"
     html = app.test_client().get("/").get_data(as_text=True)
     assert 'data-live="attic.phase">pauza — otwarte okno<' in html
+
+
+def test_attic_offset_shows_default_when_state_never_persisted(client):
+    # dry-run nie utrwala stanu sterowania; pulpit ma pokazać domyślny offset jak MQTT
+    assert client.get("/api/live").get_json()["attic"]["offset"] == "+1,5°C"

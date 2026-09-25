@@ -146,7 +146,7 @@ def main() -> None:
                 "heiko_setpoint_ekonomia": heiko.get("setpoint_ekonomia"),
                 "heiko_model_k_loss": round(heiko_model.k_loss, 4),
                 "heiko_model_k_gain": round(heiko_model.k_gain, 4),
-                "last_cycle_ts": now.isoformat(),
+                "last_cycle_ts": now.astimezone().isoformat(),   # HA odrzuca timestamp bez strefy
             })
         except Exception:
             logger.exception("Cykl pętli A (Heiko) nieudany")
@@ -179,6 +179,7 @@ def main() -> None:
                                         if planned else None),
                 "attic_energy_today": round(today["kwh"], 3),
                 "attic_cost_today": round(today["pln"], 2),
+                "attic_last_cycle_ts": now.astimezone().isoformat(),
             })
         except Exception:
             logger.exception("Cykl pętli B (AC poddasza) nieudany")

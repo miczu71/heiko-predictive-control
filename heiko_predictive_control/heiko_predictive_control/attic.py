@@ -192,7 +192,7 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
     day_active = bool(inp.is_workday) and not bool(inp.on_vacation)
 
     planned_start = None
-    if day_active:
+    if day_active and now < window_end:
         lead = _lead_minutes(inp.temp_c, target, st.heat_rate_c_h,
                              MARGIN_MIN.get(profile, 10),
                              int(s.get("attic_preheat_lead_min", 45)),

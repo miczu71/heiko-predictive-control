@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from . import __version__, ha_client, layout, live, rooms
+from . import __version__, attic, ha_client, layout, live, rooms
 from . import db as dbm
 
 logger = logging.getLogger(__name__)
@@ -67,8 +67,10 @@ def create_app(db_path: str,
             totals = dbm.attic_today_totals(conn, date.today().isoformat())
         finally:
             conn.close()
-        data["attic"].update(live.ctrl_summary(
-            dict(row) if row else None, settings.get("attic_ctrl_state"), totals))
+        # from_dict: przy braku utrwalonego stanu (dry-run) pokazuje domyślne wartości
+        # — te same, które add-on publikuje przez MQTT.
+        state = attic.AtticState.from_dict(settings.get("attic_ctrl_state")).as_dict()
+        data["attic"].update(live.ctrl_summary(dict(row) if row else None, state, totals))
         return data
 
     @app.get("/")

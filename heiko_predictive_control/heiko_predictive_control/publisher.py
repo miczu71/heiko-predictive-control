@@ -64,6 +64,8 @@ _SENSORS: list[_Sensor] = [
             "mdi:lightning-bolt"),
     _Sensor("attic_cost_today", "AC poddasze: koszt dziś", "PLN", "monetary",
             "mdi:cash"),
+    _Sensor("attic_last_cycle_ts", "AC poddasze: ostatni cykl", None, "timestamp",
+            "mdi:heart-pulse"),
     _Sensor("last_cycle_ts", "Ostatni cykl", None, "timestamp", "mdi:clock-outline"),
 ]
 

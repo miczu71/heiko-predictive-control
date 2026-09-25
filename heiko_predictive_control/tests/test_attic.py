@@ -274,6 +274,12 @@ def test_vacation_never_writes():
     assert d.phase == "poza_oknem"
 
 
+def test_no_planned_start_after_window_ended():
+    d = decide(inp(at(22, 0), temp=22.5), AtticState(), SETTINGS, enabled=True)
+    assert d.planned_start is None
+    assert d.phase == "poza_oknem"
+
+
 def test_unknown_workday_is_treated_as_inactive():
     d = decide(inp(at(8, 30), temp=12.0, workday=None), AtticState(), SETTINGS, enabled=True)
     assert d.commands == []

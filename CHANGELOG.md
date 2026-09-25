@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 — Poprawki po wdrożeniu 0.4.0
+
+- **„Ostatni cykl" był `unavailable`** (błąd z 0.3.0): timestamp bez strefy czasowej jest
+  odrzucany przez HA. Teraz publikowany ze strefą. Dodany osobny heartbeat pętli B —
+  encja **AC poddasze: ostatni cykl** (timestamp, odświeżana co cykl pętli B), do
+  watchdoga po stronie HA.
+- **Planowany start dogrzewania** nie jest już pokazywany po zakończeniu okna pracy
+  (wcześniej po 16:00 wisiało dzisiejsze 08:00).
+- **Offset nastawy na pulpicie** pokazuje wartość domyślną (+1,5°C), gdy stan sterowania
+  nie został jeszcze utrwalony (tryb obserwacji), spójnie z MQTT.
+
 ## 0.4.0 — Etap 2: pętla B steruje klimatyzacją poddasza
 
 Pierwszy **zapis** add-onu: klimatyzator poddasza (`climate.*`) w oknie pracy. Pętla A
