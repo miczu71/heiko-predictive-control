@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 — Czyszczenie nieaktualnych wartości MQTT
+
+- Encje **AC poddasze: planowany start dogrzewania** i **ostatnia nastawa zlecona**
+  zostają puste (unknown), gdy wartość znika (koniec okna pracy, zwolnienie AC). Wcześniej
+  pominięta publikacja zostawiała stary, retained stan z poprzedniego dnia.
+
 ## 0.4.1 — Poprawki po wdrożeniu 0.4.0
 
 - **„Ostatni cykl" był `unavailable`** (błąd z 0.3.0): timestamp bez strefy czasowej jest

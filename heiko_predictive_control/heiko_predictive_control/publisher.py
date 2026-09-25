@@ -70,6 +70,12 @@ _SENSORS: list[_Sensor] = [
 ]
 
 
+# Sensory, których wartość może zniknąć (np. koniec okna pracy). Samo pominięcie
+# publikacji zostawiłoby stary retained stan, więc wysyłamy „None” — HA MQTT
+# traktuje ten ładunek jako brak wartości (unknown).
+_CLEAR_WHEN_NONE = frozenset({"attic_planned_start", "attic_ac_setpoint_cmd"})
+
+
 class MQTTPublisher:
     def __init__(self, host: str, port: int, user: str, password: str,
                  version: str) -> None:
@@ -123,9 +129,13 @@ class MQTTPublisher:
         if not self._connected:
             return
         for s in _SENSORS:
-            if s.slug not in values or values[s.slug] is None:
+            if s.slug not in values:
                 continue
             value = values[s.slug]
+            if value is None:
+                if s.slug not in _CLEAR_WHEN_NONE:
+                    continue
+                value = "None"
             if s.is_binary:
                 value = "on" if value else "off"
             self._client.publish(f"{_STATE_PREFIX}/{s.slug}", str(value), retain=True)
