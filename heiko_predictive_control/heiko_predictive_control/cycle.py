@@ -198,12 +198,16 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
     door_open = {"on": 1, "off": 0}.get(door_raw)
     power_w = get_numeric(settings.get("attic_power_entity", ""))
 
+    # Ręczny przełącznik pauzy (np. input_boolean): brak encji/niedostępny = brak pauzy.
+    pause_raw = str((get_state(settings.get("attic_pause_entity", "")) or {}).get("state", "")).lower()
+    paused = {"on": True, "off": False}.get(pause_raw)
+
     enabled = bool(settings.get("attic_enabled"))
     state = attic.AtticState.from_dict(dbm.get_setting(conn, "attic_ctrl_state"))
     inputs = attic.AtticInputs(
         now=now, is_workday=is_workday, on_vacation=on_vacation, temp_c=indoor_c,
         ac_state=ac_state, ac_setpoint_c=ac_setpoint, window_open_since=window_since,
-        door_open=None if door_open is None else bool(door_open))
+        door_open=None if door_open is None else bool(door_open), paused=paused)
     decision = attic.decide(inputs, state, settings, enabled)
 
     wrote, failed = 0, False

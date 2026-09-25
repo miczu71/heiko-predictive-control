@@ -19,7 +19,8 @@ wielu integracji tamtej konfiguracji).
 - **B — AC poddasze:** komfort w oknie pracy (domyślnie 8:00-16:00 dni robocze), koszt
   drugorzędny. **Steruje od 0.4.0:** przejmuje wyłączony klimatyzator, dogrzewa z
   wyprzedzeniem liczonym z uczonego tempa, utrzymuje temperaturę korygując offset nastawy,
-  odpuszcza po ręcznej zmianie i pauzuje przy otwartym oknie (szczegóły: `CHANGELOG.md`).
+  odpuszcza po ręcznej zmianie, pauzuje przy otwartym oknie i na urlop/święta lub gdy włączony
+  jest ręczny przełącznik pauzy `attic_pause_entity` (szczegóły: `CHANGELOG.md`).
 
 Każda pętla ma dwa profile — **Komfort** i **Ekonomia** — liczone równolegle, wybór
 aktywnego profilu osobno per pętla. Każda pętla ma niezależny wyłącznik sezonowy —
@@ -43,7 +44,7 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
 
 ## Status
 
-**0.4.0 — Etap 2: pętla B (AC poddasza) zapisuje do klimatyzatora** (tylko gdy
+**0.4.3 — Etap 2: pętla B (AC poddasza) zapisuje do klimatyzatora** (tylko gdy
 `attic_enabled`). Pętla A (Heiko) nadal wyłącznie odczyt/dry-run — zero zapisów do pompy.
 Patrz `CHANGELOG.md`.
 

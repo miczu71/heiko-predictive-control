@@ -65,6 +65,21 @@
         <label>Maks. wyprzedzenie dogrzewania (min)
           <input type="number" min="0" name="attic_preheat_max_min" value="{{ settings.attic_preheat_max_min }}"></label>
       </div>
+
+      <p class="hint">Encje sterujące (puste pole = funkcja wyłączona). Zmiana działa od
+        następnego cyklu, bez restartu. Święta pokrywa <code>binary_sensor.workday</code>.</p>
+      <label>Przełącznik pauzy dogrzewania (włączony = AC nie grzeje)
+        <input type="text" name="attic_pause_entity" value="{{ settings.attic_pause_entity or '' }}"
+               placeholder="input_boolean.…"></label>
+      <label>Sensor urlopu (włączony = AC nie grzeje)
+        <input type="text" name="attic_vacation_entity" value="{{ settings.attic_vacation_entity or '' }}"
+               placeholder="binary_sensor.…"></label>
+      <label>Czujniki okien poddasza (po przecinku; otwarte &gt;2 min = pauza)
+        <input type="text" name="attic_window_entities" value="{{ settings.attic_window_entities or '' }}"
+               placeholder="binary_sensor.…, binary_sensor.…"></label>
+      <label>Powiadomienia (usługa notify)
+        <input type="text" name="notify_service" value="{{ settings.notify_service or '' }}"
+               placeholder="notify.…"></label>
     </fieldset>
 
     <button type="submit">Zapisz</button>

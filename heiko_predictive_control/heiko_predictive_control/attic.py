@@ -8,7 +8,8 @@ Zasady (patrz docs planu Etapu 2):
   = ręczne użycie, nie dotykamy);
 - AC reguluje samo, add-on koryguje offset nastawy względem termometru pokoju;
 - ręczna zmiana AC w oknie pracy = odpuszczamy do końca dnia;
-- otwarte okno dłużej niż 2 min = pauza; drzwi nie wpływają na sterowanie."""
+- otwarte okno dłużej niż 2 min = pauza; drzwi nie wpływają na sterowanie;
+- urlop albo ręczny przełącznik pauzy = dzień nieaktywny (faza „wstrzymane")."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
@@ -50,6 +51,7 @@ class AtticInputs:
     ac_setpoint_c: float | None
     window_open_since: datetime | None = None   # najstarsza zmiana na 'otwarte'
     door_open: bool | None = None               # tylko log
+    paused: bool | None = None                  # ręczny przełącznik pauzy; None = brak/niedostępny
 
 
 @dataclass
@@ -189,7 +191,8 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
                              minute=0, second=0, microsecond=0)
     window_end = now.replace(hour=int(s.get("attic_work_end_hour", 16)),
                              minute=0, second=0, microsecond=0)
-    day_active = bool(inp.is_workday) and not bool(inp.on_vacation)
+    blocked = bool(inp.on_vacation) or bool(inp.paused)       # urlop albo ręczna pauza
+    day_active = bool(inp.is_workday) and not blocked
 
     planned_start = None
     if day_active and now < window_end:
@@ -202,11 +205,15 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
                  and (now >= planned_start or st.owned))
 
     if not in_window:
+        held = bool(inp.is_workday) and blocked and now < window_end
         if st.owned:
             _release(st)
-            return result([dict(OFF)] if ac_on else [], "koniec_okna",
+            return result([dict(OFF)] if ac_on else [], "wstrzymane" if held else "koniec_okna",
                           planned_start, events=["end"])
-        phase = "czeka" if day_active and now < window_end else "poza_oknem"
+        if held:
+            phase = "wstrzymane"
+        else:
+            phase = "czeka" if day_active and now < window_end else "poza_oknem"
         return result([], phase, planned_start)
 
     if st.override_date == today:

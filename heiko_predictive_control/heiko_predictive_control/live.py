@@ -23,6 +23,7 @@ PHASE_LABELS = {
     "reczne_uzycie": "klimatyzator włączony ręcznie", "brak_ac": "klimatyzator niedostępny",
     "koniec_okna": "koniec okna pracy", "przekazanie": "sterowanie wyłączone",
     "dry_run": "tryb obserwacji (zapisałbym)",
+    "wstrzymane": "wstrzymane (urlop / pauza)",
 }
 _UNAVAILABLE = (None, "", "unavailable", "unknown")
 

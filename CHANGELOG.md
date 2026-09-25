@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.3 — Ręczna pauza dogrzewania poddasza + pola encji w Opcjach
+
+**Pauza z HA.** Nowa opcja `attic_pause_entity` — dowolna encja `input_boolean`/`switch`/
+`binary_sensor`: **włączona = AC poddasza nie grzeje** (urlop, wyjazd, święta „na
+życzenie"). Działa razem z sensorem urlopu i `binary_sensor.workday` — pauza obowiązuje,
+gdy włączy ją którekolwiek źródło.
+
+- Włączenie w trakcie okna pracy, gdy add-on grzeje: klimatyzator jest wyłączany, a
+  sterowanie oddawane (jak przy końcu okna). Nowa faza **wstrzymane (urlop / pauza)**.
+- Włączona poza oknem pracy: w najbliższym oknie add-on nic nie robi.
+- Encja niedostępna lub nieistniejąca = brak pauzy (grzanie nie zatrzyma się przez usterkę).
+- Ręczna zmiana AC z tego dnia nadal obowiązuje po wyłączeniu pauzy (odpuszczenie do
+  końca dnia).
+- Faza przy urlopie zmieniona z „poza oknem" na „wstrzymane" (dzień roboczy, urlop).
+
+**UI Opcje** (bez restartu, od następnego cyklu): pola `attic_pause_entity`,
+`attic_vacation_entity`, `attic_window_entities` i `notify_service` — wcześniej dało się je
+ustawić tylko przez API, bo opcje Supervisora zasiewają bazę add-onu tylko raz.
+
+| Opcja | Domyślnie | Znaczenie |
+|---|---|---|
+| `attic_pause_entity` | `""` | przełącznik pauzy dogrzewania (on = AC nie grzeje) |
+
 ## 0.4.2 — Czyszczenie nieaktualnych wartości MQTT
 
 - Encje **AC poddasze: planowany start dogrzewania** i **ostatnia nastawa zlecona**

@@ -20,9 +20,11 @@ def at(h, m=0, s=0, day=MON):
     return day.replace(hour=h, minute=m, second=s)
 
 
-def inp(now, temp=17.0, ac="off", sp=24.0, workday=True, vac=False, window_since=None):
+def inp(now, temp=17.0, ac="off", sp=24.0, workday=True, vac=False, window_since=None,
+        paused=None):
     return AtticInputs(now=now, is_workday=workday, on_vacation=vac, temp_c=temp,
-                       ac_state=ac, ac_setpoint_c=sp, window_open_since=window_since)
+                       ac_state=ac, ac_setpoint_c=sp, window_open_since=window_since,
+                       paused=paused)
 
 
 def owned_state(mode="utrzymanie", hvac="heat", temp=23.5, ts=None, **kw):
@@ -271,7 +273,58 @@ def test_weekend_never_writes():
 def test_vacation_never_writes():
     d = decide(inp(at(8, 30), temp=12.0, vac=True), AtticState(), SETTINGS, enabled=True)
     assert d.commands == []
+    assert d.phase == "wstrzymane"
+    assert d.planned_start is None
+
+
+# ── pauza ręczna (przełącznik) ────────────────────────────────────────────────
+
+def test_pause_blocks_takeover_in_work_window():
+    d = decide(inp(at(8, 30), temp=12.0, paused=True), AtticState(), SETTINGS, enabled=True)
+    assert d.commands == []
+    assert d.state.owned is False
+    assert d.phase == "wstrzymane"
+    assert d.planned_start is None
+
+
+def test_pause_mid_window_turns_off_owned_ac_and_releases():
+    d = decide(inp(at(10, 0), temp=21.0, ac="heat", sp=23.5, paused=True), owned_state(),
+               SETTINGS, enabled=True)
+    assert cmds(d) == [("turn_off", {})]
+    assert d.state.owned is False
+    assert d.phase == "wstrzymane"
+
+
+def test_pause_leaves_unowned_ac_alone():
+    d = decide(inp(at(10, 0), temp=21.0, ac="heat", sp=23.5, paused=True), AtticState(),
+               SETTINGS, enabled=True)
+    assert d.commands == []
+
+
+def test_unpausing_resumes_normal_takeover():
+    st = decide(inp(at(9, 0), temp=16.0, paused=True), AtticState(), SETTINGS,
+                enabled=True).state
+    d = decide(inp(at(9, 5), temp=16.0, paused=False), st, SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+
+
+def test_unknown_pause_state_is_not_a_pause():
+    d = decide(inp(at(9, 0), temp=16.0, paused=None), AtticState(), SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+
+
+def test_pause_on_weekend_or_after_window_is_just_outside_window():
+    d = decide(inp(at(10, 0), temp=12.0, workday=False, paused=True), AtticState(),
+               SETTINGS, enabled=True)
     assert d.phase == "poza_oknem"
+    d = decide(inp(at(20, 0), temp=12.0, paused=True), AtticState(), SETTINGS, enabled=True)
+    assert d.phase == "poza_oknem"
+
+
+def test_pause_does_not_clear_manual_override_of_the_day():
+    st = AtticState(override_date="2026-01-12")
+    d = decide(inp(at(9, 0), temp=16.0, paused=False), st, SETTINGS, enabled=True)
+    assert d.phase == "przejecie_reczne"
 
 
 def test_no_planned_start_after_window_ended():

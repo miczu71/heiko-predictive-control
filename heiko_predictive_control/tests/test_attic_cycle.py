@@ -12,6 +12,7 @@ SETTINGS = {
     "attic_ac_entity": AC, "attic_temp_entity": "sensor.temp",
     "attic_door_entity": "binary_sensor.door", "attic_power_entity": "sensor.power",
     "attic_window_entities": "binary_sensor.w1, binary_sensor.w2",
+    "attic_pause_entity": "input_boolean.pause",
     "tariff_price_entity": "sensor.price", "notify_service": "notify.test",
     "attic_enabled": True, "attic_active_profile": "komfort",
     "attic_comfort_target_c": 22.0, "attic_economy_target_c": 20.5,
@@ -106,6 +107,43 @@ def test_open_window_from_ha_last_changed_pauses_ac():
     row = env.run(conn, SETTINGS, at(10, 0))
     assert env.calls == [("climate", "turn_off", {"entity_id": AC})]
     assert row["phase"] == "pauza_okno" and row["window_open"] == 1
+
+
+def test_pause_switch_on_blocks_takeover():
+    conn, env = make_conn(), Env(temp=16.0)
+    env.states["input_boolean.pause"] = {"state": "on"}
+    row = env.run(conn, SETTINGS, at(8, 30))
+    assert env.calls == [] and row["phase"] == "wstrzymane"
+
+
+def test_pause_switch_on_turns_off_owned_ac():
+    conn = make_conn()
+    dbm.set_setting(conn, "attic_ctrl_state", AtticState(
+        owned=True, owned_day="2026-01-12", mode="utrzymanie",
+        last_cmd={"hvac": "heat", "temp": 23.5, "ts": at(9, 0).isoformat()}).as_dict())
+    env = Env(ac="heat", ac_temp=23.5, temp=21.0)
+    env.states["input_boolean.pause"] = {"state": "on"}
+    row = env.run(conn, SETTINGS, at(10, 0))
+    assert env.calls == [("climate", "turn_off", {"entity_id": AC})]
+    assert row["phase"] == "wstrzymane"
+    assert AtticState.from_dict(dbm.get_setting(conn, "attic_ctrl_state")).owned is False
+
+
+def test_pause_switch_unavailable_or_missing_is_ignored():
+    conn, env = make_conn(), Env(temp=16.0)
+    env.states["input_boolean.pause"] = {"state": "unavailable"}
+    env.run(conn, SETTINGS, at(8, 30))
+    assert len(env.calls) == 1
+    conn2, env2 = make_conn(), Env(temp=16.0)          # encji w ogóle nie ma
+    env2.run(conn2, SETTINGS, at(8, 30))
+    assert len(env2.calls) == 1
+
+
+def test_pause_switch_off_does_not_block():
+    conn, env = make_conn(), Env(temp=16.0)
+    env.states["input_boolean.pause"] = {"state": "off"}
+    env.run(conn, SETTINGS, at(8, 30))
+    assert len(env.calls) == 1
 
 
 def test_unavailable_ac_no_calls():
