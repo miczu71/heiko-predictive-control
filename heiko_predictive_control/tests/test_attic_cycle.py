@@ -13,6 +13,7 @@ SETTINGS = {
     "attic_door_entity": "binary_sensor.door", "attic_power_entity": "sensor.power",
     "attic_window_entities": "binary_sensor.w1, binary_sensor.w2",
     "attic_pause_entity": "input_boolean.pause",
+    "attic_presence_entity": "binary_sensor.presence", "attic_vacant_after_min": 60,
     "tariff_price_entity": "sensor.price", "notify_service": "notify.test",
     "attic_enabled": True, "attic_active_profile": "komfort",
     "attic_comfort_target_c": 22.0, "attic_economy_target_c": 20.5,
@@ -144,6 +145,43 @@ def test_pause_switch_off_does_not_block():
     env.states["input_boolean.pause"] = {"state": "off"}
     env.run(conn, SETTINGS, at(8, 30))
     assert len(env.calls) == 1
+
+
+def test_vacant_room_blocks_takeover_and_is_stored():
+    conn, env = make_conn(), Env(temp=16.0)
+    env.states["binary_sensor.presence"] = {"state": "off", "last_changed": "2026-01-12T08:30:00"}
+    row = env.run(conn, SETTINGS, at(10, 0))                 # pusto 90 min
+    assert env.calls == [] and row["phase"] == "pusto"
+    assert row["presence"] == 0 and row["vacant_min"] == 90.0
+
+
+def test_vacant_room_turns_off_owned_ac():
+    conn = make_conn()
+    dbm.set_setting(conn, "attic_ctrl_state", AtticState(
+        owned=True, owned_day="2026-01-12", mode="utrzymanie",
+        last_cmd={"hvac": "heat", "temp": 23.5, "ts": at(9, 0).isoformat()}).as_dict())
+    env = Env(ac="heat", ac_temp=23.5, temp=22.0)
+    env.states["binary_sensor.presence"] = {"state": "off", "last_changed": "2026-01-12T09:00:00"}
+    row = env.run(conn, SETTINGS, at(10, 30))
+    assert env.calls == [("climate", "turn_off", {"entity_id": AC})]
+    assert row["phase"] == "pusto"
+    assert AtticState.from_dict(dbm.get_setting(conn, "attic_ctrl_state")).owned is False
+
+
+def test_presence_on_or_unavailable_does_not_block():
+    for state in ("on", "unavailable", "unknown"):
+        conn, env = make_conn(), Env(temp=16.0)
+        env.states["binary_sensor.presence"] = {"state": state, "last_changed": "2026-01-12T07:00:00"}
+        row = env.run(conn, SETTINGS, at(10, 0))
+        assert len(env.calls) == 1, state
+    assert row["presence"] is None                            # ostatni: unknown
+
+
+def test_presence_stored_as_one_when_present():
+    conn, env = make_conn(), Env(temp=22.5)
+    env.states["binary_sensor.presence"] = {"state": "on", "last_changed": "2026-01-12T07:00:00"}
+    row = env.run(conn, SETTINGS, at(10, 0))
+    assert row["presence"] == 1 and row["vacant_min"] == 0.0
 
 
 def test_unavailable_ac_no_calls():

@@ -9,7 +9,10 @@ Zasady (patrz docs planu Etapu 2):
 - AC reguluje samo, add-on koryguje offset nastawy względem termometru pokoju;
 - ręczna zmiana AC w oknie pracy = odpuszczamy do końca dnia;
 - otwarte okno dłużej niż 2 min = pauza; drzwi nie wpływają na sterowanie;
-- urlop albo ręczny przełącznik pauzy = dzień nieaktywny (faza „wstrzymane")."""
+- urlop albo ręczny przełącznik pauzy = dzień nieaktywny (faza „wstrzymane");
+- czujnik obecności: w oknie pracy pusto dłużej niż `attic_vacant_after_min` (licząc od
+  początku okna) = AC wyłączone (faza „pusto"), grzanie wraca z obecnością. Czujnik
+  niedostępny albo próg 0 = reguła wyłączona (bezpieczniej grzać niż nie)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
@@ -52,6 +55,8 @@ class AtticInputs:
     window_open_since: datetime | None = None   # najstarsza zmiana na 'otwarte'
     door_open: bool | None = None               # tylko log
     paused: bool | None = None                  # ręczny przełącznik pauzy; None = brak/niedostępny
+    presence: bool | None = None                # czujnik obecności; None = brak/niedostępny
+    vacant_since: datetime | None = None        # od kiedy czujnik pokazuje brak obecności
 
 
 @dataclass
@@ -65,6 +70,7 @@ class AtticState:
     heat_rate_c_h: float = HEAT_RATE_START
     preheat: dict | None = None          # {"ts": iso, "temp": float}
     paused_by_window: bool = False
+    last_takeover_day: str | None = None  # powiadomienie o starcie grzania: raz dziennie
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -96,6 +102,7 @@ class Decision:
     planned_start: datetime | None = None
     dry_run: bool = False
     events: list[str] = field(default_factory=list)
+    vacant_min: float | None = None      # minuty pustki (0 = ktoś jest); None = brak danych
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -172,10 +179,12 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
     ac_on = inp.ac_state not in (None, "off")
     dry = not enabled
 
+    vacant_min: float | None = None      # ustawiane niżej, gdy znane godziny okna
+
     def result(cmds, phase, planned=None, events=None, dry_run=None):
         return Decision(commands=cmds, state=st, phase=phase, target_c=target,
                         planned_start=planned, dry_run=dry if dry_run is None else dry_run,
-                        events=events or [])
+                        events=events or [], vacant_min=vacant_min)
 
     # Wyłączone sterowanie: jeśli AC było przejęte, oddajemy je wyłączone (jednorazowo).
     if not enabled and st.owned:
@@ -191,6 +200,17 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
                              minute=0, second=0, microsecond=0)
     window_end = now.replace(hour=int(s.get("attic_work_end_hour", 16)),
                              minute=0, second=0, microsecond=0)
+    vacant_after = int(s.get("attic_vacant_after_min", 0) or 0)
+    vacant = False
+    if inp.presence is True:
+        vacant_min = 0.0
+    elif inp.presence is False and inp.vacant_since is not None:
+        # licznik pustki startuje najwcześniej od początku okna pracy — przed 8:00
+        # nikt jeszcze nie musi być na poddaszu, więc nie liczy się do progu
+        since = max(inp.vacant_since, work_start)
+        vacant_min = max(0.0, (now - since).total_seconds() / 60.0)
+        vacant = vacant_after > 0 and vacant_min >= vacant_after
+
     blocked = bool(inp.on_vacation) or bool(inp.paused)       # urlop albo ręczna pauza
     day_active = bool(inp.is_workday) and not blocked
 
@@ -231,6 +251,8 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
             return result([], "brak_ac", planned_start)
         if ac_on:
             return result([], "reczne_uzycie", planned_start)
+        if vacant:
+            return result([], "pusto", planned_start)
         if t is not None and t >= target - REACHED_BELOW_C:
             return result([], "utrzymanie", planned_start)
         st.owned, st.owned_day = True, today
@@ -239,7 +261,10 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
                       if st.mode == "dogrzewanie" and t is not None else None)
         sp = _setpoint(target, st.offset_c, st.mode)
         _record(st, now, "heat", sp)
-        return result([_cmd_heat(sp)], st.mode, planned_start, events=["takeover"])
+        first_today = st.last_takeover_day != today
+        st.last_takeover_day = today
+        return result([_cmd_heat(sp)], st.mode, planned_start,
+                      events=["takeover"] if first_today else [])
 
     # ── AC przejęte ──────────────────────────────────────────────────────────
     lc = st.last_cmd
@@ -258,6 +283,12 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
         st.paused_by_window = True
         return result(cmds, "pauza_okno", planned_start,
                       events=["window_pause"] if newly_paused else [])
+
+    if vacant:
+        # nikogo nie ma od dawna: wyłączamy i oddajemy sterowanie; z obecnością
+        # zadziała zwykłe przejęcie (szybkie dogrzewanie po powrocie)
+        _release(st)
+        return result([dict(OFF)] if ac_on else [], "pusto", planned_start, events=["vacant"])
 
     resume = st.paused_by_window
     st.paused_by_window = False

@@ -56,6 +56,9 @@
     <dt>Klimatyzator</dt><dd data-live="equipment.{{ attic_eq.key }}.state">{{ live.equipment[attic_eq.key].state }}</dd>
     <dt>Nastawa klimatyzatora</dt><dd data-live="equipment.{{ attic_eq.key }}.target">{{ live.equipment[attic_eq.key].target }}</dd>
     {% endif %}
+    {% if settings.attic_presence_entity %}
+    <dt>Obecność</dt><dd data-live="attic.presence">{{ live.attic.presence }}</dd>
+    {% endif %}
     {% if settings.attic_window_entities %}
     <dt>Okna</dt><dd data-live="attic.window">{{ live.attic.window }}</dd>
     {% endif %}

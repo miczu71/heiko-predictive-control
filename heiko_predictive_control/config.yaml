@@ -1,5 +1,5 @@
 name: Heiko Predictive Control
-version: "0.4.3"
+version: "0.5.0"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
@@ -54,6 +54,8 @@ options:
   attic_vacation_entity: ""
   # Ręczny przełącznik pauzy (input_boolean/switch, on = AC nie grzeje); brak = ignorowane
   attic_pause_entity: ""
+  # Czujnik obecności (binary_sensor, on = ktoś jest); brak = reguła „pusto" wyłączona
+  attic_presence_entity: ""
   attic_work_start_hour: 8
   attic_work_end_hour: 16
   attic_comfort_target_c: 22.0
@@ -61,6 +63,8 @@ options:
   attic_preheat_lead_min: 45
   attic_preheat_max_min: 120
   attic_cycle_interval_min: 5
+  # Ile minut pustki w oknie pracy wyłącza AC (liczone od początku okna); 0 = wyłączone
+  attic_vacant_after_min: 60
   attic_enabled: false
   attic_active_profile: "ekonomia"
   # Wspólne
@@ -99,6 +103,7 @@ schema:
   attic_window_entities: str?
   attic_vacation_entity: str?
   attic_pause_entity: str?
+  attic_presence_entity: str?
   attic_work_start_hour: int
   attic_work_end_hour: int
   attic_comfort_target_c: float
@@ -106,6 +111,7 @@ schema:
   attic_preheat_lead_min: int
   attic_preheat_max_min: int
   attic_cycle_interval_min: int
+  attic_vacant_after_min: int
   attic_enabled: bool
   attic_active_profile: "list(komfort|ekonomia)"
   cycle_interval_min: int

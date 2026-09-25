@@ -202,12 +202,18 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
     pause_raw = str((get_state(settings.get("attic_pause_entity", "")) or {}).get("state", "")).lower()
     paused = {"on": True, "off": False}.get(pause_raw)
 
+    # Czujnik obecności: brak encji/niedostępny = brak reguły „pusto" (bezpieczniej grzać).
+    presence_data = get_state(settings.get("attic_presence_entity", "")) or {}
+    presence = {"on": True, "off": False}.get(str(presence_data.get("state", "")).lower())
+    vacant_since = _parse_ts(presence_data.get("last_changed")) if presence is False else None
+
     enabled = bool(settings.get("attic_enabled"))
     state = attic.AtticState.from_dict(dbm.get_setting(conn, "attic_ctrl_state"))
     inputs = attic.AtticInputs(
         now=now, is_workday=is_workday, on_vacation=on_vacation, temp_c=indoor_c,
         ac_state=ac_state, ac_setpoint_c=ac_setpoint, window_open_since=window_since,
-        door_open=None if door_open is None else bool(door_open), paused=paused)
+        door_open=None if door_open is None else bool(door_open), paused=paused,
+        presence=presence, vacant_since=vacant_since)
     decision = attic.decide(inputs, state, settings, enabled)
 
     wrote, failed = 0, False
@@ -236,6 +242,8 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
         if "manual_override" in decision.events:
             notify(notify_to, "Heiko Predictive: AC poddasza",
                    "Wykryto ręczną zmianę klimatyzacji — do końca dnia nie steruję.")
+    if "vacant" in decision.events and not decision.dry_run and not failed:
+        logger.info("Poddasze: pusto od %.0f min — klimatyzator wyłączony", decision.vacant_min or 0)
     if not decision.dry_run and not failed:
         dbm.set_setting(conn, "attic_ctrl_state", decision.state.as_dict())
 
@@ -270,6 +278,8 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
         "wrote": wrote, "attic_energy_kwh": energy_kwh,
         "attic_cost_pln": energy_kwh * price,
         "planned_start": decision.planned_start.isoformat() if decision.planned_start else None,
+        "presence": None if presence is None else int(presence),
+        "vacant_min": decision.vacant_min,
     }
     dbm.insert_cycle(conn, result)
     return result

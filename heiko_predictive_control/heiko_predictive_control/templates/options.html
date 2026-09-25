@@ -71,6 +71,11 @@
       <label>Przełącznik pauzy dogrzewania (włączony = AC nie grzeje)
         <input type="text" name="attic_pause_entity" value="{{ settings.attic_pause_entity or '' }}"
                placeholder="input_boolean.…"></label>
+      <label>Czujnik obecności (włączony = ktoś jest na poddaszu)
+        <input type="text" name="attic_presence_entity" value="{{ settings.attic_presence_entity or '' }}"
+               placeholder="binary_sensor.…"></label>
+      <label>Wyłącz AC po tylu minutach pustki w oknie pracy (0 = nie wyłączaj)
+        <input type="number" min="0" name="attic_vacant_after_min" value="{{ settings.attic_vacant_after_min }}"></label>
       <label>Sensor urlopu (włączony = AC nie grzeje)
         <input type="text" name="attic_vacation_entity" value="{{ settings.attic_vacation_entity or '' }}"
                placeholder="binary_sensor.…"></label>

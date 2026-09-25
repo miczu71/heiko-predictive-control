@@ -54,6 +54,8 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("attic_energy_kwh", "REAL"),     # energia AC w cyklu (całkowanie mocy)
     ("attic_cost_pln", "REAL"),       # koszt tej energii wg bieżącej ceny
     ("planned_start", "TEXT"),        # planowany start dogrzewania (ISO)
+    ("presence", "INTEGER"),          # czujnik obecności: 1 jest / 0 brak / NULL nieznane
+    ("vacant_min", "REAL"),           # minuty pustki liczone od początku okna pracy
 )
 
 

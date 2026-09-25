@@ -20,7 +20,8 @@ wielu integracji tamtej konfiguracji).
   drugorzędny. **Steruje od 0.4.0:** przejmuje wyłączony klimatyzator, dogrzewa z
   wyprzedzeniem liczonym z uczonego tempa, utrzymuje temperaturę korygując offset nastawy,
   odpuszcza po ręcznej zmianie, pauzuje przy otwartym oknie i na urlop/święta lub gdy włączony
-  jest ręczny przełącznik pauzy `attic_pause_entity` (szczegóły: `CHANGELOG.md`).
+  jest ręczny przełącznik pauzy `attic_pause_entity` oraz wyłącza AC, gdy czujnik obecności
+  pokazuje pustkę dłużej niż próg (szczegóły: `CHANGELOG.md`).
 
 Każda pętla ma dwa profile — **Komfort** i **Ekonomia** — liczone równolegle, wybór
 aktywnego profilu osobno per pętla. Każda pętla ma niezależny wyłącznik sezonowy —
@@ -44,7 +45,7 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
 
 ## Status
 
-**0.4.3 — Etap 2: pętla B (AC poddasza) zapisuje do klimatyzatora** (tylko gdy
+**0.5.0 — Etap 2: pętla B (AC poddasza) zapisuje do klimatyzatora** (tylko gdy
 `attic_enabled`). Pętla A (Heiko) nadal wyłącznie odczyt/dry-run — zero zapisów do pompy.
 Patrz `CHANGELOG.md`.
 

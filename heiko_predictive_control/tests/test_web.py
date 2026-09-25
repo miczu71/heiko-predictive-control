@@ -141,7 +141,7 @@ def test_ctrl_summary_formats_controller_state():
         {"owned": True, "offset_c": 1.5}, {"pln": 1.234, "kwh": 2.5})
     assert out == {"phase": "dogrzewanie", "owned": "tak", "offset": "+1,5°C",
                    "planned_start": "06:10", "last_setpoint": "25,5°C",
-                   "window": "zamknięte", "today": "1,23 PLN · 2,50 kWh"}
+                   "window": "zamknięte", "presence": "—", "today": "1,23 PLN · 2,50 kWh"}
 
 
 def test_ctrl_summary_empty_is_dashes():
@@ -176,3 +176,11 @@ def test_attic_offset_shows_default_when_state_never_persisted(client):
 
 def test_ctrl_summary_labels_paused_phase():
     assert ctrl_summary({"phase": "wstrzymane"}, None, None)["phase"] == "wstrzymane (urlop / pauza)"
+
+
+def test_ctrl_summary_presence_text():
+    assert ctrl_summary({"presence": 1, "vacant_min": 0.0}, None, None)["presence"] == "jest"
+    assert ctrl_summary({"presence": 0, "vacant_min": 47.6}, None, None)["presence"] == "brak od 48 min"
+    assert ctrl_summary({"presence": 0, "vacant_min": 95.0}, None, None)["presence"] == "brak od 1 h 35 min"
+    assert ctrl_summary({"presence": None}, None, None)["presence"] == "—"
+    assert ctrl_summary({"phase": "pusto"}, None, None)["phase"] == "pusto — nikogo na poddaszu"

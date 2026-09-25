@@ -6,6 +6,7 @@ MON = datetime(2026, 1, 12)   # poniedziałek
 TUE = datetime(2026, 1, 13)
 
 SETTINGS = {
+    "attic_vacant_after_min": 60,
     "attic_active_profile": "komfort",
     "attic_comfort_target_c": 22.0,
     "attic_economy_target_c": 20.5,
@@ -21,10 +22,10 @@ def at(h, m=0, s=0, day=MON):
 
 
 def inp(now, temp=17.0, ac="off", sp=24.0, workday=True, vac=False, window_since=None,
-        paused=None):
+        paused=None, presence=None, vacant_since=None):
     return AtticInputs(now=now, is_workday=workday, on_vacation=vac, temp_c=temp,
                        ac_state=ac, ac_setpoint_c=sp, window_open_since=window_since,
-                       paused=paused)
+                       paused=paused, presence=presence, vacant_since=vacant_since)
 
 
 def owned_state(mode="utrzymanie", hvac="heat", temp=23.5, ts=None, **kw):
@@ -330,6 +331,101 @@ def test_pause_does_not_clear_manual_override_of_the_day():
 def test_no_planned_start_after_window_ended():
     d = decide(inp(at(22, 0), temp=22.5), AtticState(), SETTINGS, enabled=True)
     assert d.planned_start is None
+    assert d.phase == "poza_oknem"
+
+
+# ── obecność: „pusto" ─────────────────────────────────────────────────────────
+
+def test_vacancy_blocks_takeover_after_threshold():
+    # pusto od 07:00, ale licznik startuje o 08:00 (start okna) -> o 9:10 minęło 70 min
+    d = decide(inp(at(9, 10), temp=16.0, presence=False, vacant_since=at(7, 0)),
+               AtticState(), SETTINGS, enabled=True)
+    assert d.commands == []
+    assert d.state.owned is False
+    assert d.phase == "pusto"
+    assert d.vacant_min == 70.0
+
+
+def test_vacancy_below_threshold_does_not_block():
+    d = decide(inp(at(8, 50), temp=16.0, presence=False, vacant_since=at(7, 0)),
+               AtticState(), SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+    assert d.vacant_min == 50.0
+
+
+def test_vacancy_timer_counts_from_last_change_when_later_than_window_start():
+    d = decide(inp(at(12, 0), temp=16.0, presence=False, vacant_since=at(11, 30)),
+               AtticState(), SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature" and d.vacant_min == 30.0
+    d = decide(inp(at(12, 0), temp=16.0, presence=False, vacant_since=at(10, 50)),
+               AtticState(), SETTINGS, enabled=True)
+    assert d.commands == [] and d.phase == "pusto"
+
+
+def test_vacancy_does_not_apply_before_work_starts():
+    # dogrzewanie przed 8:00 nie czeka na obecność (nikt jeszcze nie przyszedł)
+    d = decide(inp(at(7, 30), temp=16.0, presence=False, vacant_since=at(6, 45)),
+               AtticState(), SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+    assert d.vacant_min == 0.0
+
+
+def test_presence_present_means_no_vacancy():
+    d = decide(inp(at(11, 0), temp=16.0, presence=True), AtticState(), SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+    assert d.vacant_min == 0.0
+
+
+def test_unknown_presence_is_ignored():
+    d = decide(inp(at(11, 0), temp=16.0, presence=None), AtticState(), SETTINGS, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+    assert d.vacant_min is None
+
+
+def test_vacancy_rule_can_be_disabled_with_zero():
+    s = dict(SETTINGS, attic_vacant_after_min=0)
+    d = decide(inp(at(11, 0), temp=16.0, presence=False, vacant_since=at(8, 0)),
+               AtticState(), s, enabled=True)
+    assert cmds(d)[0][0] == "set_temperature"
+
+
+def test_vacancy_turns_off_owned_ac_and_releases():
+    d = decide(inp(at(11, 0), temp=22.0, ac="heat", sp=23.5, presence=False,
+                   vacant_since=at(9, 30)), owned_state(), SETTINGS, enabled=True)
+    assert cmds(d) == [("turn_off", {})]
+    assert d.state.owned is False
+    assert d.phase == "pusto"
+    assert "vacant" in d.events
+
+
+def test_return_after_vacancy_resumes_heating_without_second_notification():
+    st = owned_state(last_takeover_day="2026-01-12")
+    d = decide(inp(at(11, 0), temp=20.0, ac="heat", sp=23.5, presence=False,
+                   vacant_since=at(9, 30)), st, SETTINGS, enabled=True)
+    d2 = decide(inp(at(11, 30), temp=19.0, ac="off", presence=True), d.state, SETTINGS,
+                enabled=True)
+    assert cmds(d2)[0][0] == "set_temperature"
+    assert d2.state.owned is True
+    assert "takeover" not in d2.events          # powiadomienie tylko raz dziennie
+
+
+def test_first_takeover_of_the_day_notifies_once():
+    d = decide(inp(at(6, 15), temp=16.0), AtticState(), SETTINGS, enabled=True)
+    assert "takeover" in d.events and d.state.last_takeover_day == "2026-01-12"
+    next_day = decide(inp(at(6, 15, day=TUE), temp=16.0),
+                      AtticState(last_takeover_day="2026-01-12"), SETTINGS, enabled=True)
+    assert "takeover" in next_day.events
+
+
+def test_manual_ac_use_while_vacant_is_left_alone():
+    d = decide(inp(at(11, 0), temp=16.0, ac="heat", sp=24.0, presence=False,
+                   vacant_since=at(8, 0)), AtticState(), SETTINGS, enabled=True)
+    assert d.commands == [] and d.phase == "reczne_uzycie"
+
+
+def test_vacancy_outside_window_is_not_reported():
+    d = decide(inp(at(20, 0), temp=16.0, presence=False, vacant_since=at(16, 30)),
+               AtticState(), SETTINGS, enabled=True)
     assert d.phase == "poza_oknem"
 
 

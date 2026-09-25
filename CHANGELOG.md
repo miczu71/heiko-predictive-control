@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.0 — Czujnik obecności: nie grzej pustego poddasza
+
+Nowa opcja `attic_presence_entity` (binary_sensor, on = ktoś jest) i próg
+`attic_vacant_after_min` (domyślnie 60, 0 = wyłączone).
+
+- **Pusto w oknie pracy.** Gdy czujnik pokazuje brak obecności dłużej niż próg, add-on
+  **wyłącza klimatyzator** i oddaje sterowanie (faza **pusto — nikogo na poddaszu**). Licznik
+  pustki startuje najwcześniej **od początku okna pracy** — dogrzewanie przed 8:00 nie czeka
+  na obecność, bo wtedy nikt jeszcze nie musi być na miejscu. Dzień, w którym nikt nie
+  przyszedł, kończy się więc po godzinie od startu okna.
+- **Powrót.** Z obecnością zadziała zwykłe przejęcie (dogrzewanie ~4°C/h, gdy chłodno);
+  poddasze może być przez chwilę chłodniejsze po dłuższej pustce.
+- **Bezpiecznik.** Czujnik niedostępny, nieznany albo brak encji = reguła wyłączona (grzanie
+  jak dotąd). Ręczne włączenie AC w czasie pustki zostaje nietknięte („włączony ręcznie").
+- Próg jest długi celowo: czujnik mmWave ma zaniki 2–15 min, gdy ktoś siedzi nieruchomo
+  (historia z 9 dni).
+- Powiadomienie o starcie grzania (`notify_service`) tylko raz dziennie, nie po każdym
+  powrocie z pustki.
+- Pulpit: wiersz **Obecność** („jest" / „brak od 48 min"); Opcje: pola encji i progu.
+
+| Opcja | Domyślnie | Znaczenie |
+|---|---|---|
+| `attic_presence_entity` | `""` | czujnik obecności; brak = reguła wyłączona |
+| `attic_vacant_after_min` | `60` | minuty pustki wyłączające AC (od początku okna pracy); 0 = wyłączone |
+
+Baza: kolumny `presence` i `vacant_min` w `cycles` (migracja automatyczna).
+
 ## 0.4.3 — Ręczna pauza dogrzewania poddasza + pola encji w Opcjach
 
 **Pauza z HA.** Nowa opcja `attic_pause_entity` — dowolna encja `input_boolean`/`switch`/

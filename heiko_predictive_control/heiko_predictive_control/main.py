@@ -30,7 +30,8 @@ _FLOAT_KEYS = {
 _INT_KEYS = {
     "heiko_day_start_hour", "heiko_day_end_hour", "heiko_write_throttle_min",
     "attic_work_start_hour", "attic_work_end_hour", "attic_preheat_lead_min",
-    "attic_preheat_max_min", "attic_cycle_interval_min", "cycle_interval_min",
+    "attic_preheat_max_min", "attic_cycle_interval_min", "attic_vacant_after_min",
+    "cycle_interval_min",
 }
 
 
@@ -71,6 +72,7 @@ def _options_from_env() -> dict:
         "attic_window_entities": _env("ATTIC_WINDOW_ENTITIES"),
         "attic_vacation_entity": _env("ATTIC_VACATION_ENTITY"),
         "attic_pause_entity": _env("ATTIC_PAUSE_ENTITY"),
+        "attic_presence_entity": _env("ATTIC_PRESENCE_ENTITY"),
         "attic_power_entity": _env("ATTIC_POWER_ENTITY"),
         "attic_active_profile": _env("ATTIC_ACTIVE_PROFILE", "ekonomia"),
         "notify_service": _env("NOTIFY_SERVICE"),

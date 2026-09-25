@@ -24,6 +24,7 @@ PHASE_LABELS = {
     "koniec_okna": "koniec okna pracy", "przekazanie": "sterowanie wyłączone",
     "dry_run": "tryb obserwacji (zapisałbym)",
     "wstrzymane": "wstrzymane (urlop / pauza)",
+    "pusto": "pusto — nikogo na poddaszu",
 }
 _UNAVAILABLE = (None, "", "unavailable", "unknown")
 
@@ -127,6 +128,19 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
             "attic": attic}
 
 
+def fmt_vacant(presence: Any, vacant_min: Any) -> str:
+    """„jest” / „brak od 48 min” / „brak od 1 h 35 min” / „—” (czujnik nieznany)."""
+    if presence == 1:
+        return "jest"
+    minutes = _to_float(vacant_min)
+    if presence != 0 or minutes is None:
+        return "—"
+    total = round(minutes)
+    if total < 60:
+        return f"brak od {total} min"
+    return f"brak od {total // 60} h {total % 60} min"
+
+
 def ctrl_summary(row: dict | None, state: dict | None, totals: dict | None) -> dict:
     """Stan pętli B do karty poddasza: ostatni cykl (wiersz z bazy), trwały stan
     sterowania i sumy dzienne. Tylko formatowanie — bez I/O."""
@@ -140,6 +154,7 @@ def ctrl_summary(row: dict | None, state: dict | None, totals: dict | None) -> d
         "planned_start": planned[11:16] if len(planned) >= 16 else "—",
         "last_setpoint": fmt_temp(row.get("ac_cmd_setpoint")),
         "window": {1: "otwarte", 0: "zamknięte"}.get(row.get("window_open"), "—"),
+        "presence": fmt_vacant(row.get("presence"), row.get("vacant_min")),
         "today": ("—" if not totals else
                   f"{totals.get('pln', 0.0):.2f}".replace(".", ",") + " PLN · "
                   + f"{totals.get('kwh', 0.0):.2f}".replace(".", ",") + " kWh"),
