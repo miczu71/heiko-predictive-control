@@ -16,6 +16,14 @@ PUMP_MODE_LABELS = {
     "standby": "czuwanie", "heating": "grzanie", "dhw": "CWU", "cooling": "chłodzenie",
     "auto": "auto", "off": "wyłączona",
 }
+PHASE_LABELS = {
+    "poza_oknem": "poza oknem pracy", "czeka": "czeka na start dogrzewania",
+    "dogrzewanie": "dogrzewanie", "utrzymanie": "utrzymanie temperatury",
+    "pauza_okno": "pauza — otwarte okno", "przejecie_reczne": "ręczna zmiana — nie steruję do jutra",
+    "reczne_uzycie": "klimatyzator włączony ręcznie", "brak_ac": "klimatyzator niedostępny",
+    "koniec_okna": "koniec okna pracy", "przekazanie": "sterowanie wyłączone",
+    "dry_run": "tryb obserwacji (zapisałbym)",
+}
 _UNAVAILABLE = (None, "", "unavailable", "unknown")
 
 
@@ -116,3 +124,22 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
 
     return {"rooms": rooms, "equipment": equipment, "tariff": tariff, "heiko": heiko,
             "attic": attic}
+
+
+def ctrl_summary(row: dict | None, state: dict | None, totals: dict | None) -> dict:
+    """Stan pętli B do karty poddasza: ostatni cykl (wiersz z bazy), trwały stan
+    sterowania i sumy dzienne. Tylko formatowanie — bez I/O."""
+    row, state, totals = row or {}, state or {}, totals or {}
+    planned = str(row.get("planned_start") or "")
+    offset = _to_float(state.get("offset_c"))
+    return {
+        "phase": PHASE_LABELS.get(row.get("phase"), "—"),
+        "owned": "tak" if state.get("owned") else "nie",
+        "offset": "—" if offset is None else f"{offset:+.1f}".replace(".", ",") + "°C",
+        "planned_start": planned[11:16] if len(planned) >= 16 else "—",
+        "last_setpoint": fmt_temp(row.get("ac_cmd_setpoint")),
+        "window": {1: "otwarte", 0: "zamknięte"}.get(row.get("window_open"), "—"),
+        "today": ("—" if not totals else
+                  f"{totals.get('pln', 0.0):.2f}".replace(".", ",") + " PLN · "
+                  + f"{totals.get('kwh', 0.0):.2f}".replace(".", ",") + " kWh"),
+    }

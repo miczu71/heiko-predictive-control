@@ -46,17 +46,25 @@
     <dt>Cel — Komfort</dt><dd>{{ settings.attic_comfort_target_c|temp }}</dd>
     <dt>Cel — Ekonomia</dt><dd>{{ settings.attic_economy_target_c|temp }}</dd>
     <dt>Okno pracy</dt>
-    <dd>{{ settings.attic_work_start_hour }}:00–{{ settings.attic_work_end_hour }}:00 ·
-        {{ 'aktywne teraz' if attic and attic.setpoint_komfort is not none else 'poza oknem' }}</dd>
+    <dd>{{ settings.attic_work_start_hour }}:00–{{ settings.attic_work_end_hour }}:00</dd>
+    <dt>Faza</dt><dd data-live="attic.phase">{{ live.attic.phase }}</dd>
+    <dt>Przejęte przez add-on</dt><dd data-live="attic.owned">{{ live.attic.owned }}</dd>
+    <dt>Planowany start dogrzewania</dt><dd data-live="attic.planned_start">{{ live.attic.planned_start }}</dd>
+    <dt>Ostatnia nastawa zlecona</dt><dd data-live="attic.last_setpoint">{{ live.attic.last_setpoint }}</dd>
+    <dt>Offset nastawy (uczony)</dt><dd data-live="attic.offset">{{ live.attic.offset }}</dd>
     {% if attic_eq %}
     <dt>Klimatyzator</dt><dd data-live="equipment.{{ attic_eq.key }}.state">{{ live.equipment[attic_eq.key].state }}</dd>
     <dt>Nastawa klimatyzatora</dt><dd data-live="equipment.{{ attic_eq.key }}.target">{{ live.equipment[attic_eq.key].target }}</dd>
     {% endif %}
+    {% if settings.attic_window_entities %}
+    <dt>Okna</dt><dd data-live="attic.window">{{ live.attic.window }}</dd>
+    {% endif %}
     {% if settings.attic_door_entity %}
     <dt>Drzwi</dt><dd data-live="attic.door">{{ live.attic.door }}</dd>
     {% endif %}
+    <dt>Koszt AC dziś</dt><dd data-live="attic.today">{{ live.attic.today }}</dd>
   </dl>
-  <p class="note">Symulacja kosztu klimatyzatora — od Etapu 2 (licznik mocy AC).</p>
+  <p class="note">Koszt liczony z mocy chwilowej klimatyzatora (bez symulacji profili — Etap 4).</p>
 </section>
 
 {% for e in house.equipment if e.card not in loop_cards %}

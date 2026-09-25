@@ -37,8 +37,10 @@
 
     <fieldset>
       <legend>❄️ Klimatyzacja poddasza</legend>
-      <p class="hint">Wyłącznik gasi tylko zapis do AC — obserwacja i dry-run
-        działają zawsze. <strong>Zapis pojawi się dopiero w Etapie 2</strong>.</p>
+      <p class="hint">Wyłączenie sterowania: obserwacja i dry-run działają dalej, a jeśli
+        add-on właśnie grzał poddasze, jednorazowo wyłączy klimatyzator, żeby nie
+        zostawić go włączonego. Add-on przejmuje tylko klimatyzator WYŁĄCZONY; ręczna
+        zmiana w oknie pracy wyłącza sterowanie do końca dnia.</p>
       <label><input type="checkbox" name="attic_enabled" {{ 'checked' if settings.attic_enabled }}>
         Sterowanie aktywne (AC poddasze)</label>
 
@@ -58,8 +60,10 @@
           <input type="number" min="0" max="23" name="attic_work_start_hour" value="{{ settings.attic_work_start_hour }}"></label>
         <label>Okno pracy do (godz.)
           <input type="number" min="0" max="23" name="attic_work_end_hour" value="{{ settings.attic_work_end_hour }}"></label>
-        <label>Wyprzedzenie dogrzewania (min)
+        <label>Wyprzedzenie awaryjne bez czujnika (min)
           <input type="number" min="0" name="attic_preheat_lead_min" value="{{ settings.attic_preheat_lead_min }}"></label>
+        <label>Maks. wyprzedzenie dogrzewania (min)
+          <input type="number" min="0" name="attic_preheat_max_min" value="{{ settings.attic_preheat_max_min }}"></label>
       </div>
     </fieldset>
 

@@ -1,8 +1,9 @@
 """Punkt startowy add-onu: baza, MQTT, cykl decyzyjny (APScheduler), Flask.
 
-Etap 1 (Fundament): WYŁĄCZNIE odczyt. `cycle.run_heiko_cycle` i
-`cycle.run_attic_cycle` nigdy nie wołają `ha_client.call_service` — nie ma
-w tym module żadnej ścieżki kodu, która zapisywałaby do pompy/AC."""
+Pętla A (Heiko) jest nadal WYŁĄCZNIE odczytem — `cycle.run_heiko_cycle` nigdy
+nie woła `ha_client.call_service`. Pętla B (AC poddasza, od 0.4.0) zapisuje do
+klimatyzatora w `cycle.run_attic_cycle`, tylko przy `attic_enabled`. Obie pętle
+mają osobne zadania harmonogramu (A: `cycle_interval_min`, B: `attic_cycle_interval_min`)."""
 from __future__ import annotations
 
 import logging
@@ -12,6 +13,7 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import __version__, cycle, ha_client, layout
+from . import attic as attic_mod
 from . import db as dbm
 from .model import ThermalModel
 from .publisher import MQTTPublisher
@@ -28,7 +30,7 @@ _FLOAT_KEYS = {
 _INT_KEYS = {
     "heiko_day_start_hour", "heiko_day_end_hour", "heiko_write_throttle_min",
     "attic_work_start_hour", "attic_work_end_hour", "attic_preheat_lead_min",
-    "cycle_interval_min",
+    "attic_preheat_max_min", "attic_cycle_interval_min", "cycle_interval_min",
 }
 
 
@@ -66,6 +68,8 @@ def _options_from_env() -> dict:
         "attic_ac_entity": _env("ATTIC_AC_ENTITY"),
         "attic_temp_entity": _env("ATTIC_TEMP_ENTITY"),
         "attic_door_entity": _env("ATTIC_DOOR_ENTITY"),
+        "attic_window_entities": _env("ATTIC_WINDOW_ENTITIES"),
+        "attic_vacation_entity": _env("ATTIC_VACATION_ENTITY"),
         "attic_power_entity": _env("ATTIC_POWER_ENTITY"),
         "attic_active_profile": _env("ATTIC_ACTIVE_PROFILE", "ekonomia"),
         "notify_service": _env("NOTIFY_SERVICE"),
@@ -128,40 +132,65 @@ def main() -> None:
 
     heiko_model = ThermalModel.from_dict(get_settings().get("heiko_model_state"))
 
-    def run_cycle() -> None:
+    def run_heiko() -> None:
         c = dbm.get_conn(db_path)
         try:
             settings = dbm.get_all_settings(c)
             now = datetime.now()
-
             heiko = cycle.run_heiko_cycle(c, settings, heiko_model, now)
             dbm.set_setting(c, "heiko_model_state", heiko_model.as_dict())
-
-            is_workday = ha_client.get_bool_state("binary_sensor.workday")
-            attic = cycle.run_attic_cycle(c, settings, now, bool(is_workday))
-
             mqtt_pub.publish_values({
                 "heiko_write_enabled": settings.get("heiko_enabled"),
-                "attic_write_enabled": settings.get("attic_enabled"),
                 "heiko_active_profile": heiko.get("active_profile"),
-                "attic_active_profile": attic.get("active_profile"),
                 "heiko_setpoint_komfort": heiko.get("setpoint_komfort"),
                 "heiko_setpoint_ekonomia": heiko.get("setpoint_ekonomia"),
                 "heiko_model_k_loss": round(heiko_model.k_loss, 4),
                 "heiko_model_k_gain": round(heiko_model.k_gain, 4),
-                "attic_target_komfort": attic.get("setpoint_komfort"),
-                "attic_target_ekonomia": attic.get("setpoint_ekonomia"),
                 "last_cycle_ts": now.isoformat(),
             })
         except Exception:
-            logger.exception("Cykl decyzyjny nieudany")
+            logger.exception("Cykl pętli A (Heiko) nieudany")
         finally:
             c.close()
 
-    cycle_interval_min = get_settings().get("cycle_interval_min") or 15
+    def run_attic() -> None:
+        c = dbm.get_conn(db_path)
+        try:
+            settings = dbm.get_all_settings(c)
+            now = datetime.now()
+            is_workday = ha_client.get_bool_state("binary_sensor.workday")
+            vacation_entity = settings.get("attic_vacation_entity")
+            on_vacation = ha_client.get_bool_state(vacation_entity) if vacation_entity else False
+            attic = cycle.run_attic_cycle(c, settings, now, is_workday, on_vacation)
+            today = dbm.attic_today_totals(c, now.date().isoformat())
+            state = attic_mod.AtticState.from_dict(dbm.get_setting(c, "attic_ctrl_state"))
+            planned = attic.get("planned_start")
+            mqtt_pub.publish_values({
+                "attic_write_enabled": settings.get("attic_enabled"),
+                "attic_active_profile": attic.get("active_profile"),
+                "attic_target_komfort": attic.get("setpoint_komfort"),
+                "attic_target_ekonomia": attic.get("setpoint_ekonomia"),
+                "attic_phase": attic.get("phase"),
+                "attic_owned": state.owned,
+                "attic_offset": round(state.offset_c, 2),
+                "attic_heat_rate": round(state.heat_rate_c_h, 2),
+                "attic_ac_setpoint_cmd": attic.get("ac_cmd_setpoint"),
+                "attic_planned_start": (datetime.fromisoformat(planned).astimezone().isoformat()
+                                        if planned else None),
+                "attic_energy_today": round(today["kwh"], 3),
+                "attic_cost_today": round(today["pln"], 2),
+            })
+        except Exception:
+            logger.exception("Cykl pętli B (AC poddasza) nieudany")
+        finally:
+            c.close()
+
+    initial = get_settings()
     scheduler = BackgroundScheduler(timezone=_env("TZ", "Europe/Warsaw"))
-    scheduler.add_job(run_cycle, "interval", minutes=cycle_interval_min,
-                       next_run_time=datetime.now())
+    scheduler.add_job(run_heiko, "interval", minutes=initial.get("cycle_interval_min") or 15,
+                       next_run_time=datetime.now(), max_instances=1, coalesce=True)
+    scheduler.add_job(run_attic, "interval", minutes=initial.get("attic_cycle_interval_min") or 5,
+                       next_run_time=datetime.now(), max_instances=1, coalesce=True)
     scheduler.start()
 
     # Układ domu z prywatnej konfiguracji HA (repo add-onu jest publiczne).

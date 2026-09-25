@@ -41,8 +41,28 @@ def get_conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+# Kolumny dodane po 0.3.0 (pętla B steruje AC). Dokładane do istniejącej tabeli
+# `cycles` bez utraty historii — SQLite nie ma `ADD COLUMN IF NOT EXISTS`.
+_ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("phase", "TEXT"),                # faza pętli B (patrz attic.py)
+    ("ac_cmd_setpoint", "REAL"),      # ostatnia nastawa zlecona AC
+    ("offset_c", "REAL"),             # uczony offset nastawy względem celu
+    ("ac_power_w", "REAL"),
+    ("window_open", "INTEGER"),
+    ("door_open", "INTEGER"),
+    ("wrote", "INTEGER"),             # czy w tym cyklu zapisano do AC
+    ("attic_energy_kwh", "REAL"),     # energia AC w cyklu (całkowanie mocy)
+    ("attic_cost_pln", "REAL"),       # koszt tej energii wg bieżącej ceny
+    ("planned_start", "TEXT"),        # planowany start dogrzewania (ISO)
+)
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(cycles)")}
+    for name, decl in _ADDED_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE cycles ADD COLUMN {name} {decl}")
     conn.commit()
 
 
@@ -94,7 +114,7 @@ def insert_cycle(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
             "outdoor_temp_c", "indoor_temp_c", "setpoint_komfort",
             "setpoint_ekonomia", "coefficient", "baseline_cost_today_pln",
             "sim_cost_today_komfort_pln", "sim_cost_today_ekonomia_pln",
-            "write_enabled")
+            "write_enabled", *(name for name, _ in _ADDED_COLUMNS))
     placeholders = ", ".join("?" for _ in cols)
     conn.execute(
         f"INSERT INTO cycles ({', '.join(cols)}) VALUES ({placeholders})",
@@ -123,3 +143,12 @@ def today_cycles(conn: sqlite3.Connection, loop: str, day_prefix: str) -> list[s
         "SELECT * FROM cycles WHERE loop = ? AND ts LIKE ? ORDER BY id ASC",
         (loop, f"{day_prefix}%"),
     ).fetchall()
+
+
+def attic_today_totals(conn: sqlite3.Connection, day_prefix: str) -> dict[str, float]:
+    """Energia (kWh) i koszt (PLN) AC poddasza od północy — suma przyrostów cykli."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(attic_energy_kwh), 0) AS kwh, "
+        "COALESCE(SUM(attic_cost_pln), 0) AS pln "
+        "FROM cycles WHERE loop = 'attic' AND ts LIKE ?", (f"{day_prefix}%",)).fetchone()
+    return {"kwh": float(row["kwh"]), "pln": float(row["pln"])}

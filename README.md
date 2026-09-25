@@ -17,7 +17,9 @@ wielu integracji tamtej konfiguracji).
 - **A — Heiko (podłogówka):** optymalizacja kosztu. Krzywa grzewcza pompy wyłączona na
   stałe, setpoint ustawiany bezpośrednio w paśmie komfortu wokół wartości bazowej.
 - **B — AC poddasze:** komfort w oknie pracy (domyślnie 8:00-16:00 dni robocze), koszt
-  drugorzędny.
+  drugorzędny. **Steruje od 0.4.0:** przejmuje wyłączony klimatyzator, dogrzewa z
+  wyprzedzeniem liczonym z uczonego tempa, utrzymuje temperaturę korygując offset nastawy,
+  odpuszcza po ręcznej zmianie i pauzuje przy otwartym oknie (szczegóły: `CHANGELOG.md`).
 
 Każda pętla ma dwa profile — **Komfort** i **Ekonomia** — liczone równolegle, wybór
 aktywnego profilu osobno per pętla. Każda pętla ma niezależny wyłącznik sezonowy —
@@ -41,13 +43,14 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
 
 ## Status
 
-**0.3.0 — Etap 1 (Fundament) + pulpit z prywatnym układem domu.** Tylko odczyt. Zero
-zapisów do pompy/AC — patrz `CHANGELOG.md`.
+**0.4.0 — Etap 2: pętla B (AC poddasza) zapisuje do klimatyzatora** (tylko gdy
+`attic_enabled`). Pętla A (Heiko) nadal wyłącznie odczyt/dry-run — zero zapisów do pompy.
+Patrz `CHANGELOG.md`.
 
 ## Rozwój
 
 Stack: Python 3.12, Flask (ingress web UI), paho-mqtt (discovery), APScheduler (cykl
-decyzyjny co 15 min), SQLite (`/data/heiko_predictive_control.db` — historia cykli,
+pętli A co 15 min, pętli B co 5 min), SQLite (`/data/heiko_predictive_control.db` — historia cykli,
 stan przełączników). Wzorzec add-onu spójny z innymi add-onami tego domu
 (`fuel_tracker`, `pv_roi_tracker`, `nokia_tracker`).
 

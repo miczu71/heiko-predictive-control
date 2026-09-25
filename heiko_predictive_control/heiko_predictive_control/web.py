@@ -57,6 +57,20 @@ def create_app(db_path: str,
     def db_conn():
         return dbm.get_conn(db_path)
 
+    def live_data(settings: dict) -> dict:
+        """live.collect + stan sterowania poddaszem (z bazy) — ten sam słownik
+        dla renderu strony i /api/live."""
+        data = live.collect(settings, get_state, get_numeric, house)
+        conn = db_conn()
+        try:
+            row = dbm.latest_cycle(conn, "attic")
+            totals = dbm.attic_today_totals(conn, date.today().isoformat())
+        finally:
+            conn.close()
+        data["attic"].update(live.ctrl_summary(
+            dict(row) if row else None, settings.get("attic_ctrl_state"), totals))
+        return data
+
     @app.get("/")
     def page_dashboard():
         conn = db_conn()
@@ -72,12 +86,12 @@ def create_app(db_path: str,
             attic=dict(attic) if attic else None,
             settings=settings, scene=scene, house=house, house_warnings=house_warnings,
             attic_room=attic_room, attic_eq=attic_eq, pump_eq=pump_eq,
-            live=live.collect(settings, get_state, get_numeric, house),
+            live=live_data(settings),
         )
 
     @app.get("/api/live")
     def api_live():
-        return jsonify(live.collect(get_settings(), get_state, get_numeric, house))
+        return jsonify(live_data(get_settings()))
 
     @app.get("/statistics")
     def page_statistics():

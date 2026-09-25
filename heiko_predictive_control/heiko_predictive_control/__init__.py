@@ -1,4 +1,4 @@
 """Heiko Predictive Control — predykcyjne sterowanie pompą Heiko i klimatyzacją
 poddasza pod taryfę G12w."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

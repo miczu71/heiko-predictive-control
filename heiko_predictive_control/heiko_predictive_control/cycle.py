@@ -1,16 +1,19 @@
 """Rdzeń cyklu decyzyjnego — funkcje czyste (testowalne bez HA) + cienki
-orkiestrator I/O. Etap 1: WYŁĄCZNIE dry-run. `run_cycle()` nigdy nie woła
-`ha_client.call_service` — nie ma tu w ogóle takiej ścieżki kodu."""
+orkiestrator I/O. Pętla A (Heiko) jest nadal WYŁĄCZNIE dry-run: `run_heiko_cycle`
+nigdy nie woła `call_service`. Pętla B (AC poddasza, od 0.4.0) zapisuje do
+klimatyzatora tylko przez `run_attic_cycle`, i tylko gdy `attic_enabled`."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime
 
+from . import attic
 from . import db as dbm
 from . import ha_client
 from .model import ThermalModel
 from .profiles import AtticProfiles, HeikoProfiles
-from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, price_for
+from .tariff import (DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN,
+                     is_peak_hour, price_for)
 
 logger = logging.getLogger(__name__)
 
@@ -49,26 +52,7 @@ def average_temp(values: list[float | None]) -> float | None:
     return sum(present) / len(present)
 
 
-# ── Pętla B (AC poddasze) — funkcje czyste ──────────────────────────────────
-
-def attic_should_run(now: datetime, work_start_hour: int, work_end_hour: int,
-                      preheat_lead_min: int, is_workday: bool) -> bool:
-    """True w oknie [work_start - lead, work_end) w dzień roboczy."""
-    if not is_workday:
-        return False
-    lead_hours = preheat_lead_min / 60.0
-    start = now.replace(hour=work_start_hour, minute=0, second=0, microsecond=0)
-    start -= _timedelta_hours(lead_hours)
-    end = now.replace(hour=work_end_hour, minute=0, second=0, microsecond=0)
-    return start <= now < end
-
-
-def _timedelta_hours(hours: float):
-    from datetime import timedelta
-    return timedelta(hours=hours)
-
-
-# ── Orkiestrator I/O (Etap 1: tylko odczyt + zapis do własnej bazy) ─────────
+# ── Orkiestrator I/O ─────────────────────────────────────────────────────────
 
 def run_heiko_cycle(conn, settings: dict, model: ThermalModel,
                      now: datetime,
@@ -159,27 +143,129 @@ def _is_heating_active(get_state) -> bool:
     return str(data.get("state", "")).strip().lower() in ("2", "heating")
 
 
+def _parse_ts(value) -> datetime | None:
+    """ISO z HA (ze strefą) -> naiwny czas lokalny, spójny z datetime.now()."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def _entity_list(raw) -> list[str]:
+    return [e.strip() for e in str(raw or "").split(",") if e.strip()]
+
+
+def _open_since(get_state, entities: list[str]) -> datetime | None:
+    """Najstarsza zmiana na „otwarte” spośród otwartych czujników; None gdy
+    wszystkie zamknięte/niedostępne."""
+    since = []
+    for entity in entities:
+        data = get_state(entity) or {}
+        if str(data.get("state", "")).lower() == "on":
+            ts = _parse_ts(data.get("last_changed"))
+            if ts is not None:
+                since.append(ts)
+    return min(since) if since else None
+
+
+_AC_UNAVAILABLE = ("", "unavailable", "unknown", "none")
+
+
 def run_attic_cycle(conn, settings: dict, now: datetime,
-                     is_workday: bool,
+                     is_workday: bool | None, on_vacation: bool | None = None,
                      get_state=ha_client.get_state,
-                     get_numeric=ha_client.get_numeric_state) -> dict:
-    profiles = AtticProfiles.from_settings(settings)
+                     get_numeric=ha_client.get_numeric_state,
+                     call_service=ha_client.call_service,
+                     notify=ha_client.notify) -> dict:
+    """Pętla B: odczyt -> attic.decide -> (opcjonalny) zapis do AC -> baza.
+    Stan sterowania utrwalany dopiero po udanym zapisie: nieudane wywołanie
+    usługi = ponowna próba w następnym cyklu, bez fałszywej „ręcznej zmiany”."""
+    ac_entity = settings.get("attic_ac_entity", "")
+    ac = get_state(ac_entity) or {}
+    ac_state = str(ac.get("state", "")).strip().lower()
+    ac_state = None if ac_state in _AC_UNAVAILABLE else ac_state
+    try:
+        ac_setpoint = float((ac.get("attributes") or {}).get("temperature"))
+    except (TypeError, ValueError):
+        ac_setpoint = None
+
     indoor_c = get_numeric(settings.get("attic_temp_entity", ""))
-    should_run = attic_should_run(
-        now, int(settings.get("attic_work_start_hour", 8)),
-        int(settings.get("attic_work_end_hour", 16)),
-        int(settings.get("attic_preheat_lead_min", 45)), is_workday,
-    )
+    window_since = _open_since(get_state, _entity_list(settings.get("attic_window_entities")))
+    door_raw = str((get_state(settings.get("attic_door_entity", "")) or {}).get("state", "")).lower()
+    door_open = {"on": 1, "off": 0}.get(door_raw)
+    power_w = get_numeric(settings.get("attic_power_entity", ""))
+
+    enabled = bool(settings.get("attic_enabled"))
+    state = attic.AtticState.from_dict(dbm.get_setting(conn, "attic_ctrl_state"))
+    inputs = attic.AtticInputs(
+        now=now, is_workday=is_workday, on_vacation=on_vacation, temp_c=indoor_c,
+        ac_state=ac_state, ac_setpoint_c=ac_setpoint, window_open_since=window_since,
+        door_open=None if door_open is None else bool(door_open))
+    decision = attic.decide(inputs, state, settings, enabled)
+
+    wrote, failed = 0, False
+    for cmd in decision.commands:
+        if decision.dry_run:
+            logger.info("Poddasze [dry-run]: zapisałbym %s %s", cmd["service"], cmd["data"])
+            continue
+        ok = call_service("climate", cmd["service"], {"entity_id": ac_entity, **cmd["data"]})
+        if ok:
+            wrote = 1
+            logger.info("Poddasze: %s %s -> %s", cmd["service"], cmd["data"], ac_entity)
+        else:
+            failed = True
+            logger.warning("Poddasze: zapis %s nieudany, ponowię w następnym cyklu",
+                           cmd["service"])
+    notify_to = settings.get("notify_service", "")
+    if failed:
+        notify(notify_to, "Heiko Predictive: błąd AC poddasza",
+               "Nie udało się sterować klimatyzacją poddasza — ponowię w następnym cyklu.")
+    elif not decision.dry_run:
+        if "takeover" in decision.events:
+            now_txt = "—" if indoor_c is None else f"{indoor_c:.1f}"
+            notify(notify_to, "Heiko Predictive: AC poddasza",
+                   f"Włączam ogrzewanie poddasza (cel {decision.target_c:.1f}°C, "
+                   f"teraz {now_txt}°C).")
+        if "manual_override" in decision.events:
+            notify(notify_to, "Heiko Predictive: AC poddasza",
+                   "Wykryto ręczną zmianę klimatyzacji — do końca dnia nie steruję.")
+    if not decision.dry_run and not failed:
+        dbm.set_setting(conn, "attic_ctrl_state", decision.state.as_dict())
+
+    # Energia i koszt AC — całkowanie mocy chwilowej od poprzedniego cyklu.
+    prev = dbm.latest_cycle(conn, "attic")
+    prev_ts = _parse_ts(prev["ts"]) if prev else None
+    dt_h = 0.0
+    if prev_ts is not None and now > prev_ts:
+        dt_h = min((now - prev_ts).total_seconds() / 3600.0, 0.5)
+    energy_kwh = (power_w or 0.0) / 1000.0 * dt_h
+    price = get_numeric(settings.get("tariff_price_entity", ""))
+    if price is None:
+        price = price_for(is_peak_hour(now.hour, bool(is_workday)),
+                          DEFAULT_PEAK_PRICE_PLN, DEFAULT_OFFPEAK_PRICE_PLN)
+
+    profiles = AtticProfiles.from_settings(settings)
+    show_targets = decision.phase not in ("poza_oknem", "czeka", "przekazanie")
+    st = decision.state
     result = {
         "ts": now.isoformat(), "loop": "attic",
         "active_profile": settings.get("attic_active_profile", "ekonomia"),
-        "tariff_peak": None, "price_pln_kwh": None, "outdoor_temp_c": None,
-        "indoor_temp_c": indoor_c,
-        "write_enabled": int(bool(settings.get("attic_enabled"))),
-        "setpoint_komfort": profiles.komfort_target_c if should_run else None,
-        "setpoint_ekonomia": profiles.ekonomia_target_c if should_run else None,
-        "coefficient": None, "baseline_cost_today_pln": None,
+        "tariff_peak": None, "price_pln_kwh": price, "outdoor_temp_c": None,
+        "indoor_temp_c": indoor_c, "write_enabled": int(enabled),
+        "setpoint_komfort": profiles.komfort_target_c if show_targets else None,
+        "setpoint_ekonomia": profiles.ekonomia_target_c if show_targets else None,
+        "coefficient": st.heat_rate_c_h, "baseline_cost_today_pln": None,
         "sim_cost_today_komfort_pln": None, "sim_cost_today_ekonomia_pln": None,
+        "phase": "dry_run" if decision.dry_run and decision.commands else decision.phase,
+        "ac_cmd_setpoint": (st.last_cmd or {}).get("temp"),
+        "offset_c": st.offset_c, "ac_power_w": power_w,
+        "window_open": int(window_since is not None), "door_open": door_open,
+        "wrote": wrote, "attic_energy_kwh": energy_kwh,
+        "attic_cost_pln": energy_kwh * price,
+        "planned_start": decision.planned_start.isoformat() if decision.planned_start else None,
     }
     dbm.insert_cycle(conn, result)
     return result

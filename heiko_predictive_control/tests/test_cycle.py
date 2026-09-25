@@ -1,8 +1,5 @@
-from datetime import datetime
-
 from heiko_predictive_control.cycle import (
     simulated_setpoint_c, simulate_cost_increment_pln, average_temp,
-    attic_should_run,
 )
 
 
@@ -55,33 +52,3 @@ def test_average_temp_skips_none():
 
 def test_average_temp_all_none():
     assert average_temp([None, None]) is None
-
-
-def test_attic_should_run_inside_window_workday():
-    now = datetime(2026, 1, 12, 9, 0)  # poniedziałek 9:00
-    assert attic_should_run(now, work_start_hour=8, work_end_hour=16,
-                             preheat_lead_min=45, is_workday=True) is True
-
-
-def test_attic_should_run_preheat_lead():
-    now = datetime(2026, 1, 12, 7, 30)  # 30 min przed 8:00, lead=45 min
-    assert attic_should_run(now, work_start_hour=8, work_end_hour=16,
-                             preheat_lead_min=45, is_workday=True) is True
-
-
-def test_attic_should_run_before_lead_window():
-    now = datetime(2026, 1, 12, 7, 0)  # 60 min przed 8:00, lead=45 min
-    assert attic_should_run(now, work_start_hour=8, work_end_hour=16,
-                             preheat_lead_min=45, is_workday=True) is False
-
-
-def test_attic_should_run_after_work_end():
-    now = datetime(2026, 1, 12, 16, 0)
-    assert attic_should_run(now, work_start_hour=8, work_end_hour=16,
-                             preheat_lead_min=45, is_workday=True) is False
-
-
-def test_attic_should_run_weekend_never():
-    now = datetime(2026, 1, 10, 10, 0)  # sobota
-    assert attic_should_run(now, work_start_hour=8, work_end_hour=16,
-                             preheat_lead_min=45, is_workday=False) is False

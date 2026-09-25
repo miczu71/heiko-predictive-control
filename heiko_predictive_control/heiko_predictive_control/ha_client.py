@@ -1,8 +1,8 @@
 """Dostęp do Home Assistant przez Supervisor API (SUPERVISOR_TOKEN).
 
-Etap 1: tylko odczyt (get_state, get_forecast, get_mqtt_service, notify).
-Wywołania zapisu (call_service) są tu obecne jako gotowy, przetestowany
-mechanizm dla Etapów 2/3 — ale nic w tym add-onie ich dziś nie woła."""
+Odczyt (get_state, get_forecast, get_mqtt_service) oraz zapis (call_service,
+notify). Zapis do urządzeń woła dziś wyłącznie pętla B (cycle.run_attic_cycle,
+klimatyzacja poddasza); pętla A (Heiko) nadal niczego nie zapisuje."""
 from __future__ import annotations
 
 import logging
@@ -87,7 +87,7 @@ def get_forecast(entity_id: str, forecast_type: str = "hourly") -> list[dict] | 
 
 
 def call_service(domain: str, service: str, data: dict) -> bool:
-    """Wywołanie usługi HA. Nieużywane w Etapie 1 — gotowe dla Etapów 2/3."""
+    """Wywołanie usługi HA; True gdy HA przyjęło (HTTP < 400)."""
     try:
         resp = requests.post(
             f"{_BASE}/services/{domain}/{service}", headers=_headers(),

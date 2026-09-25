@@ -1,10 +1,10 @@
 name: Heiko Predictive Control
-version: "0.3.0"
+version: "0.4.0"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
-  poddasza pod taryfę G12w. Etap 1: tylko odczyt, dry-run kosztu/oszczędności,
-  zero zapisów do pompy/AC.
+  poddasza pod taryfę G12w. Pętla B (AC poddasza) steruje klimatyzacją w oknie
+  pracy; pętla A (Heiko) jest na razie tylko odczytem (dry-run kosztu/oszczędności).
 url: "https://github.com/miczu71/heiko-predictive-control"
 arch:
   - aarch64
@@ -48,11 +48,17 @@ options:
   attic_temp_entity: "sensor.poddasze_temperature"
   attic_door_entity: ""
   attic_power_entity: ""
+  # Okna poddasza (lista po przecinku) — otwarte >2 min = pauza grzania; brak = bez pauzy
+  attic_window_entities: ""
+  # Encja „urlop” (binary_sensor, on = urlop, AC nie startuje); brak = ignorowane
+  attic_vacation_entity: ""
   attic_work_start_hour: 8
   attic_work_end_hour: 16
   attic_comfort_target_c: 22.0
   attic_economy_target_c: 20.5
   attic_preheat_lead_min: 45
+  attic_preheat_max_min: 120
+  attic_cycle_interval_min: 5
   attic_enabled: false
   attic_active_profile: "ekonomia"
   # Wspólne
@@ -88,11 +94,15 @@ schema:
   attic_temp_entity: str
   attic_door_entity: str?
   attic_power_entity: str?
+  attic_window_entities: str?
+  attic_vacation_entity: str?
   attic_work_start_hour: int
   attic_work_end_hour: int
   attic_comfort_target_c: float
   attic_economy_target_c: float
   attic_preheat_lead_min: int
+  attic_preheat_max_min: int
+  attic_cycle_interval_min: int
   attic_enabled: bool
   attic_active_profile: "list(komfort|ekonomia)"
   cycle_interval_min: int

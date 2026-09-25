@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.4.0 — Etap 2: pętla B steruje klimatyzacją poddasza
+
+Pierwszy **zapis** add-onu: klimatyzator poddasza (`climate.*`) w oknie pracy. Pętla A
+(Heiko/podłogówka) nadal tylko odczyt.
+
+**Jak działa.** AC reguluje samo, add-on koryguje *offset* nastawy względem termometru
+pokoju (czujnik klimatyzatora zwykle zawyża temperaturę):
+
+- **Start dogrzewania** liczony z deficytu i uczonego tempa grzania:
+  `wyprzedzenie = deficyt / tempo + margines` (Komfort 20 min, Ekonomia 10 min), nie
+  więcej niż `attic_preheat_max_min`. Bez odczytu temperatury: `attic_preheat_lead_min`.
+- **Dogrzewanie:** tryb `heat`, nastawa `cel + offset + 2°C`. Po osiągnięciu `cel − 0,3°C`
+  → **utrzymanie**: nastawa `cel + offset`, offset uczony co cykl
+  (`+0,3 × (cel − T)`, martwa strefa ±0,2°C, zakres −1…+4°C, dopiero 10 min po zapisie).
+  Tempo dogrzewania uczone EWMA (α = 0,3, 1–10 °C/h).
+- **Ochrona:** `T > cel + 0,7°C` → AC wyłączone (nadal przejęte), `T < cel − 0,3°C` → grzanie.
+- **Przejęcie tylko wyłączonego AC.** Włączone przez człowieka przed oknem = ręczne użycie,
+  add-on go nie dotyka.
+- **Ręczna zmiana** (tryb/nastawa/wyłączenie, po 2 min karencji od własnego zapisu) →
+  add-on odpuszcza **do końca dnia**.
+- **Otwarte okno** (`attic_window_entities`) dłużej niż 2 min → pauza, po zamknięciu
+  powrót. Drzwi tylko w logu.
+- **Koniec okna / dzień nieaktywny** (weekend, urlop, brak `binary_sensor.workday`) →
+  jeśli AC było przejęte: `climate.turn_off`, w przeciwnym razie zero zapisów.
+- **Wyłączenie sterowania** (`attic_enabled` = off) przy przejętym i włączonym AC →
+  jednorazowe `turn_off` (żeby nie zostawić go grzejącego do rana); poza tym tylko dry-run.
+- **Zapis tylko przy realnej różnicy** (nastawa ≥ 0,5°C, tryb), najwyżej raz na ~4 min,
+  twardy zakres 16–30°C. Nieudane wywołanie usługi = ponowna próba w następnym cyklu.
+- Powiadomienia (`notify_service`): start ogrzewania danego dnia, ręczne przejęcie,
+  błąd zapisu.
+
+**Nowe opcje**
+
+| Opcja | Domyślnie | Znaczenie |
+|---|---|---|
+| `attic_window_entities` | `""` | czujniki okien poddasza, po przecinku; otwarte >2 min = pauza |
+| `attic_vacation_entity` | `""` | `binary_sensor` urlopu (on = AC nie startuje) |
+| `attic_preheat_max_min` | `120` | górny limit wyprzedzenia dogrzewania |
+| `attic_cycle_interval_min` | `5` | cykl pętli B (pętla A: `cycle_interval_min`, 15) |
+
+`attic_preheat_lead_min` to teraz tylko wyprzedzenie awaryjne (brak czujnika).
+
+**Nowe encje MQTT** (urządzenie „Heiko Predictive Control")
+
+| Encja | Znaczenie |
+|---|---|
+| AC poddasze: faza | `poza oknem`, `czeka`, `dogrzewanie`, `utrzymanie`, `pauza`, `ręczna zmiana`, … |
+| AC poddasze: przejęte przez add-on | binary, czy add-on aktualnie steruje AC |
+| AC poddasze: offset nastawy (uczony) | °C |
+| AC poddasze: tempo dogrzewania (uczone) | °C/h |
+| AC poddasze: ostatnia nastawa zlecona | °C |
+| AC poddasze: planowany start dogrzewania | timestamp |
+| AC poddasze: energia dziś / koszt dziś | kWh / PLN (całkowanie mocy chwilowej × cena taryfy) |
+
+Encje istniejące bez zmian. Pulpit: karta poddasza pokazuje fazę, przejęcie, planowany
+start, nastawę, offset, okna i koszt dziś; Statystyki — kolumny fazy i zapisu.
+
+**Baza.** Migracja dokłada kolumny do tabeli `cycles` (historia zachowana). Stan
+sterowania w `settings["attic_ctrl_state"]`.
+
+**Zmiany wewnętrzne.** Logika w nowym module `attic.py` (funkcje czyste, 42 testy, w tym
+symulacja poranka); `cycle.run_attic_cycle` to cienki orkiestrator I/O; pętle A i B
+mają osobne zadania harmonogramu. `attic_should_run` usunięte.
+
 ## 0.3.0 — Prywatny układ domu + realistyczne detale modelu
 
 **Prywatność.** Układ domu (pokoje, encje, urządzenia, meble) nie jest już zaszyty w

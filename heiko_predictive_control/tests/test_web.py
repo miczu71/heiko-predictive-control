@@ -5,7 +5,7 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control.layout import EXAMPLE_PATH, parse
-from heiko_predictive_control.live import collect, fmt_temp
+from heiko_predictive_control.live import collect, ctrl_summary, fmt_temp
 from heiko_predictive_control.web import create_app
 
 HOUSE = parse(json.loads(EXAMPLE_PATH.read_text()), "example")
@@ -132,3 +132,38 @@ def test_api_live(client):
     data = resp.get_json()
     assert data["rooms"]["sypialnia"]["text"] == "21,5°C"
     assert data["tariff"]["peak"] is True
+
+
+def test_ctrl_summary_formats_controller_state():
+    out = ctrl_summary(
+        {"phase": "dogrzewanie", "planned_start": "2026-01-12T06:10:00",
+         "ac_cmd_setpoint": 25.5, "window_open": 0},
+        {"owned": True, "offset_c": 1.5}, {"pln": 1.234, "kwh": 2.5})
+    assert out == {"phase": "dogrzewanie", "owned": "tak", "offset": "+1,5°C",
+                   "planned_start": "06:10", "last_setpoint": "25,5°C",
+                   "window": "zamknięte", "today": "1,23 PLN · 2,50 kWh"}
+
+
+def test_ctrl_summary_empty_is_dashes():
+    out = ctrl_summary(None, None, None)
+    assert out["phase"] == "—" and out["owned"] == "nie" and out["planned_start"] == "—"
+    assert out["today"] == "—" and out["window"] == "—"
+
+
+def test_dashboard_and_api_show_attic_controller_from_db(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    dbm.insert_cycle(conn, {
+        "ts": "2026-01-12T06:15:00", "loop": "attic", "active_profile": "komfort",
+        "write_enabled": 1, "phase": "pauza_okno", "planned_start": "2026-01-12T06:10:00",
+        "ac_cmd_setpoint": 25.5, "window_open": 1, "attic_energy_kwh": 0.0, "attic_cost_pln": 0.0})
+    conn.close()
+    settings = {**SETTINGS, "attic_ctrl_state": {"owned": True, "offset_c": 2.0}}
+    app = create_app(db_path, lambda: dict(settings), lambda k, v: None,
+                     get_state=get_state, get_numeric=get_numeric, house=HOUSE)
+    api = app.test_client().get("/api/live").get_json()["attic"]
+    assert api["phase"] == "pauza — otwarte okno" and api["owned"] == "tak"
+    assert api["offset"] == "+2,0°C" and api["window"] == "otwarte"
+    html = app.test_client().get("/").get_data(as_text=True)
+    assert 'data-live="attic.phase">pauza — otwarte okno<' in html
