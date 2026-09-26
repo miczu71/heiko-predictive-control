@@ -1,9 +1,9 @@
 """Analizator „krzywa i taryfa” — propozycja przesunięcia krzywej grzewczej o ±1.
 
 Reguła zapasu komfortu na statystykach z 24 h (nie na chwilowej temperaturze, która skacze w ciągu doby):
-  • zapas (średnia stref ≥ cel + margines, a najzimniejszy wybrany pokój z zapasem nad minimum) →
-    EKSPERYMENT −1 (soczewka Oszczędność) — ocena skutków z planera, pewność niska, dopóki model nie ma
-    zidentyfikowanej bezwładności;
+  • zapas (średnia stref ≥ cel + margines, a najzimniejszy wybrany pokój z zapasem nad minimum PO przewidywanym
+    ostygnięciu domu) → EKSPERYMENT −1 (soczewka Oszczędność) — ocena skutków z planera, pewność niska, dopóki
+    model nie ma zidentyfikowanej bezwładności;
   • za zimno (średnia poniżej celu albo najzimniejszy pokój blisko minimum) → zmiana +1 (soczewka Komfort).
 Działa tylko przy włączonej krzywej — bez niej przesunięcie nie ma efektu.
 
@@ -19,7 +19,8 @@ from . import (CONF_LOW, CONF_MEDIUM, KIND_CHANGE, KIND_EXPERIMENT, LENS_COMFORT
 
 KEY = "curve_shift"
 DOWN_AVG_MARGIN_C = 0.3      # średnia stref co najmniej tyle powyżej celu
-DOWN_MIN_MARGIN_C = 0.5      # a najzimniejszy pokój co najmniej tyle powyżej minimum
+DOWN_MIN_MARGIN_C = 0.5      # a najzimniejszy pokój po ostygnięciu domu co najmniej tyle powyżej minimum (0,3 przerwy nad progiem „+1”)
+FALLBACK_COOLING_C = 0.7     # ostygnięcie po −1, gdy brak oceny z planera (model: ok. 0,65°C po 36 h)
 UP_AVG_MARGIN_C = 0.3        # średnia stref co najmniej tyle poniżej celu…
 UP_MIN_MARGIN_C = 0.2        # …albo najzimniejszy pokój mniej niż tyle powyżej minimum
 TTL_H = 6                    # decyzja 4 z wywiadu: krzywa 6 h
@@ -77,7 +78,9 @@ def analyze(snap: Snapshot) -> list[Draft]:
     room = snap.coldest_name or "najzimniejszy pokój"
     drafts: list[Draft] = []
 
-    if snap.avg24_c >= snap.target_c + DOWN_AVG_MARGIN_C and snap.cold24_c >= snap.room_min_c + DOWN_MIN_MARGIN_C:
+    cooling = abs(((snap.uniform or {}).get("-1") or {}).get("end_temp_delta_c", FALLBACK_COOLING_C))
+    evidence["cooling_after_c"] = round(cooling, 2)
+    if snap.avg24_c >= snap.target_c + DOWN_AVG_MARGIN_C and snap.cold24_c - cooling >= snap.room_min_c + DOWN_MIN_MARGIN_C:
         to = cur - 1
         if catalog.check_class_a(KEY, cur, to)[0]:
             drafts.append(Draft(
@@ -85,8 +88,8 @@ def analyze(snap: Snapshot) -> list[Draft]:
                 param_key=KEY, from_value=cur, to_value=to, ttl_h=TTL_H,
                 confidence=CONF_MEDIUM if snap.model_identified else CONF_LOW,
                 reason=(f"Dom ma zapas komfortu: średnia stref z 24 h to {snap.avg24_c:.1f}°C (cel {snap.target_c:.1f}°C), "
-                        f"a {room} ma w 5. percentylu {snap.cold24_c:.1f}°C (minimum {snap.room_min_c:.1f}°C). "
-                        f"Eksperyment na 24–48 h: przesunięcie krzywej z {cur:g} na {to:g}. Skutków nie da się jeszcze "
+                        f"a {room} ma w 5. percentylu {snap.cold24_c:.1f}°C (po przewidywanym ostygnięciu o {cooling:.1f}°C "
+                        f"nadal powyżej minimum {snap.room_min_c:.1f}°C). Eksperyment na 24–48 h: przesunięcie krzywej z {cur:g} na {to:g}. Skutków nie da się jeszcze "
                         "przewidzieć pewnie — zatwierdzony eksperyment da doradcy pomiar reakcji domu."),
                 evidence=evidence, effects=_effects(snap, "-1", LENS_ECONOMY)))
     elif snap.avg24_c <= snap.target_c - UP_AVG_MARGIN_C or snap.cold24_c < snap.room_min_c + UP_MIN_MARGIN_C:

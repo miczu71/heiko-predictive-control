@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.2 — kalibracja reguły krzywej po odtworzeniu zimy: zapas nad minimum po ostygnięciu domu
+
+Odtworzenie zimy 2025/26 (180 dób) ujawniło lukę w regule „−1”: wymagała +0,5°C zapasu najzimniejszego pokoju nad minimum
+**przed** obniżeniem, a planer przewiduje, że dom po −1 ostygnie o 0,4–0,65°C. W 7 z 90 dni „−1” po obniżeniu ta sama reguła
+od razu kazałaby „+1” (ping-pong).
+
+- Reguła „−1”: najzimniejszy wybrany pokój **po przewidywanym ostygnięciu** (`end_temp_delta_c` z planera, bez oceny 0,7°C)
+  musi nadal być ≥ minimum + 0,5°C (0,3°C przerwy nad progiem „+1”). Karta i powód propozycji pokazują to ostygnięcie
+  (`evidence.cooling_after_c`).
+- Wynik na zimie 2025/26: „−1” 90 → 76 dób (42%), „+1” bez zmian 35 dób (19%), ping-pong 7 → 0.
+- Pozostałe progi bez zmian, bo dane ich nie podważają: margines średniej ±0,3°C, próg „+1” minimum + 0,2°C, CWU ≥ 4 cykle na
+  dobę, wskazówka o szczycie CWU ≥ 40%, z-score 3,5 (dla CWU i anomalii nie ma danych zimowych do kalibracji).
+- Test regresji: dla siatki temperatur żadna propozycja „−1” nie prowadzi do natychmiastowego „+1”.
+
 ## 0.9.1 — skutki przesunięcia krzywej po wycenie „długu cieplnego”
 
 Znalezione zaraz po wdrożeniu 0.9.0 przy sprawdzeniu liczb odtworzenia zimy: oszczędność z obniżenia krzywej o 1 wychodziła

@@ -77,7 +77,7 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
 
 ## Status
 
-**0.9.1 — Doradca, etap D2: silnik propozycji i zakładka „Doradca”** (zero zapisów do pompy, decyzje tylko próbne).
+**0.9.2 — Doradca, etap D2: silnik propozycji i zakładka „Doradca”** (zero zapisów do pompy, decyzje tylko próbne).
 0.8.x — D1: dane i katalog (telemetria, dziennik zmian parametrów, dobowe streszczenia, raport). Poprzednio 0.7.0 — Etap 3b′: pętla A obserwuje natywny mechanizm pompy** (krzywa grzewcza + „ograniczona
 nastawa” z zegarem, ustawiana na panelu): cel wody wg pompy, udział energii w szczycie vs zima,
 uczenie bezwładności z wymuszenia, alarm komfortu; zero zapisów do pompy. (0.6.0: model
