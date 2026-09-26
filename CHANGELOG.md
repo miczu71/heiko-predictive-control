@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.2 — cel wody w trybie CWU
+
+Zaobserwowane na żywo: encja celu wody (i nastawa stała) pokazuje cel **aktualnego trybu** — w CWU
+48°C. Wcześniej wnioskowanie o ograniczonej nastawie widziałoby w CWU „cel powyżej krzywej” =
+„nieaktywna” i zawyżało liczbę przejść (wymuszenie do uczenia inercji).
+
+- W trybie CWU cel wody i `reduced_active` nie są zapisywane (NULL) — nie ma fałszywych przejść.
+- Pulpit: w CWU „Cel wody wg pompy” pokazuje „— (CWU)”; tryb „Sanitary Hot Water” ma etykietę CWU.
+
 ## 0.7.1 — treść karty pompy
 
 Karta pompy opisuje pętlę A jako obserwację (pompa steruje sama), a wartości optymalizatora są

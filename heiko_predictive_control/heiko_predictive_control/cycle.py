@@ -162,6 +162,8 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     mode = (get_state(settings.get("heiko_working_mode_entity") or _DEFAULT_MODE) or {}).get("state")
     heating_now, dhw_now = mode_flags(mode)
     water_target = get_numeric(settings.get("heiko_water_setpoint_entity") or DEFAULT_WATER_TARGET_ENTITY)
+    if dhw_now:
+        water_target = None     # w trybie CWU ta encja pokazuje cel CWU (np. 48°C), nie cel ogrzewania
     curve_raw = str((get_state(settings.get("heiko_curve_switch_entity", "")) or {}).get("state", "")).lower()
     curve_on = {"on": True, "off": False}.get(curve_raw)
     shift = get_numeric(settings.get("heiko_curve_shift_entity") or _DEFAULT_CURVE_SHIFT)

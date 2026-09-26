@@ -265,3 +265,15 @@ def test_live_shows_pump_water_target_and_reduced_state(tmp_path):
     live_data = _app_with_db(tmp_path, SETTINGS, [row]).test_client().get("/api/live").get_json()
     assert live_data["heiko"]["setpoint"] == "22,5°C" and live_data["heiko"]["reduced"] == "aktywna"
     STATES.pop("sensor.heiko_heat_pump_water_temperature_setpoint")
+
+
+def test_live_hides_dhw_target_and_labels_hot_water_mode(tmp_path):
+    STATES["sensor.heiko_heat_pump_water_temperature_setpoint"] = {"state": "48.0"}
+    old = STATES["sensor.heiko_heat_pump_working_mode_2"]
+    STATES["sensor.heiko_heat_pump_working_mode_2"] = {"state": "Sanitary Hot Water"}
+    try:
+        heiko = _app_with_db(tmp_path, SETTINGS).test_client().get("/api/live").get_json()["heiko"]
+    finally:
+        STATES["sensor.heiko_heat_pump_working_mode_2"] = old
+        STATES.pop("sensor.heiko_heat_pump_water_temperature_setpoint")
+    assert heiko["mode"] == "CWU" and heiko["setpoint"] == "— (CWU)"

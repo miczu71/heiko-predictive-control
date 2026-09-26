@@ -1,5 +1,5 @@
 name: Heiko Predictive Control
-version: "0.7.1"
+version: "0.7.2"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją

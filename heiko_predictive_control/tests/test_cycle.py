@@ -237,6 +237,14 @@ def test_reduced_setpoint_is_unknown_while_curve_is_off(conn):
     assert row["curve_on"] == 0 and row["reduced_active"] is None      # stała nastawa != ograniczenie
 
 
+def test_dhw_cycle_target_is_not_a_heating_target(conn):
+    """W CWU encja celu pokazuje 48°C (cel CWU) — nie wolno tego brać za brak ograniczenia."""
+    world = ObservingWorld(water_target=48.0, mode="Sanitary Hot Water")
+    row = _run(conn, world, NOW, OBS)
+    assert row["dhw_active"] == 1 and row["curve_on"] == 1
+    assert row["water_setpoint_c"] is None and row["reduced_active"] is None
+
+
 def test_infer_reduced_threshold_and_missing_inputs():
     assert cycle.infer_reduced(24.2, 24.7, 0, True) is True            # dokładnie −0,5°C
     assert cycle.infer_reduced(24.3, 24.7, 0, True) is False

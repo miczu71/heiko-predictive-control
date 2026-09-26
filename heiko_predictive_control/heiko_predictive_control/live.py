@@ -15,7 +15,7 @@ HVAC_LABELS = {
 }
 PUMP_MODE_LABELS = {
     "standby": "czuwanie", "heating": "grzanie", "dhw": "CWU", "cooling": "chłodzenie",
-    "auto": "auto", "off": "wyłączona",
+    "auto": "auto", "off": "wyłączona", "sanitary hot water": "CWU",
 }
 PHASE_LABELS = {
     "poza_oknem": "poza oknem pracy", "czeka": "czeka na start dogrzewania",
@@ -117,8 +117,9 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
     heiko = {
         # Aktualny cel wody wg pompy (krzywa + przesunięcie + ograniczenie); przy krzywej ON encja
         # `number` nastawy jest niedostępna, więc to jej zastępnik (fallback: nastawa stała).
-        "setpoint": fmt_temp(water_target if water_target is not None
-                             else get_numeric(settings.get("heiko_setpoint_entity") or "")),
+        "setpoint": ("— (CWU)" if pump_mode == "CWU" else
+                     fmt_temp(water_target if water_target is not None
+                              else get_numeric(settings.get("heiko_setpoint_entity") or ""))),
         "reduced": "—",
         "outdoor": fmt_temp(get_numeric(settings.get("outdoor_temp_entity") or "")),
         "avg": fmt_temp(avg),
