@@ -264,6 +264,39 @@ body {
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .cost { border-top: 1px solid var(--line); padding-top: 10px; font-size: 14px; }
+.warn { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  background: var(--accent-light); border-left: 3px solid var(--peak); color: var(--text); }
+
+/* ── Plan pętli A: wykres, sekcje rozwijane, tabele ─────────────── */
+.plan-chart { margin: 14px 0 6px; }
+.plan-chart svg { width: 100%; height: auto; display: block; }
+.plan-chart figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.plan-chart figcaption span { white-space: nowrap; }
+.pc-key { display: inline-block; width: 14px; height: 0; margin-right: 4px; border-top: 2px solid var(--muted); vertical-align: middle; margin-right: 4px; }
+.pc-key.pc-bandkey, .pc-key.pc-peakkey { height: 8px; border: 0; border-radius: 2px; }
+.pc-bandkey { background: var(--accent-light); outline: 1px solid var(--line); }
+.pc-peakkey { background: color-mix(in srgb, var(--peak) 16%, transparent); }
+.pc-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.pc-line.pc-base { stroke: var(--muted); stroke-dasharray: 2 3; }
+.pc-line.pc-other { stroke: var(--accent); stroke-dasharray: 5 4; opacity: .55; stroke-width: 1.5; }
+.pc-line.pc-active { stroke: var(--accent); stroke-width: 2.5; }
+.pc-key.pc-base { border-top-style: dotted; }
+.pc-key.pc-active { border-top: 3px solid var(--accent); }
+.pc-key.pc-other { border-top: 2px dashed var(--accent); opacity: .55; }
+.pc-band { fill: var(--accent-light); opacity: .8; }
+.pc-peak { fill: var(--peak); opacity: .1; }
+.pc-grid { stroke: var(--line); stroke-width: 1; }
+.pc-tick { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.fold { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+.fold summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 4px 0; }
+.fold-body { padding: 6px 0 2px; font-size: 13px; }
+.fold-body table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.fold-body th, .fold-body td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+.fold-body th:first-child, .fold-body td:first-child { text-align: left; }
+.fold-body th { color: var(--muted); font-weight: 500; }
+.fold-body tr.peak td:nth-child(2) { color: var(--peak); }
+.fold-body td.on { font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.fold-body small { color: var(--muted); }
 .empty { color: var(--muted); }
 
 /* ── Statystyki / Opcje (współdzielona paleta) ───────────────── */

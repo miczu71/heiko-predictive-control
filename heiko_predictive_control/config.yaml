@@ -1,5 +1,5 @@
 name: Heiko Predictive Control
-version: "0.5.0"
+version: "0.6.0"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
@@ -34,6 +34,18 @@ options:
   pump_energy_entity: "sensor.energia_pompa_ciepla_energy"
   heiko_setpoint_entity: "number.heiko_heat_pump_heating_setpoint"
   heiko_curve_switch_entity: "switch.heiko_heat_pump_heating_curve"
+  # Punkty krzywej grzewczej (5 par temp. zewn. -> woda) i sensory pompy do uczenia modelu
+  heiko_curve_ambient_entities: "number.heiko_heat_pump_curve_ambient_temp_1,number.heiko_heat_pump_curve_ambient_temp_2,number.heiko_heat_pump_curve_ambient_temp_3,number.heiko_heat_pump_curve_ambient_temp_4,number.heiko_heat_pump_curve_ambient_temp_5"
+  heiko_curve_water_entities: "number.heiko_heat_pump_curve_water_temp_1,number.heiko_heat_pump_curve_water_temp_2,number.heiko_heat_pump_curve_water_temp_3,number.heiko_heat_pump_curve_water_temp_4,number.heiko_heat_pump_curve_water_temp_5"
+  heiko_water_temp_entity: "sensor.heiko_heat_pump_condenser_temperature"
+  heiko_working_mode_entity: "sensor.heiko_heat_pump_working_mode_2"
+  # Czujnik temp. zewn. z długą historią LTS (bootstrap modelu z zeszłej zimy); pusty = outdoor_temp_entity
+  heiko_bootstrap_outdoor_entity: "sensor.openweathermap_temperature"
+  # Środek pasma komfortu pokoi, minimum pojedynczego pokoju (bezpiecznik), granice nastawy wody
+  heiko_room_target_c: 20.6
+  heiko_room_min_c: 18.5
+  heiko_water_min_c: 20.0
+  heiko_water_max_c: 32.0
   heiko_comfort_band_day_c: 1.0
   heiko_comfort_band_night_c: 1.5
   heiko_economy_band_day_c: 1.5
@@ -87,6 +99,15 @@ schema:
   pump_energy_entity: str
   heiko_setpoint_entity: str
   heiko_curve_switch_entity: str
+  heiko_curve_ambient_entities: str?
+  heiko_curve_water_entities: str?
+  heiko_water_temp_entity: str?
+  heiko_working_mode_entity: str?
+  heiko_bootstrap_outdoor_entity: str?
+  heiko_room_target_c: float
+  heiko_room_min_c: float
+  heiko_water_min_c: float
+  heiko_water_max_c: float
   heiko_comfort_band_day_c: float
   heiko_comfort_band_night_c: float
   heiko_economy_band_day_c: float

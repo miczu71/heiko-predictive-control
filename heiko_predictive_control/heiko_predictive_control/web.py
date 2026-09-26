@@ -9,6 +9,7 @@ from typing import Callable, Optional
 from flask import Flask, jsonify, render_template, request
 
 from . import __version__, attic, ha_client, layout, live, rooms
+from . import floor_model
 from . import db as dbm
 
 logger = logging.getLogger(__name__)
@@ -140,16 +141,40 @@ def create_app(db_path: str,
             rows = dbm.today_cycles(conn, loop, date.today().isoformat())
         finally:
             conn.close()
+        actual = sum((r["energy_kwh"] or 0) * (r["price_pln_kwh"] or 0) for r in rows
+                     if "energy_kwh" in r.keys())
         baseline = sum((r["baseline_cost_today_pln"] or 0) for r in rows)
         komfort = sum((r["sim_cost_today_komfort_pln"] or 0) for r in rows)
         ekonomia = sum((r["sim_cost_today_ekonomia_pln"] or 0) for r in rows)
         return jsonify({
+            "actual_pln": round(actual, 2),
             "baseline_pln": round(baseline, 2),
             "komfort_pln": round(komfort, 2),
             "ekonomia_pln": round(ekonomia, 2),
             "savings_komfort_pln": round(baseline - komfort, 2),
             "savings_ekonomia_pln": round(baseline - ekonomia, 2),
             "cycles": len(rows),
+        })
+
+    @app.get("/api/plan")
+    def api_plan():
+        """Plan pętli A + jakość modelu podłogówki (do pulpitu). Dokładność
+        „na żywo” = RMSE błędu prognozy 1 kroku z ostatnich ~24 h cykli."""
+        settings = get_settings()
+        conn = db_conn()
+        try:
+            errs = [r["model_err_c"] for r in conn.execute(
+                "SELECT model_err_c FROM cycles WHERE loop = 'heiko' AND model_err_c IS NOT NULL "
+                "ORDER BY id DESC LIMIT 96")]
+        finally:
+            conn.close()
+        model = floor_model.FloorModel.from_dict(settings.get("floor_model_state"))
+        live_rmse = (sum(e * e for e in errs) / len(errs)) ** 0.5 if errs else None
+        return jsonify({
+            "plan": settings.get("heiko_plan"), "model": model.as_dict(),
+            "bootstrap": settings.get("floor_bootstrap"), "refit": settings.get("floor_refit"),
+            "live_rmse_c": None if live_rmse is None else round(live_rmse, 3),
+            "live_samples": len(errs),
         })
 
     @app.get("/api/settings")

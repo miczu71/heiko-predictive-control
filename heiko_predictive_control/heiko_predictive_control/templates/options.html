@@ -6,9 +6,9 @@
 
     <fieldset>
       <legend>🔥 Heiko — podłogówka</legend>
-      <p class="hint">Wyłącznik gasi tylko zapis do pompy — obserwacja i dry-run
-        działają zawsze. <strong>Zapis pojawi się dopiero w Etapie 3</strong> —
-        do tego czasu ten przełącznik nic nie zmienia w pompie.</p>
+      <p class="hint">Wyłącznik gasi tylko zapis do pompy — obserwacja i plan
+        działają zawsze. <strong>Zapis do pompy jeszcze nie istnieje</strong> (faza cienia,
+        Etap 3a) — ten przełącznik niczego dziś nie zmienia w pompie.</p>
       <label><input type="checkbox" name="heiko_enabled" {{ 'checked' if settings.heiko_enabled }}>
         Sterowanie aktywne (Heiko)</label>
 
@@ -32,7 +32,29 @@
           <input type="number" min="0" max="23" name="heiko_day_start_hour" value="{{ settings.heiko_day_start_hour }}"></label>
         <label>Dzień do (godz.)
           <input type="number" min="0" max="23" name="heiko_day_end_hour" value="{{ settings.heiko_day_end_hour }}"></label>
+        <label>Środek pasma — temp. pokoi (°C)
+          <input type="number" step="0.1" name="heiko_room_target_c" value="{{ settings.heiko_room_target_c }}"></label>
+        <label>Minimum pojedynczego pokoju — bezpiecznik (°C)
+          <input type="number" step="0.1" name="heiko_room_min_c" value="{{ settings.heiko_room_min_c }}"></label>
+        <label>Nastawa wody — minimum (°C)
+          <input type="number" step="0.5" name="heiko_water_min_c" value="{{ settings.heiko_water_min_c }}"></label>
+        <label>Nastawa wody — maksimum (°C)
+          <input type="number" step="0.5" name="heiko_water_max_c" value="{{ settings.heiko_water_max_c }}"></label>
       </div>
+      <p class="hint">Encje pompy i strefy dzienne (po przecinku). Zmiana działa od następnego
+        cyklu, bez restartu. Pola „punkty krzywej” to 5 par: temp. zewnętrzna → woda.</p>
+      <label>Czujniki stref dziennych (średnia dla pasma, najzimniejszy = bezpiecznik)
+        <input type="text" name="day_zone_temp_entities" value="{{ settings.day_zone_temp_entities or '' }}"></label>
+      <label>Punkty krzywej — temperatury zewnętrzne
+        <input type="text" name="heiko_curve_ambient_entities" value="{{ settings.heiko_curve_ambient_entities or '' }}"></label>
+      <label>Punkty krzywej — temperatury wody
+        <input type="text" name="heiko_curve_water_entities" value="{{ settings.heiko_curve_water_entities or '' }}"></label>
+      <label>Temperatura wody grzewczej (skraplacz)
+        <input type="text" name="heiko_water_temp_entity" value="{{ settings.heiko_water_temp_entity or '' }}"></label>
+      <label>Tryb pracy pompy
+        <input type="text" name="heiko_working_mode_entity" value="{{ settings.heiko_working_mode_entity or '' }}"></label>
+      <label>Temp. zewnętrzna z długą historią (bootstrap modelu z zeszłej zimy)
+        <input type="text" name="heiko_bootstrap_outdoor_entity" value="{{ settings.heiko_bootstrap_outdoor_entity or '' }}"></label>
     </fieldset>
 
     <fieldset>

@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.6.0 — Pętla A (faza cienia): model podłogówki i plan pod taryfę
+
+Etap 3a. **Nic nie jest zapisywane do pompy** — pętla A nadal tylko obserwuje, ale
+zamiast błędnego dry-runu liczy prawdziwy plan i uczy model domu.
+
+**Naprawiony błąd dry-runu.** Dotychczasowa symulacja dodawała pasmo komfortu *pokoju*
+(±1–2°C) do nastawy *wody* grzewczej, więc wyświetlane „symulowane nastawy” i oszczędności
+nie miały sensu. Usunięte (`simulated_setpoint_c`, `simulate_cost_increment_pln`, model
+`k_loss`/`k_gain`).
+
+**Model dwustanowy** (`floor_model.py`): ciepło z pompy przechodzi przez filtr o stałej
+czasowej `τ` (bezwładność wylewki), potem grzeje pokój; parametry `τ`, `g` (zysk), `c`
+(strata) i `e` (moc grzania na K różnicy nastawa−pokój). Nowy model zastępuje poprzedni
+tylko, gdy prognoza 6 h ma błąd ≤ 0,5°C i nie jest gorsza od „temperatura się nie zmieni”.
+
+**Czego zimowe dane NIE rozstrzygają.** Dom regulowany termostatem (moc grzania podąża za
+stratami) daje regresory skorelowane na −0,9…−1: swobodna regresja `g`/`c` zwraca wartości
+absurdalne (stała czasowa domu ~250 h, R² < 0,15). Dlatego dopasowanie idzie inaczej:
+
+- **Bilans energii** wyznacza pewnie `R = g/c` (odwrotność strat UA: średni napęd
+  `Tr−To` ÷ średnia moc cieplna).
+- **Bezwładność** (`c`, `τ`) dobierana z siatki po błędzie prognozy 6 h; do planu trafia
+  `c` **konserwatywne** — największe, którego błąd mieści się w 10% od najlepszego
+  (zyski słoneczne i wewnętrzne zaniżają `c`, więc ostrożniej zakładać mniej bezwładności).
+- `e` (moc grzania) wyznaczana z regresji przez zero — tu dane wystarczają.
+- Etykieta źródła na pulpicie: *bilans energii + inercja z ograniczeń*. Dopóki inercja
+  nie zostanie zmierzona przy sterowaniu aktywnym, oszczędności są **orientacyjne**.
+- Wartości domyślne (bez dopasowania) opisują dobrze ocieplony dom z wylewką
+  (`c = 0,01`, pojemność ~13 kWh/K). Wcześniejsze założenie „lekki dom” było obalone przez
+  dane, a stary współczynnik `k_loss` z EWMA nie zasila już modelu.
+
+- **Bootstrap** z długoterminowych statystyk ostatniego pełnego sezonu grzewczego
+  (15.10–15.04): energia pompy, temperatury stref, temp. zewnętrzna. Raz po starcie,
+  powtarzany do skutku (zapytania idą po jednej encji — jedno duże przekraczało limit czasu).
+- **Dobowe dopasowanie** o 4:30 z własnych cykli (faza cienia). Czas CWU jest wyłączony
+  z pomiaru (moc cieplna do domu = 0).
+
+**Planer** (`floor_plan.py`): mini-MPC na 36 h w krokach 15 min. Dla każdego bloku taryfy
+(szczyt/poza szczytem × dzień/noc, ≤ 8 h) wybiera przesunięcie nastawy wody względem
+**równoważnika krzywej grzewczej** (interpolacja 5 punktów krzywej przy prognozowanej temp.
+zewnętrznej), minimalizując koszt przy paśmie komfortu; wartość ciepła zmagazynowanego na
+końcu horyzontu liczona po cenie taniej taryfy. Oba profile (Komfort/Ekonomia) liczone za
+każdym cyklem. Dni robocze i święta z `workday.check_date`, prognoza z `weather.get_forecasts`.
+
+**Uczciwe liczenie oszczędności.** Pulpit pokazuje osobno: oszczędność planu i *„w tym z
+samego przesunięcia”* (ten sam plan przy średniej temperaturze nie niższej niż na krzywej
+natywnej). Reszta oszczędności to chłodniejszy dom w granicach pasma, nie przesunięcie.
+
+**Bezpiecznik pokoi.** Najzimniejszy pokój stref dziennych poniżej `heiko_room_min_c`
+(domyślnie 18,5°C) blokuje obniżanie nastawy w bieżącym bloku.
+
+**Pulpit:** wykres przewidywanej temperatury (krzywa natywna vs profile, pasmo, szczyty
+taryfy), plan bloków, oszczędność, jakość modelu (τ, c, g, e, błąd prognozy, błąd na żywo).
+Koszt „realnie” liczony z licznika energii; model osobno. **MQTT:** nowe sensory modelu
+(τ, błąd prognozy, źródło), najzimniejszego pokoju, bezpiecznika i oszczędności z przesunięcia.
+
+| Opcja | Domyślnie | Znaczenie |
+|---|---|---|
+| `heiko_room_target_c` | `20.6` | środek pasma komfortu pokoi |
+| `heiko_room_min_c` | `18.5` | minimum pojedynczego pokoju (bezpiecznik) |
+| `heiko_water_min_c` / `heiko_water_max_c` | `20` / `32` | granice nastawy wody |
+| `heiko_curve_ambient_entities` / `heiko_curve_water_entities` | encje `number` integracji | 5 par punktów krzywej (temp. zewn. → woda) |
+| `heiko_water_temp_entity` | sensor skraplacza | temperatura wody grzewczej (uczenie) |
+| `heiko_working_mode_entity` | sensor trybu pracy | rozróżnienie grzania od CWU |
+| `heiko_bootstrap_outdoor_entity` | `sensor.openweathermap_temperature` | temp. zewn. z długą historią (bootstrap) |
+
+Baza: nowe kolumny w `cycles` (`water_temp_c`, `heating_active`, `dhw_active`, `energy_kwh`,
+`heat_kw`, `base_curve_c`, `plan_setpoint_c`, `model_err_c`, `min_room_c`, `min_room_name`)
+— migracja automatyczna. Nowa zależność: `websocket-client` (statystyki LTS są dostępne
+tylko przez WebSocket API).
+
 ## 0.5.0 — Czujnik obecności: nie grzej pustego poddasza
 
 Nowa opcja `attic_presence_entity` (binary_sensor, on = ktoś jest) i próg

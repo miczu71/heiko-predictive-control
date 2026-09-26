@@ -1,8 +1,10 @@
 const COLS_BY_LOOP = {
   heiko: [
-    ["ts", "Czas"], ["active_profile", "Profil"], ["indoor_temp_c", "Wewn. °C"],
-    ["outdoor_temp_c", "Zewn. °C"], ["setpoint_komfort", "Set. Komfort"],
-    ["setpoint_ekonomia", "Set. Ekonomia"], ["price_pln_kwh", "Cena"],
+    ["ts", "Czas"], ["indoor_temp_c", "Wewn. °C"], ["min_room_c", "Min. pokój"],
+    ["outdoor_temp_c", "Zewn. °C"], ["base_curve_c", "Krzywa"],
+    ["setpoint_komfort", "Plan Komfort"], ["setpoint_ekonomia", "Plan Ekonomia"],
+    ["water_temp_c", "Woda °C"], ["energy_kwh", "kWh"], ["heat_kw", "Ciepło kW"],
+    ["model_err_c", "Błąd modelu"], ["price_pln_kwh", "Cena"],
   ],
   attic: [
     ["ts", "Czas"], ["phase", "Faza"], ["indoor_temp_c", "Wewn. °C"],
@@ -25,7 +27,8 @@ async function loadHistory(loop) {
     const thead = `<tr>${COLS.map(([, label]) => `<th>${label}</th>`).join("")}</tr>`;
     const tbody = rows.map(r => `<tr>${COLS.map(([key]) => {
       const v = r[key];
-      return `<td>${v === null || v === undefined ? "—" : v}</td>`;
+      const shown = typeof v === "number" && !Number.isInteger(v) ? v.toFixed(2) : v;
+      return `<td>${v === null || v === undefined ? "—" : shown}</td>`;
     }).join("")}</tr>`).join("");
     el.innerHTML = `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
   } catch (e) {

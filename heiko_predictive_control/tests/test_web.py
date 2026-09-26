@@ -184,3 +184,51 @@ def test_ctrl_summary_presence_text():
     assert ctrl_summary({"presence": 0, "vacant_min": 95.0}, None, None)["presence"] == "brak od 1 h 35 min"
     assert ctrl_summary({"presence": None}, None, None)["presence"] == "—"
     assert ctrl_summary({"phase": "pusto"}, None, None)["phase"] == "pusto — nikogo na poddaszu"
+
+
+def _app_with_db(tmp_path, settings, rows=()):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    for row in rows:
+        dbm.insert_cycle(conn, row)
+    conn.close()
+    return create_app(db_path, lambda: dict(settings), lambda k, v: None,
+                      get_state=get_state, get_numeric=get_numeric, house=HOUSE)
+
+
+def test_api_plan_without_data_returns_default_model(tmp_path):
+    data = _app_with_db(tmp_path, SETTINGS).test_client().get("/api/plan").get_json()
+    assert data["plan"] is None and data["live_rmse_c"] is None and data["live_samples"] == 0
+    assert data["model"]["source"] == "domyślny" and data["bootstrap"] is None
+
+
+def test_api_plan_reports_live_model_error_and_stored_plan(tmp_path):
+    rows = [{"ts": f"2026-01-12T06:{15 * i:02d}:00", "loop": "heiko", "active_profile": "ekonomia",
+             "write_enabled": 0, "model_err_c": err} for i, err in enumerate([0.1, -0.1, 0.2])]
+    settings = {**SETTINGS, "heiko_plan": {"horizon_h": 36, "hours": [], "blocks": []},
+                "floor_model_state": {"tau_h": 6.0, "g": 0.2, "c": 0.05, "e": 0.7, "source": "faza cienia"},
+                "floor_bootstrap": {"ok": True, "reason": "ok"}}
+    data = _app_with_db(tmp_path, settings, rows).test_client().get("/api/plan").get_json()
+    assert data["plan"]["horizon_h"] == 36 and data["model"]["tau_h"] == 6.0
+    assert data["live_samples"] == 3 and data["live_rmse_c"] == pytest.approx(0.1414, abs=1e-3)
+    assert data["bootstrap"]["ok"] is True
+
+
+def test_today_summary_reports_actual_cost_from_meter(tmp_path):
+    from datetime import date
+    today = date.today().isoformat()
+    rows = [{"ts": f"{today}T10:{15 * i:02d}:00", "loop": "heiko", "active_profile": "ekonomia",
+             "write_enabled": 0, "energy_kwh": 0.5, "price_pln_kwh": 1.2,
+             "baseline_cost_today_pln": 0.6, "sim_cost_today_komfort_pln": 0.5,
+             "sim_cost_today_ekonomia_pln": 0.4} for i in range(2)]
+    data = _app_with_db(tmp_path, SETTINGS, rows).test_client().get("/api/today_summary/heiko").get_json()
+    assert data["actual_pln"] == pytest.approx(1.2)
+    assert data["baseline_pln"] == pytest.approx(1.2) and data["savings_ekonomia_pln"] == pytest.approx(0.4)
+
+
+def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
+    html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
+    for element_id in ("heiko-chart", "heiko-savings", "heiko-blocks", "heiko-model", "hp-fuse"):
+        assert f'id="{element_id}"' in html
+    assert "tylko obserwacja" in html and "Faza cienia" in html

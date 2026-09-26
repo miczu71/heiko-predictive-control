@@ -8,9 +8,10 @@
 <section class="detail" data-card="loop_heiko">
   <header>
     <h2><svg class="ico"><use href="#i-fan"/></svg> {{ pump_eq.label if pump_eq else 'Pompa ciepła' }}</h2>
-    <span class="status {{ 'on' if settings.heiko_enabled }}">{{ 'steruje' if settings.heiko_enabled else 'tylko obserwacja' }}</span>
+    <span class="status">tylko obserwacja</span>
   </header>
   <p class="sub">Podłogówka całego domu · pętla A — przesuwanie grzania do tańszych godzin.
+    <strong>Faza cienia:</strong> plan jest liczony na żywo, ale nic nie jest zapisywane do pompy.
     {% if pump_eq and pump_eq.note %}{{ pump_eq.note }}{% endif %}</p>
   <div class="profiles" aria-label="Aktywny profil">
     <span class="{{ 'active' if heiko_profile == 'komfort' }}">Komfort</span>
@@ -20,12 +21,28 @@
     <dt>Tryb pracy</dt><dd data-live="heiko.mode">{{ live.heiko.mode }}</dd>
     <dt>Krzywa grzewcza</dt><dd data-live="heiko.curve">{{ live.heiko.curve }}</dd>
     <dt>Setpoint pompy teraz</dt><dd data-live="heiko.setpoint">{{ live.heiko.setpoint }}</dd>
-    <dt>Symulacja — Komfort</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
-    <dt>Symulacja — Ekonomia</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
+    <dt>Równoważnik krzywej teraz</dt><dd>{{ (heiko.base_curve_c if heiko else none)|temp }}</dd>
+    <dt>Plan wody — Komfort (blok bieżący)</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
+    <dt>Plan wody — Ekonomia (blok bieżący)</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
     <dt>Temp. zewnętrzna</dt><dd data-live="heiko.outdoor">{{ live.heiko.outdoor }}</dd>
     <dt>Średnia stref dziennych</dt><dd data-live="heiko.avg">{{ live.heiko.avg }}</dd>
+    <dt>Najzimniejszy pokój</dt><dd id="hp-minroom">{{ (heiko.min_room_c if heiko else none)|temp }}</dd>
   </dl>
+  <p class="warn" id="hp-fuse" hidden></p>
   <div class="cost" id="heiko-cost">ładowanie…</div>
+  <figure class="plan-chart" id="heiko-chart" aria-label="Przewidywana średnia temperatura pokoi na 36 h"></figure>
+  <details class="fold" open>
+    <summary>Oszczędność planu (model)</summary>
+    <div id="heiko-savings" class="fold-body">ładowanie…</div>
+  </details>
+  <details class="fold">
+    <summary>Plan bloków taryfy — 36 h</summary>
+    <div id="heiko-blocks" class="fold-body history-table">ładowanie…</div>
+  </details>
+  <details class="fold">
+    <summary>Model podłogówki</summary>
+    <div id="heiko-model" class="fold-body">ładowanie…</div>
+  </details>
 </section>
 
 <section class="detail" data-card="loop_attic" hidden>

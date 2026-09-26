@@ -56,6 +56,17 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("planned_start", "TEXT"),        # planowany start dogrzewania (ISO)
     ("presence", "INTEGER"),          # czujnik obecności: 1 jest / 0 brak / NULL nieznane
     ("vacant_min", "REAL"),           # minuty pustki liczone od początku okna pracy
+    # Pętla A (0.6.0) — dane fazy cienia: z nich uczy się model podłogówki.
+    ("water_temp_c", "REAL"),         # temperatura wody grzewczej (skraplacz)
+    ("heating_active", "INTEGER"),    # pompa w trybie grzania (0/1/NULL)
+    ("dhw_active", "INTEGER"),        # pompa robi CWU w tym kroku (0/1/NULL)
+    ("energy_kwh", "REAL"),           # energia pompy w kroku wg licznika
+    ("heat_kw", "REAL"),              # moc cieplna do domu (COP × moc), 0 poza grzaniem
+    ("base_curve_c", "REAL"),         # równoważnik krzywej grzewczej teraz
+    ("plan_setpoint_c", "REAL"),      # nastawa z planu aktywnego profilu (blok bieżący)
+    ("model_err_c", "REAL"),          # błąd prognozy 1 kroku: zmierzone − przewidziane
+    ("min_room_c", "REAL"),           # najzimniejszy pokój w strefach dziennych
+    ("min_room_name", "TEXT"),
 )
 
 
