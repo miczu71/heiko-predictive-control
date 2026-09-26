@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 — treść karty pompy
+
+Karta pompy opisuje pętlę A jako obserwację (pompa steruje sama), a wartości optymalizatora są
+oznaczone jako poglądowe. Bez zmian w logice.
+
 ## 0.7.0 — Etap 3b′: obserwacja natywnego mechanizmu pompy (krzywa + ograniczona nastawa)
 
 **Zmiana podejścia pętli A.** Zamiast zapisywać nastawę wody, add-on **obserwuje** to, co robi

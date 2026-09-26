@@ -10,8 +10,10 @@
     <h2><svg class="ico"><use href="#i-fan"/></svg> {{ pump_eq.label if pump_eq else 'Pompa ciepła' }}</h2>
     <span class="status">tylko obserwacja</span>
   </header>
-  <p class="sub">Podłogówka całego domu · pętla A — przesuwanie grzania do tańszych godzin.
-    <strong>Faza cienia:</strong> plan jest liczony na żywo, ale nic nie jest zapisywane do pompy.
+  <p class="sub">Podłogówka całego domu · pętla A — <strong>tylko obserwacja</strong>. Grzaniem steruje pompa
+    (krzywa grzewcza + natywna „ograniczona nastawa” z zegarem ustawianym na panelu); add-on niczego
+    do niej nie zapisuje, tylko mierzy skutek i pilnuje komfortu. Plan optymalizatora poniżej jest
+    wyłącznie poglądowy.
     {% if pump_eq and pump_eq.note %}{{ pump_eq.note }}{% endif %}</p>
   <div class="profiles" aria-label="Aktywny profil">
     <span class="{{ 'active' if heiko_profile == 'komfort' }}">Komfort</span>
@@ -23,8 +25,8 @@
     <dt>Cel wody wg pompy teraz</dt><dd data-live="heiko.setpoint">{{ live.heiko.setpoint }}</dd>
     <dt>Ograniczona nastawa (natywna)</dt><dd data-live="heiko.reduced">{{ live.heiko.reduced }}</dd>
     <dt>Równoważnik krzywej teraz</dt><dd>{{ (heiko.base_curve_c if heiko else none)|temp }}</dd>
-    <dt>Plan wody — Komfort (blok bieżący)</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
-    <dt>Plan wody — Ekonomia (blok bieżący)</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
+    <dt>Optymalizator (poglądowo) — Komfort</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
+    <dt>Optymalizator (poglądowo) — Ekonomia</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
     <dt>Temp. zewnętrzna</dt><dd data-live="heiko.outdoor">{{ live.heiko.outdoor }}</dd>
     <dt>Średnia stref dziennych</dt><dd data-live="heiko.avg">{{ live.heiko.avg }}</dd>
     <dt>Najzimniejszy pokój</dt><dd id="hp-minroom">{{ (heiko.min_room_c if heiko else none)|temp }}</dd>

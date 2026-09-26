@@ -231,7 +231,8 @@ def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
     html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
     for element_id in ("heiko-chart", "heiko-savings", "heiko-blocks", "heiko-model", "hp-fuse"):
         assert f'id="{element_id}"' in html
-    assert "tylko obserwacja" in html and "Faza cienia" in html
+    assert "tylko obserwacja" in html and "niczego" in html and "poglądow" in html
+    assert "steruje" not in html.split('data-card="loop_heiko"')[1].split("</section>")[0].replace("Grzaniem steruje pompa", "")
 
 
 def test_api_plan_returns_kpi_with_baseline(tmp_path):
