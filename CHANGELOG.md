@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.7.0 — Etap 3b′: obserwacja natywnego mechanizmu pompy (krzywa + ograniczona nastawa)
+
+**Zmiana podejścia pętli A.** Zamiast zapisywać nastawę wody, add-on **obserwuje** to, co robi
+pompa: krzywa grzewcza (włączana przez użytkownika na starcie sezonu) i natywna „ograniczona
+nastawa” z tygodniowym zegarem (ustawiana na panelu pompy). **Nadal zero zapisów do pompy** —
+gwarantuje to test strukturalny (analiza AST) obejmujący wszystkie moduły pętli A.
+
+- **Cel wody wg pompy.** Cykl zapisuje aktualny cel wody z pompy (obejmuje krzywą, przesunięcie i
+  ograniczenie) oraz stan krzywej. Karta pompy pokazuje ten cel zamiast nastawy stałej, która przy
+  włączonej krzywej jest niedostępna.
+- **Ograniczona nastawa — wnioskowana.** Zegar nie jest czytelny z HA, więc aktywność wnioskujemy:
+  przy **włączonej** krzywej cel wody o ≥ 0,5°C poniżej krzywej (uwzględnia przesunięcie krzywej).
+  Przy wyłączonej krzywej stan jest „nieznany”.
+- **Bezwładność z wymuszenia.** Przejścia ograniczenia włączone↔wyłączone to wymuszenie, którego
+  brakowało zimowym danym. Swobodna regresja (c, τ) jest dopuszczona dopiero przy ≥ 6 przejściach i
+  średnim spadku ≥ 1°C oraz gdy jest o ≥ 10% lepsza od „nic się nie zmieni”; wtedy model dostaje
+  status **zidentyfikowany** i znika ostrzeżenie o orientacyjnych oszczędnościach. Zidentyfikowany
+  model nie jest nadpisywany przez dane bez wymuszenia.
+- **KPI zmierzone: udział energii w szczycie** (ostatnie 7 dni) porównany z zimą sprzed sterowania
+  **przy tym samym rozkładzie temperatur zewnętrznych** (klasy co 3°C). Baza z długoterminowych
+  statystyk ostatniego sezonu liczona raz po starcie. To właściwa miara przesunięcia — nie zależy od
+  modelu. Energia łącznie z CWU po obu stronach; święta liczone jak dni robocze.
+- **Alarm komfortu** — powiadomienie (`notify_service`), gdy najzimniejszy pokój jest poniżej
+  `heiko_room_min_c` przez ≥ 30 min; jedno na epizod. Podpowiada wyłączenie ograniczenia na panelu.
+  Tylko powiadomienie, bez akcji na pompie.
+- Optymalizator z 0.6.0 zostaje jako **poglądowy benchmark** („co by zrobił”), nie jako sterowanie.
+
+| Encja MQTT | Znaczenie |
+|---|---|
+| Heiko: cel wody wg pompy | aktualny cel wody, °C |
+| Heiko: ograniczona nastawa (wnioskowana) | aktywna / nieaktywna / nieznany |
+| Heiko: udział energii w szczycie, 7 dni | % |
+| Heiko: udział w szczycie z zimy, ta sama pogoda | % (baza porównawcza) |
+
+| Opcja | Domyślnie | Znaczenie |
+|---|---|---|
+| `heiko_water_setpoint_entity` | sensor celu wody pompy | aktualny cel wody |
+| `heiko_curve_shift_entity` | `number` przesunięcia krzywej | uwzględniane przy wykrywaniu ograniczenia |
+
+API: `GET /api/plan` zwraca też `kpi` i `kpi_baseline`. Baza: kolumny `water_setpoint_c`, `curve_on`,
+`reduced_active` (migracja automatyczna).
+
 ## 0.6.0 — Pętla A (faza cienia): model podłogówki i plan pod taryfę
 
 Etap 3a. **Nic nie jest zapisywane do pompy** — pętla A nadal tylko obserwuje, ale

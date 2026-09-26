@@ -201,6 +201,50 @@ def test_old_ewma_state_is_ignored_and_default_model_is_used(conn):
     assert model["c"] == fm.DEFAULT_C and model["source"] == fm.SOURCE_DEFAULT
 
 
+class ObservingWorld(World):
+    """Świat z krzywą ON i celem wody z pompy (sensor) + przesunięciem krzywej."""
+    def __init__(self, water_target, curve="on", shift=0.0, **kw):
+        super().__init__(**kw)
+        self.numeric["sensor.heiko_heat_pump_water_temperature_setpoint"] = water_target
+        self.numeric["number.heiko_heat_pump_heating_curve_parallel_shift"] = shift
+        self.curve = curve
+
+    def get_state(self, entity):
+        if entity == "switch.curve":
+            return {"state": self.curve, "attributes": {}}
+        return super().get_state(entity)
+
+
+OBS = {**SETTINGS, "heiko_curve_switch_entity": "switch.curve"}
+
+
+def test_records_water_target_and_infers_reduced_setpoint_from_curve(conn):
+    # krzywa przy +2°C = 24,71; cel 21 => ograniczenie aktywne (spadek 3,7°C)
+    row = _run(conn, ObservingWorld(water_target=21.0), NOW, OBS)
+    assert row["water_setpoint_c"] == 21.0 and row["curve_on"] == 1 and row["reduced_active"] == 1
+    stored = dbm.latest_cycle(conn, "heiko")
+    assert (stored["water_setpoint_c"], stored["curve_on"], stored["reduced_active"]) == (21.0, 1, 1)
+
+
+def test_no_reduction_when_target_follows_curve_and_shift_is_accounted_for(conn):
+    assert _run(conn, ObservingWorld(water_target=24.7), NOW, OBS)["reduced_active"] == 0
+    row = _run(conn, ObservingWorld(water_target=22.7, shift=-2.0), NOW + timedelta(minutes=15), OBS)
+    assert row["reduced_active"] == 0                     # -2°C to przesunięcie krzywej, nie ograniczenie
+
+
+def test_reduced_setpoint_is_unknown_while_curve_is_off(conn):
+    row = _run(conn, ObservingWorld(water_target=20.0, curve="off"), NOW, OBS)
+    assert row["curve_on"] == 0 and row["reduced_active"] is None      # stała nastawa != ograniczenie
+
+
+def test_infer_reduced_threshold_and_missing_inputs():
+    assert cycle.infer_reduced(24.2, 24.7, 0, True) is True            # dokładnie −0,5°C
+    assert cycle.infer_reduced(24.3, 24.7, 0, True) is False
+    assert cycle.infer_reduced(None, 24.7, 0, True) is None
+    assert cycle.infer_reduced(21.0, None, 0, True) is None
+    assert cycle.infer_reduced(21.0, 24.7, None, True) is True         # brak encji przesunięcia = 0
+
+
 def test_loop_a_code_contains_no_write_calls():
     """Twarda gwarancja fazy cienia: w ciele pętli A nie ma wywołań usług ani powiadomień."""
     source = inspect.getsource(cycle.run_heiko_cycle)

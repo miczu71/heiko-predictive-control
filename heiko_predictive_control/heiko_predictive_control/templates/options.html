@@ -53,6 +53,10 @@
         <input type="text" name="heiko_water_temp_entity" value="{{ settings.heiko_water_temp_entity or '' }}"></label>
       <label>Tryb pracy pompy
         <input type="text" name="heiko_working_mode_entity" value="{{ settings.heiko_working_mode_entity or '' }}"></label>
+      <label>Cel wody wg pompy (krzywa + przesunięcie + ograniczenie)
+        <input type="text" name="heiko_water_setpoint_entity" value="{{ settings.heiko_water_setpoint_entity or '' }}"></label>
+      <label>Przesunięcie równoległe krzywej
+        <input type="text" name="heiko_curve_shift_entity" value="{{ settings.heiko_curve_shift_entity or '' }}"></label>
       <label>Temp. zewnętrzna z długą historią (bootstrap modelu z zeszłej zimy)
         <input type="text" name="heiko_bootstrap_outdoor_entity" value="{{ settings.heiko_bootstrap_outdoor_entity or '' }}"></label>
     </fieldset>

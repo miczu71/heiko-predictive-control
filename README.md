@@ -14,10 +14,10 @@ wielu integracji tamtej konfiguracji).
 
 ## Dwie pętle sterujące
 
-- **A — Heiko (podłogówka):** optymalizacja kosztu. Docelowo krzywa grzewcza pompy
-  wyłączona na stałe, a nastawa wody ustawiana per blok taryfy względem równoważnika
-  krzywej. **Dziś (0.6.0) faza cienia:** add-on uczy dwustanowy model domu (wylewka +
-  pokój) i liczy plan na 36 h, ale niczego nie zapisuje do pompy.
+- **A — Heiko (podłogówka):** optymalizacja kosztu przez natywne funkcje pompy: krzywa
+  grzewcza + „ograniczona nastawa” z tygodniowym zegarem na szczyty G12w (ustawia użytkownik
+  na panelu). Add-on **niczego nie zapisuje do pompy** — obserwuje skutek, uczy dwustanowy model
+  domu, mierzy udział energii w szczycie i pilnuje komfortu (powiadomienie).
 - **B — AC poddasze:** komfort w oknie pracy (domyślnie 8:00-16:00 dni robocze), koszt
   drugorzędny. **Steruje od 0.4.0:** przejmuje wyłączony klimatyzator, dogrzewa z
   wyprzedzeniem liczonym z uczonego tempa, utrzymuje temperaturę korygując offset nastawy,
@@ -47,8 +47,10 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
 
 ## Status
 
-**0.6.0 — Etap 3a: pętla A w fazie cienia** (model podłogówki, plan blokowy pod taryfę,
-bezpiecznik pokoi; zero zapisów do pompy). Pętla B (AC poddasza) zapisuje do klimatyzatora
+**0.7.0 — Etap 3b′: pętla A obserwuje natywny mechanizm pompy** (krzywa grzewcza + „ograniczona
+nastawa” z zegarem, ustawiana na panelu): cel wody wg pompy, udział energii w szczycie vs zima,
+uczenie bezwładności z wymuszenia, alarm komfortu; zero zapisów do pompy. (0.6.0: model
+podłogówki i poglądowy plan optymalizatora.) Pętla B (AC poddasza) zapisuje do klimatyzatora
 od 0.4.0 (tylko gdy `attic_enabled`). Patrz `CHANGELOG.md`.
 
 ## Rozwój

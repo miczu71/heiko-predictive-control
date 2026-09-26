@@ -26,6 +26,9 @@ _DEFAULT_CURVE_AMBIENT = ",".join(f"number.heiko_heat_pump_curve_ambient_temp_{i
 _DEFAULT_CURVE_WATER = ",".join(f"number.heiko_heat_pump_curve_water_temp_{i}" for i in range(1, 6))
 _DEFAULT_WATER_TEMP = "sensor.heiko_heat_pump_condenser_temperature"
 _DEFAULT_MODE = "sensor.heiko_heat_pump_working_mode_2"
+DEFAULT_WATER_TARGET_ENTITY = "sensor.heiko_heat_pump_water_temperature_setpoint"
+_DEFAULT_CURVE_SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
+REDUCED_MIN_DROP_C = 0.5          # o tyle cel wody poniżej krzywej = ograniczona nastawa aktywna
 
 
 # ── Pętla A (Heiko / podłogówka) — funkcje czyste ───────────────────────────
@@ -43,6 +46,17 @@ def mode_flags(state_text) -> tuple[bool, bool]:
     heating = s in ("2", "heating") or s.startswith("heating")
     dhw = s in ("1",) or "sanitary" in s or "dhw" in s
     return heating, dhw
+
+
+def infer_reduced(water_target_c: float | None, curve_c: float | None, shift_c: float | None,
+                  curve_on: bool | None) -> bool | None:
+    """Czy działa natywna „ograniczona nastawa”? Zegar 5.3 nie jest czytelny z HA, więc
+    wnioskujemy: przy WŁĄCZONEJ krzywej cel wody wyraźnie poniżej krzywej (+ przesunięcie).
+    Przy wyłączonej krzywej cel to stała nastawa — porównanie z krzywą nic nie mówi (None)."""
+    if curve_on is not True or water_target_c is None or curve_c is None:
+        return None
+    expected = curve_c + (shift_c or 0.0)
+    return water_target_c <= expected - REDUCED_MIN_DROP_C
 
 
 def parse_forecast(forecast) -> list[tuple[datetime, float]]:
@@ -147,6 +161,10 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     water_temp = get_numeric(settings.get("heiko_water_temp_entity") or _DEFAULT_WATER_TEMP)
     mode = (get_state(settings.get("heiko_working_mode_entity") or _DEFAULT_MODE) or {}).get("state")
     heating_now, dhw_now = mode_flags(mode)
+    water_target = get_numeric(settings.get("heiko_water_setpoint_entity") or DEFAULT_WATER_TARGET_ENTITY)
+    curve_raw = str((get_state(settings.get("heiko_curve_switch_entity", "")) or {}).get("state", "")).lower()
+    curve_on = {"on": True, "off": False}.get(curve_raw)
+    shift = get_numeric(settings.get("heiko_curve_shift_entity") or _DEFAULT_CURVE_SHIFT)
 
     result = {
         "ts": now.isoformat(), "loop": "heiko",
@@ -155,6 +173,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         "price_pln_kwh": price, "outdoor_temp_c": outdoor_c, "indoor_temp_c": indoor_c,
         "write_enabled": int(bool(settings.get("heiko_enabled"))),
         "water_temp_c": water_temp, "heating_active": int(heating_now), "dhw_active": int(dhw_now),
+        "water_setpoint_c": water_target, "curve_on": None if curve_on is None else int(curve_on),
         "min_room_c": None if min_room is None else min_room[0],
         "min_room_name": None if min_room is None else min_room[1],
     }
@@ -176,6 +195,8 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     base_steps = [fp.curve_setpoint(amb, wat, t) for t in t_out]
     curve_now = fp.curve_setpoint(amb, wat, outdoor_c)
     result["base_curve_c"] = curve_now
+    reduced = infer_reduced(water_target, curve_now, shift, curve_on)
+    result["reduced_active"] = None if reduced is None else int(reduced)
 
     # Pomiar mocy cieplnej w minionym kroku i aktualizacja stanu magazynu wylewki.
     prev = dbm.latest_cycle(conn, "heiko")

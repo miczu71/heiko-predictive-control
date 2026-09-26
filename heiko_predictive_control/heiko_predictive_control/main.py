@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import __version__, cycle, floor_learn, ha_client, layout
+from . import __version__, comfort, cycle, floor_learn, ha_client, kpi, layout
 from . import attic as attic_mod
 from . import db as dbm
 from .publisher import MQTTPublisher
@@ -70,6 +70,8 @@ def _options_from_env() -> dict:
         "heiko_water_temp_entity": _env("HEIKO_WATER_TEMP_ENTITY"),
         "heiko_working_mode_entity": _env("HEIKO_WORKING_MODE_ENTITY"),
         "heiko_bootstrap_outdoor_entity": _env("HEIKO_BOOTSTRAP_OUTDOOR_ENTITY"),
+        "heiko_water_setpoint_entity": _env("HEIKO_WATER_SETPOINT_ENTITY"),
+        "heiko_curve_shift_entity": _env("HEIKO_CURVE_SHIFT_ENTITY"),
         "heiko_active_profile": _env("HEIKO_ACTIVE_PROFILE", "ekonomia"),
         "attic_ac_entity": _env("ATTIC_AC_ENTITY"),
         "attic_temp_entity": _env("ATTIC_TEMP_ENTITY"),
@@ -147,6 +149,8 @@ def main() -> None:
             plan = dbm.get_setting(c, "heiko_plan") or {}
             summary = plan.get("summary") or {}
             model = floor_learn.load_model(c)
+            comfort.comfort_alarm(c, settings, now)                  # tylko powiadomienie, bez zapisu do pompy
+            recent = kpi.recent_kpi(c, now, settings.get("peak_baseline"))
             mqtt_pub.publish_values({
                 "heiko_write_enabled": settings.get("heiko_enabled"),
                 "heiko_active_profile": heiko.get("active_profile"),
@@ -163,6 +167,11 @@ def main() -> None:
                 "heiko_model_source": model.source,
                 "heiko_min_room": heiko.get("min_room_c"),
                 "heiko_fuse": plan.get("fuse_active", False),
+                "heiko_water_setpoint": heiko.get("water_setpoint_c"),
+                "heiko_reduced_state": {1: "aktywna", 0: "nieaktywna"}.get(heiko.get("reduced_active"), "nieznany"),
+                "heiko_peak_share": None if not recent else round(recent["share"] * 100, 1),
+                "heiko_peak_share_baseline": (None if not recent or recent["baseline_share"] is None
+                                              else round(recent["baseline_share"] * 100, 1)),
                 "last_cycle_ts": now.astimezone().isoformat(),   # HA odrzuca timestamp bez strefy
             })
         except Exception:
@@ -178,6 +187,16 @@ def main() -> None:
                 floor_learn.bootstrap(c, dbm.get_all_settings(c), datetime.now())
         except Exception:
             logger.exception("Bootstrap modelu podłogówki nieudany")
+        finally:
+            c.close()
+
+    def peak_baseline() -> None:
+        """Jednorazowo (do skutku) policz bazę udziału szczytu z LTS ostatniego sezonu."""
+        c = dbm.get_conn(db_path)
+        try:
+            kpi.ensure_peak_baseline(c, dbm.get_all_settings(c), datetime.now())
+        except Exception:
+            logger.exception("Baza udziału szczytu nieudana")
         finally:
             c.close()
 
@@ -232,6 +251,7 @@ def main() -> None:
                        next_run_time=datetime.now(), max_instances=1, coalesce=True)
     scheduler.add_job(refit_model, "cron", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(bootstrap_model, "date", run_date=datetime.now() + timedelta(seconds=20))
+    scheduler.add_job(peak_baseline, "date", run_date=datetime.now() + timedelta(seconds=45))
     scheduler.start()
 
     # Układ domu z prywatnej konfiguracji HA (repo add-onu jest publiczne).

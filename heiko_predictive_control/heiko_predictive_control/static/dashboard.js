@@ -133,7 +133,27 @@ function svgChart(plan, active) {
     <span><i class="pc-key pc-peakkey"></i>szczyt taryfy</span></figcaption>`;
 }
 
+function renderKpi(data) {
+  const k = data.kpi, b = data.kpi_baseline;
+  const pct = (v) => (v == null ? "—" : `${(v * 100).toFixed(1).replace(".", ",")}%`);
+  if (!b) {
+    return `<p class="note">Baza z zimy jest jeszcze liczona (pierwsze uruchomienie, kilka minut).</p>`;
+  }
+  const base = `Zima sprzed sterowania: ${pct(b.overall)} energii w szczycie (${b.hours} h danych, ${esc(b.at.slice(0, 10))}).`;
+  if (!k) {
+    return `<p>Za mało energii w ostatnich 7 dniach (poza sezonem grzewczym) — KPI pojawi się, gdy pompa zacznie grzać.</p>
+      <p class="note">${base}</p>`;
+  }
+  const delta = k.delta_pp == null ? "—" : `${k.delta_pp > 0 ? "+" : ""}${k.delta_pp.toFixed(1).replace(".", ",")} p.p.`;
+  return `<dl class="kv">
+    <dt>Ostatnie 7 dni</dt><dd>${pct(k.share)} <small>(${k.kwh.toFixed(1).replace(".", ",")} kWh)</small></dd>
+    <dt>Zima przy tej samej pogodzie</dt><dd>${pct(k.baseline_share)}</dd>
+    <dt>Przesunięcie poza szczyt</dt><dd>${delta}</dd></dl>
+    <p class="note">${base} Energia łącznie z CWU po obu stronach porównania; święta liczone jak dni robocze.</p>`;
+}
+
 function modelCaveat(model) {
+  if (model.identified) return "";
   if (model.source === "domyślny") {
     return "Model niedopasowany — parametry domyślne. Liczby poniżej są czysto orientacyjne.";
   }
@@ -188,6 +208,8 @@ function renderModel(data) {
     <dt>Moc grzania e</dt><dd>${num(m.e, 2)} kW/K</dd>
     <dt>Błąd prognozy 6 h (dopasowanie)</dt><dd>${m.rmse_c == null ? "—" : num(m.rmse_c) + " °C"} <small>(bez modelu: ${num(m.persist_c)})</small></dd>
     <dt>Błąd 1 kroku na żywo (24 h)</dt><dd>${data.live_rmse_c == null ? "—" : num(data.live_rmse_c, 3) + " °C"} <small>(${data.live_samples} prób)</small></dd>
+    <dt>Bezwładność domu (c, τ)</dt><dd>${m.identified ? "zidentyfikowana z wymuszenia" : "niezidentyfikowana"}</dd>
+    ${refit && refit.excitation ? `<dt>Wymuszenie (14 dni)</dt><dd>${refit.excitation.transitions} przejść, śr. spadek ${num(refit.excitation.mean_drop_c, 1)} °C${refit.excitation.sufficient ? "" : " <small>(za mało)</small>"}</dd>` : ""}
     <dt>Bootstrap z zimy</dt><dd>${bootTxt}</dd>
     <dt>Ostatnie dobowe dopasowanie</dt><dd>${refitTxt}</dd>
   </dl>`;
@@ -203,6 +225,7 @@ async function refreshPlan() {
     return;
   }
   set("heiko-model", renderModel(data));
+  set("heiko-kpi", renderKpi(data));
   const plan = data.plan;
   if (!plan || !plan.hours) {
     const empty = "Plan pojawi się po pierwszym cyklu (do 15 min) — wymaga punktów krzywej grzewczej.";

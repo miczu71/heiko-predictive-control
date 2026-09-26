@@ -20,7 +20,8 @@
   <dl class="kv">
     <dt>Tryb pracy</dt><dd data-live="heiko.mode">{{ live.heiko.mode }}</dd>
     <dt>Krzywa grzewcza</dt><dd data-live="heiko.curve">{{ live.heiko.curve }}</dd>
-    <dt>Setpoint pompy teraz</dt><dd data-live="heiko.setpoint">{{ live.heiko.setpoint }}</dd>
+    <dt>Cel wody wg pompy teraz</dt><dd data-live="heiko.setpoint">{{ live.heiko.setpoint }}</dd>
+    <dt>Ograniczona nastawa (natywna)</dt><dd data-live="heiko.reduced">{{ live.heiko.reduced }}</dd>
     <dt>Równoważnik krzywej teraz</dt><dd>{{ (heiko.base_curve_c if heiko else none)|temp }}</dd>
     <dt>Plan wody — Komfort (blok bieżący)</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
     <dt>Plan wody — Ekonomia (blok bieżący)</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
@@ -32,7 +33,11 @@
   <div class="cost" id="heiko-cost">ładowanie…</div>
   <figure class="plan-chart" id="heiko-chart" aria-label="Przewidywana średnia temperatura pokoi na 36 h"></figure>
   <details class="fold" open>
-    <summary>Oszczędność planu (model)</summary>
+    <summary>Udział energii w szczycie (zmierzony)</summary>
+    <div id="heiko-kpi" class="fold-body">ładowanie…</div>
+  </details>
+  <details class="fold">
+    <summary>Oszczędność optymalizatora (model, poglądowo)</summary>
     <div id="heiko-savings" class="fold-body">ładowanie…</div>
   </details>
   <details class="fold">

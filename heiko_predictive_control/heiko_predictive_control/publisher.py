@@ -59,6 +59,14 @@ _SENSORS: list[_Sensor] = [
             "temperature", "mdi:thermometer-low"),
     _Sensor("heiko_fuse", "Heiko: bezpiecznik pokoi aktywny", None, None,
             "mdi:shield-alert", is_binary=True),
+    _Sensor("heiko_water_setpoint", "Heiko: cel wody wg pompy", "°C", "temperature",
+            "mdi:water-thermometer"),
+    _Sensor("heiko_reduced_state", "Heiko: ograniczona nastawa (wnioskowana)", None, None,
+            "mdi:clock-time-four-outline"),
+    _Sensor("heiko_peak_share", "Heiko: udział energii w szczycie, 7 dni", "%", None,
+            "mdi:chart-donut"),
+    _Sensor("heiko_peak_share_baseline", "Heiko: udział w szczycie z zimy, ta sama pogoda", "%", None,
+            "mdi:chart-donut-variant"),
     _Sensor("attic_target_komfort", "AC poddasze: cel symulowany (Komfort)", "°C",
             "temperature", "mdi:thermometer"),
     _Sensor("attic_target_ekonomia", "AC poddasze: cel symulowany (Ekonomia)", "°C",
@@ -87,7 +95,8 @@ _SENSORS: list[_Sensor] = [
 # Sensory, których wartość może zniknąć (np. koniec okna pracy). Samo pominięcie
 # publikacji zostawiłoby stary retained stan, więc wysyłamy „None” — HA MQTT
 # traktuje ten ładunek jako brak wartości (unknown).
-_CLEAR_WHEN_NONE = frozenset({"attic_planned_start", "attic_ac_setpoint_cmd"})
+_CLEAR_WHEN_NONE = frozenset({"attic_planned_start", "attic_ac_setpoint_cmd",
+                              "heiko_peak_share", "heiko_peak_share_baseline"})
 
 
 class MQTTPublisher:

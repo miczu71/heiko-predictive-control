@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .cycle import DEFAULT_WATER_TARGET_ENTITY
 from .rooms import House, temp_class
 
 HVAC_LABELS = {
@@ -110,10 +111,15 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
         "price": fmt_price(get_numeric(settings.get("tariff_price_entity") or "")),
     }
 
+    water_target = get_numeric(settings.get("heiko_water_setpoint_entity") or DEFAULT_WATER_TARGET_ENTITY)
     curve_state, _ = _state(get_state, settings.get("heiko_curve_switch_entity"))
     avg = sum(zone_temps) / len(zone_temps) if zone_temps else None
     heiko = {
-        "setpoint": fmt_temp(get_numeric(settings.get("heiko_setpoint_entity") or "")),
+        # Aktualny cel wody wg pompy (krzywa + przesunięcie + ograniczenie); przy krzywej ON encja
+        # `number` nastawy jest niedostępna, więc to jej zastępnik (fallback: nastawa stała).
+        "setpoint": fmt_temp(water_target if water_target is not None
+                             else get_numeric(settings.get("heiko_setpoint_entity") or "")),
+        "reduced": "—",
         "outdoor": fmt_temp(get_numeric(settings.get("outdoor_temp_entity") or "")),
         "avg": fmt_temp(avg),
         "mode": pump_mode,
@@ -126,6 +132,15 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
 
     return {"rooms": rooms, "equipment": equipment, "tariff": tariff, "heiko": heiko,
             "attic": attic}
+
+
+def reduced_label(reduced_active, curve_on) -> str:
+    """Stan natywnej „ograniczonej nastawy” (wnioskowany z celu wody vs krzywa)."""
+    if reduced_active == 1:
+        return "aktywna"
+    if reduced_active == 0:
+        return "nieaktywna"
+    return "nieznany (krzywa wyłączona)" if curve_on == 0 else "—"
 
 
 def fmt_vacant(presence: Any, vacant_min: Any) -> str:

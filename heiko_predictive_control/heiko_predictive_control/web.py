@@ -3,13 +3,13 @@ wyłącznie względne) — Pulpit / Statystyki / Opcje."""
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Callable, Optional
 
 from flask import Flask, jsonify, render_template, request
 
 from . import __version__, attic, ha_client, layout, live, rooms
-from . import floor_model
+from . import floor_model, kpi
 from . import db as dbm
 
 logger = logging.getLogger(__name__)
@@ -66,8 +66,11 @@ def create_app(db_path: str,
         try:
             row = dbm.latest_cycle(conn, "attic")
             totals = dbm.attic_today_totals(conn, date.today().isoformat())
+            heiko_row = dbm.latest_cycle(conn, "heiko")
         finally:
             conn.close()
+        if heiko_row is not None:
+            data["heiko"]["reduced"] = live.reduced_label(heiko_row["reduced_active"], heiko_row["curve_on"])
         # from_dict: przy braku utrwalonego stanu (dry-run) pokazuje domyślne wartości
         # — te same, które add-on publikuje przez MQTT.
         state = attic.AtticState.from_dict(settings.get("attic_ctrl_state")).as_dict()
@@ -162,7 +165,9 @@ def create_app(db_path: str,
         „na żywo” = RMSE błędu prognozy 1 kroku z ostatnich ~24 h cykli."""
         settings = get_settings()
         conn = db_conn()
+        baseline = settings.get("peak_baseline")
         try:
+            recent = kpi.recent_kpi(conn, datetime.now(), baseline)
             errs = [r["model_err_c"] for r in conn.execute(
                 "SELECT model_err_c FROM cycles WHERE loop = 'heiko' AND model_err_c IS NOT NULL "
                 "ORDER BY id DESC LIMIT 96")]
@@ -175,6 +180,8 @@ def create_app(db_path: str,
             "bootstrap": settings.get("floor_bootstrap"), "refit": settings.get("floor_refit"),
             "live_rmse_c": None if live_rmse is None else round(live_rmse, 3),
             "live_samples": len(errs),
+            "kpi": recent,
+            "kpi_baseline": None if not baseline else {k: baseline.get(k) for k in ("overall", "hours", "kwh", "at")},
         })
 
     @app.get("/api/settings")

@@ -2,6 +2,8 @@ import math
 import random
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import floor_learn as fl
 from heiko_predictive_control import floor_model as fm
@@ -55,7 +57,7 @@ def _stats(world):
     return {"sensor.z1": zone, "sensor.z2": zone2, "sensor.owm": outd, "sensor.energy": energy}
 
 
-def test_bootstrap_recovers_model_from_winter_statistics():
+def test_bootstrap_uses_energy_balance_not_free_regression():
     conn = _conn()
     stats = _stats(_world(24 * 30, 1.0))
     now = datetime(2026, 9, 26, 12, 0)
@@ -63,9 +65,9 @@ def test_bootstrap_recovers_model_from_winter_statistics():
                         get_numeric=lambda e: CURVE.get(e))
     assert info["ok"], info
     model = fm.FloorModel.from_dict(dbm.get_setting(conn, "floor_model_state"))
-    assert model.source == fm.SOURCE_BOOTSTRAP
-    assert abs(model.c - 0.06) < 0.02 and abs(model.g - 0.3) < 0.1
-    assert model.rmse_c < 0.5
+    assert model.source == fm.SOURCE_BALANCE and model.identified is False    # zima = pętla zamknięta
+    assert model.g == pytest.approx(model.balance_r * model.c, rel=1e-2)
+    assert model.rmse_c <= model.persist_c * 1.2
     assert dbm.get_setting(conn, "floor_bootstrap")["ok"] is True
 
 
@@ -127,16 +129,64 @@ def test_cycle_segments_shift_heat_by_one_step_and_split_on_gap():
     assert len(segs[0].tr) == len(segs[0].q_kw) == 40
 
 
-def test_refit_from_cycles_learns_and_marks_shadow_source():
+def _cycle_rows_reduced(conn, world, base_ts, block=16, drop=3.0):
+    """Jak `_cycle_rows`, ale z natywnym ograniczeniem włączanym blokami (wymuszenie)."""
+    prev_q = None
+    for i, (_, tr, to, q) in enumerate(world):
+        base = fp.curve_setpoint(AMB, WAT, to)
+        reduced = (i // block) % 2
+        dbm.insert_cycle(conn, {
+            "ts": (base_ts + timedelta(minutes=15 * i)).isoformat(), "loop": "heiko",
+            "active_profile": "ekonomia", "write_enabled": 0, "indoor_temp_c": tr,
+            "outdoor_temp_c": to, "heat_kw": prev_q, "water_temp_c": base,
+            "base_curve_c": base, "reduced_active": reduced,
+            "water_setpoint_c": base - drop if reduced else base})
+        prev_q = q
+
+
+def test_refit_without_excitation_stays_on_energy_balance():
     conn = _conn()
-    world = _world(24 * 6, 0.25)
     base = datetime(2026, 1, 5)
-    _cycle_rows(conn, world, base)
+    _cycle_rows(conn, _world(24 * 6, 0.25), base)                    # brak reduced_active
     info = fl.refit_from_cycles(conn, SETTINGS, base + timedelta(days=6, hours=1))
     assert info["ok"], info
+    assert info["excitation"]["sufficient"] is False
     model = fm.FloorModel.from_dict(dbm.get_setting(conn, "floor_model_state"))
-    assert model.source == fm.SOURCE_SHADOW and abs(model.c - 0.06) < 0.02
+    assert model.identified is False and model.source == fm.SOURCE_BALANCE
     assert dbm.get_setting(conn, "floor_refit")["ok"] is True
+
+
+def test_refit_with_excitation_identifies_inertia():
+    conn = _conn()
+    base = datetime(2026, 1, 5)
+    _cycle_rows_reduced(conn, _world(24 * 6, 0.25), base)
+    info = fl.refit_from_cycles(conn, SETTINGS, base + timedelta(days=6, hours=1))
+    assert info["ok"] and info["excitation"]["sufficient"], info
+    model = fm.FloorModel.from_dict(dbm.get_setting(conn, "floor_model_state"))
+    assert model.identified is True and model.source == fm.SOURCE_IDENTIFIED
+    assert abs(model.c - 0.06) < 0.02
+
+
+def test_identified_model_is_not_overwritten_by_data_without_excitation():
+    conn = _conn()
+    identified = fm.FloorModel(tau_h=6.0, g=0.3, c=0.05, source=fm.SOURCE_IDENTIFIED, identified=True)
+    dbm.set_setting(conn, "floor_model_state", identified.as_dict())
+    base = datetime(2026, 1, 5)
+    _cycle_rows(conn, _world(24 * 6, 0.25), base)
+    info = fl.refit_from_cycles(conn, SETTINGS, base + timedelta(days=6, hours=1))
+    assert not info["ok"] and "zachowany" in info["reason"]
+    assert dbm.get_setting(conn, "floor_model_state")["identified"] is True
+
+
+def test_excitation_counts_transitions_and_mean_drop():
+    rows = [{"reduced_active": v, "water_setpoint_c": 21.0 if v else 24.0, "base_curve_c": 24.0}
+            for v in [0, 0, 1, 1, 0, 1, None, 1, 0]]
+    exc = fl.excitation(rows)
+    assert exc["transitions"] == 4 and exc["mean_drop_c"] == 3.0 and exc["sufficient"] is False
+    many = [{"reduced_active": i % 2, "water_setpoint_c": 21.0, "base_curve_c": 24.0} for i in range(20)]
+    assert fl.excitation(many)["sufficient"] is True
+    small_drop = [{"reduced_active": i % 2, "water_setpoint_c": 23.5, "base_curve_c": 24.0} for i in range(20)]
+    assert fl.excitation(small_drop)["sufficient"] is False           # spadek < 1°C
 
 
 def test_refit_with_too_little_data_keeps_model():

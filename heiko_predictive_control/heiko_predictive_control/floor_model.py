@@ -37,6 +37,7 @@ DEFAULT_E = 0.5
 TAU_GRID_H = (1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0)
 C_GRID = (0.003, 0.004, 0.006, 0.008, 0.010, 0.013, 0.017, 0.022, 0.030, 0.050)
 CONSERVATIVE_RMSE_TOLERANCE = 1.10
+FREE_FIT_MIN_SKILL = 0.90             # swobodna regresja: błąd ≤ 90% błędu „nic się nie zmieni”
 _G_BOUNDS = (0.01, 2.0)
 _C_BOUNDS = (0.002, 0.5)
 _E_BOUNDS = (0.05, 5.0)
@@ -45,6 +46,7 @@ SOURCE_DEFAULT = "domyślny"
 SOURCE_BOOTSTRAP = "bootstrap z zimy"
 SOURCE_SHADOW = "faza cienia"
 SOURCE_BALANCE = "bilans energii + inercja z ograniczeń"
+SOURCE_IDENTIFIED = "regresja z wymuszeniem (natywne ograniczenie)"
 
 
 def cop(t_out_c: float, t_water_c: float, eta: float = ETA_CARNOT) -> float:
@@ -68,6 +70,7 @@ class FloorModel:
     fitted_at: str | None = None
     e_samples: int = 0
     balance_r: float | None = None     # R = g/c [K/kW] z bilansu energii (odwrotność UA)
+    identified: bool = False           # bezwładność (c, τ) zmierzona z wymuszenia, nie z ograniczeń
 
     # ── fizyka ──────────────────────────────────────────────────────────
     def heat_kw(self, t_set_c: float, tr_c: float) -> float:
@@ -103,6 +106,7 @@ class FloorModel:
             "samples": self.samples, "source": self.source,
             "fitted_at": self.fitted_at, "e_samples": self.e_samples,
             "balance_r": None if self.balance_r is None else round(self.balance_r, 3),
+            "identified": self.identified,
         }
 
     @classmethod
@@ -118,6 +122,7 @@ class FloorModel:
                 samples=int(data.get("samples", 0)), source=str(data.get("source", SOURCE_DEFAULT)),
                 fitted_at=data.get("fitted_at"), e_samples=int(data.get("e_samples", 0)),
                 balance_r=_opt_float(data.get("balance_r")),
+                identified=bool(data.get("identified", False)),
             )
         except (TypeError, ValueError):
             return model
@@ -285,12 +290,16 @@ def fit_balanced(segments: list[Segment], dt_h: float, horizon_h: float = 6.0
                       samples=sum(len(s.tr) for s in segments), balance_r=r)
 
 
-def fit_best(segments: list[Segment], dt_h: float, min_points: int = 72) -> FloorModel | None:
-    """Regresja swobodna (gdy dane mają wymuszenia) albo dopasowanie z bilansem;
-    wygrywa akceptowalny model z mniejszym błędem. Bramkę jakości stosuje wołający."""
+def fit_best(segments: list[Segment], dt_h: float, min_points: int = 72,
+             allow_free: bool = True) -> FloorModel | None:
+    """Regresja swobodna (tylko gdy dane mają wymuszenia — `allow_free`) albo
+    dopasowanie z bilansem; wygrywa akceptowalny model z mniejszym błędem.
+    Bramkę jakości stosuje wołający."""
     candidates = []
-    free = fit_room(segments, dt_h, min_points=min_points)
-    if accept_fit(free):
+    free = fit_room(segments, dt_h, min_points=min_points) if allow_free else None
+    if accept_fit(free) and free.rmse_c <= FREE_FIT_MIN_SKILL * (free.persist_c or float("inf")):
+        free.identified = True
+        free.source = SOURCE_IDENTIFIED
         candidates.append(free)
     balanced = fit_balanced(segments, dt_h)
     if accept_fit(balanced):
@@ -333,7 +342,7 @@ def accept_fit(fit: FloorModel | None, max_rmse_c: float = 0.5) -> bool:
 
 
 def stamp(model: FloorModel, source: str, now: datetime) -> FloorModel:
-    if model.source != SOURCE_BALANCE:          # dopasowanie z bilansem zachowuje swoją etykietę
+    if model.source not in (SOURCE_BALANCE, SOURCE_IDENTIFIED):     # te dopasowania mają własną etykietę
         model.source = source
     model.fitted_at = now.isoformat(timespec="minutes")
     return model

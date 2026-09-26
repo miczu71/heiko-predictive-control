@@ -107,7 +107,7 @@ def bootstrap(conn, settings: dict, now: datetime,
         q_all += q
         tr_all += tr
         tw_all += water
-    fit = fm.fit_best(segments, dt_h=1.0)
+    fit = fm.fit_best(segments, dt_h=1.0, allow_free=False)     # zima w pętli zamkniętej: bez wymuszeń
     if fit is not None:
         info.update(rmse_c=round(fit.rmse_c, 3) if fit.rmse_c is not None else None,
                     persist_c=round(fit.persist_c, 3) if fit.persist_c is not None else None,
@@ -164,26 +164,58 @@ def cycle_segments(rows, gap_min: tuple[float, float] = (10.0, 20.0)) -> list[fm
     return segments
 
 
+EXCITATION_MIN_TRANSITIONS = 6      # przejść ograniczenie włączone/wyłączone (≈ 3 dni robocze)
+EXCITATION_MIN_DROP_C = 1.0         # średni spadek celu wody w oknach ograniczenia
+
+
+def excitation(rows) -> dict:
+    """Ocena wymuszenia z natywnej ograniczonej nastawy: liczba przejść
+    włączone↔wyłączone i średni spadek celu wody względem krzywej."""
+    transitions, prev, drops = 0, None, []
+    for r in rows:
+        state = r["reduced_active"]
+        if state is None:
+            prev = None
+            continue
+        if prev is not None and state != prev:
+            transitions += 1
+        prev = state
+        if state and r["water_setpoint_c"] is not None and r["base_curve_c"] is not None:
+            drops.append(r["base_curve_c"] - r["water_setpoint_c"])
+    mean_drop = sum(drops) / len(drops) if drops else 0.0
+    return {"transitions": transitions, "mean_drop_c": round(mean_drop, 2),
+            "sufficient": transitions >= EXCITATION_MIN_TRANSITIONS and mean_drop >= EXCITATION_MIN_DROP_C}
+
+
 def refit_from_cycles(conn, settings: dict, now: datetime, days: int = 14,
                       min_points: int = 150) -> dict:
-    """Dobowe dopasowanie modelu na własnych cyklach (faza cienia)."""
+    """Dobowe dopasowanie modelu na własnych cyklach. Swobodna regresja (c, τ)
+    dopuszczona TYLKO przy dostatecznym wymuszeniu; inaczej zostaje dopasowanie z
+    bilansem energii (inercja z ograniczeń). Model zidentyfikowany nie jest
+    nadpisywany przez niezidentyfikowany."""
     info: dict = {"at": now.isoformat(timespec="minutes"), "ok": False}
     cutoff = (now - timedelta(days=days)).isoformat()
     rows = conn.execute(
-        "SELECT ts, indoor_temp_c, outdoor_temp_c, heat_kw, water_temp_c, base_curve_c "
+        "SELECT ts, indoor_temp_c, outdoor_temp_c, heat_kw, water_temp_c, base_curve_c, "
+        "reduced_active, water_setpoint_c "
         "FROM cycles WHERE loop = 'heiko' AND ts >= ? ORDER BY id", (cutoff,)).fetchall()
-    segments = cycle_segments(rows)
+    exc = excitation(rows)
     info["rows"] = len(rows)
-    fit = fm.fit_best(segments, dt_h=0.25, min_points=min_points)
+    info["excitation"] = exc
+    segments = cycle_segments(rows)
+    fit = fm.fit_best(segments, dt_h=0.25, min_points=min_points, allow_free=exc["sufficient"])
     if fit is None:
         info["reason"] = "za mało danych z grzaniem do dopasowania"
         return _finish_refit(conn, info)
     info.update(rmse_c=_round(fit.rmse_c), persist_c=_round(fit.persist_c), tau_h=fit.tau_h,
-                c=fit.c, balance_r=fit.balance_r)
+                c=fit.c, balance_r=fit.balance_r, identified=fit.identified)
     if not fm.accept_fit(fit):
         info["reason"] = "dopasowanie nie przeszło bramki jakości — model bez zmian"
         return _finish_refit(conn, info)
     current = load_model(conn)
+    if current.identified and not fit.identified:
+        info["reason"] = "model zidentyfikowany z wymuszenia zachowany (nowe dane bez dostatecznego wymuszenia)"
+        return _finish_refit(conn, info)
     q, tr, tw = [], [], []
     for r in rows:
         if r["heat_kw"] and r["heat_kw"] > 0.05 and r["indoor_temp_c"] is not None:

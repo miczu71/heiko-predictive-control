@@ -232,3 +232,35 @@ def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
     for element_id in ("heiko-chart", "heiko-savings", "heiko-blocks", "heiko-model", "hp-fuse"):
         assert f'id="{element_id}"' in html
     assert "tylko obserwacja" in html and "Faza cienia" in html
+
+
+def test_api_plan_returns_kpi_with_baseline(tmp_path):
+    from datetime import datetime
+    now = datetime.now()
+    rows = [{"ts": now.isoformat(), "loop": "heiko", "active_profile": "ekonomia", "write_enabled": 0,
+             "energy_kwh": 3.0, "tariff_peak": 1, "outdoor_temp_c": 2.0},
+            {"ts": now.isoformat(), "loop": "heiko", "active_profile": "ekonomia", "write_enabled": 0,
+             "energy_kwh": 7.0, "tariff_peak": 0, "outdoor_temp_c": 2.0}]
+    baseline = {"overall": 0.5, "hours": 4000, "kwh": 1800.0, "at": "2026-09-26T06:00",
+                "by_class": {"3": {"share": 0.5, "hours": 500, "kwh": 200.0}}}
+    data = _app_with_db(tmp_path, {**SETTINGS, "peak_baseline": baseline}, rows).test_client() \
+        .get("/api/plan").get_json()
+    assert data["kpi"]["share"] == pytest.approx(0.3) and data["kpi"]["delta_pp"] == pytest.approx(-20.0)
+    assert data["kpi_baseline"]["overall"] == 0.5 and data["kpi_baseline"]["hours"] == 4000
+
+
+def test_api_plan_kpi_is_none_without_baseline_or_energy(tmp_path):
+    data = _app_with_db(tmp_path, SETTINGS).test_client().get("/api/plan").get_json()
+    assert data["kpi"] is None and data["kpi_baseline"] is None
+
+
+def test_live_shows_pump_water_target_and_reduced_state(tmp_path):
+    from heiko_predictive_control.live import reduced_label
+    assert reduced_label(1, 1) == "aktywna" and reduced_label(0, 1) == "nieaktywna"
+    assert reduced_label(None, 0).startswith("nieznany") and reduced_label(None, None) == "—"
+    STATES["sensor.heiko_heat_pump_water_temperature_setpoint"] = {"state": "22.5"}
+    row = {"ts": "2026-01-12T06:15:00", "loop": "heiko", "active_profile": "ekonomia",
+           "write_enabled": 0, "reduced_active": 1, "curve_on": 1}
+    live_data = _app_with_db(tmp_path, SETTINGS, [row]).test_client().get("/api/live").get_json()
+    assert live_data["heiko"]["setpoint"] == "22,5°C" and live_data["heiko"]["reduced"] == "aktywna"
+    STATES.pop("sensor.heiko_heat_pump_water_temperature_setpoint")

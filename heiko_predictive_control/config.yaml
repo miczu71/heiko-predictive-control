@@ -1,5 +1,5 @@
 name: Heiko Predictive Control
-version: "0.6.0"
+version: "0.7.0"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
@@ -39,6 +39,9 @@ options:
   heiko_curve_water_entities: "number.heiko_heat_pump_curve_water_temp_1,number.heiko_heat_pump_curve_water_temp_2,number.heiko_heat_pump_curve_water_temp_3,number.heiko_heat_pump_curve_water_temp_4,number.heiko_heat_pump_curve_water_temp_5"
   heiko_water_temp_entity: "sensor.heiko_heat_pump_condenser_temperature"
   heiko_working_mode_entity: "sensor.heiko_heat_pump_working_mode_2"
+  # Aktualny cel wody wg pompy (krzywa + przesunięcie + natywna ograniczona nastawa) i przesunięcie krzywej
+  heiko_water_setpoint_entity: "sensor.heiko_heat_pump_water_temperature_setpoint"
+  heiko_curve_shift_entity: "number.heiko_heat_pump_heating_curve_parallel_shift"
   # Czujnik temp. zewn. z długą historią LTS (bootstrap modelu z zeszłej zimy); pusty = outdoor_temp_entity
   heiko_bootstrap_outdoor_entity: "sensor.openweathermap_temperature"
   # Środek pasma komfortu pokoi, minimum pojedynczego pokoju (bezpiecznik), granice nastawy wody
@@ -103,6 +106,8 @@ schema:
   heiko_curve_water_entities: str?
   heiko_water_temp_entity: str?
   heiko_working_mode_entity: str?
+  heiko_water_setpoint_entity: str?
+  heiko_curve_shift_entity: str?
   heiko_bootstrap_outdoor_entity: str?
   heiko_room_target_c: float
   heiko_room_min_c: float

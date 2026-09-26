@@ -67,6 +67,10 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("model_err_c", "REAL"),          # błąd prognozy 1 kroku: zmierzone − przewidziane
     ("min_room_c", "REAL"),           # najzimniejszy pokój w strefach dziennych
     ("min_room_name", "TEXT"),
+    # 0.7.0 — obserwacja natywnego mechanizmu (krzywa + ograniczona nastawa w pompie).
+    ("water_setpoint_c", "REAL"),     # aktualny cel wody wg pompy (krzywa + przesunięcie + ograniczenie)
+    ("curve_on", "INTEGER"),          # krzywa grzewcza włączona (0/1/NULL)
+    ("reduced_active", "INTEGER"),    # wnioskowane: cel wody poniżej krzywej (0/1/NULL = nie wiadomo)
 )
 
 
