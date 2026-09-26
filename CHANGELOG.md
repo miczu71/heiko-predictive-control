@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 — Raport: kolejność klas temperatury
+
+Poprawka UI zakładki „Raport” znaleziona przy weryfikacji na żywo: klasy temperatury zewnętrznej
+(udział szczytu, praca pompy, COP) były ułożone jako napisy (0, 3, 6, 9, 12, 15, −12, −3, −6, −9) — teraz
+rosnąco liczbowo. Nagłówek sezonu bez znaku „→” (brak glifu w czcionce). Bez zmian w logice i danych.
+
 ## 0.8.0 — Doradca, etap D1: dane i katalog (nadal zero zapisów do pompy)
 
 Fundament pod „doradcę z zatwierdzaniem”: add-on zaczyna trwale zbierać dane pompy i opisuje, co

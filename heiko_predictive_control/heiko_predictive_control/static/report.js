@@ -7,6 +7,8 @@ function table(head, rows) {
   return `<table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead>` +
     `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(fmt(c))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
+// Klucze klas temperatury są liczbami jako napisy ("-3", "0", "12"): Object.entries ułożyłoby ujemne na końcu.
+const byTemp = obj => Object.entries(obj).sort((a, b) => Number(a[0]) - Number(b[0]));
 const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
 function renderReport(payload) {
@@ -16,7 +18,7 @@ function renderReport(payload) {
     meta.textContent = payload.running ? "Liczenie raportu w toku…" : "Brak raportu — kliknij „Przelicz raport”.";
     return;
   }
-  meta.textContent = `Policzony ${r.created} · sezon ${r.window.start} → ${r.window.end}` +
+  meta.textContent = `Policzony ${r.created} · sezon ${r.window.start} – ${r.window.end}` +
     (payload.running ? " · trwa przeliczanie…" : "") + (payload.error ? ` · błąd: ${payload.error}` : "");
   put("report-ideas",
     `<h3>Hipotezy (materiał do D2, nie propozycje)</h3><ul>${(r.ideas || []).map(i => `<li>${esc(i)}</li>`).join("") || "<li>brak</li>"}</ul>` +
@@ -35,14 +37,14 @@ function renderReport(payload) {
   put("report-peak-class", !e || !e.peak_share ? "" :
     `<p class="sub">Udział szczytu ogółem: ${(e.peak_share.overall * 100).toFixed(1)}% (${e.peak_share.kwh} kWh, ${e.peak_share.hours} godz.)</p>` +
     table(["Klasa temp. zewn. °C", "Udział szczytu", "kWh", "Godz."],
-      Object.entries(e.peak_share.by_class).map(([k, v]) => [k, v.share === null ? null : `${(v.share * 100).toFixed(0)}%`, v.kwh, v.hours])));
+      byTemp(e.peak_share.by_class).map(([k, v]) => [k, v.share === null ? null : `${(v.share * 100).toFixed(0)}%`, v.kwh, v.hours])));
   const h = r.pump_hours;
   put("report-hours", !h ? "Brak danych." :
     table(["Klasa temp. zewn. °C", "Dni", "Grzanie h/dobę", "CWU h/dobę", "Postój h/dobę"],
-      Object.entries(h.by_class).map(([k, v]) => [k, v.days, v.heating_h, v.dhw_h, v.standby_h])));
+      byTemp(h.by_class).map(([k, v]) => [k, v.days, v.heating_h, v.dhw_h, v.standby_h])));
   put("report-cop", !r.cop ? "Brak danych (latem pompa robi głównie CWU)." :
     table(["Klasa temp. zewn. °C", "Godz.", "Średni COP", "Min", "Max"],
-      Object.entries(r.cop).map(([k, v]) => [k, v.hours, v.mean, v.min, v.max])));
+      byTemp(r.cop).map(([k, v]) => [k, v.hours, v.mean, v.min, v.max])));
   const o = r.own || {}, a = o.avg_per_day || {};
   put("report-own", `<p class="sub">Dób ze streszczeniami: ${o.days ?? 0}</p>` +
     table(["Starty sprężarki", "Praca sprężarki min", "Krótkie cykle", "Śr. cykl min", "Cykle CWU", "CWU min", "Grzanie min", "HBH h", "Impulsy P0", "kWh", "Udział szczytu"],
