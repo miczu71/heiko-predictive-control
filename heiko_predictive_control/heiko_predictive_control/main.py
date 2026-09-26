@@ -1,7 +1,8 @@
 """Punkt startowy add-onu: baza, MQTT, cykl decyzyjny (APScheduler), Flask.
 
 Pętla A (Heiko) jest nadal WYŁĄCZNIE obserwacją (od 0.6.0 plan blokowy na modelu
-podłogówki) — `cycle.run_heiko_cycle` nigdy nie woła `ha_client.call_service`. Pętla B (AC poddasza, od 0.4.0) zapisuje do
+podłogówki) — `cycle.run_heiko_cycle` nigdy nie woła `ha_client.call_service`. Od 0.8.0 (Doradca, D1)
+dochodzi telemetria pompy, dziennik zmian parametrów i dobowe streszczenia — wyłącznie odczyt. Pętla B (AC poddasza, od 0.4.0) zapisuje do
 klimatyzatora w `cycle.run_attic_cycle`, tylko przy `attic_enabled`. Obie pętle
 mają osobne zadania harmonogramu (A: `cycle_interval_min`, B: `attic_cycle_interval_min`)."""
 from __future__ import annotations
@@ -12,7 +13,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import __version__, comfort, cycle, floor_learn, ha_client, kpi, layout
+from . import __version__, comfort, cycle, floor_learn, ha_client, kpi, layout, summaries, telemetry
 from . import attic as attic_mod
 from . import db as dbm
 from .publisher import MQTTPublisher
@@ -210,6 +211,39 @@ def main() -> None:
         finally:
             c.close()
 
+    def run_telemetry() -> None:
+        """Próbka telemetrii pompy + dziennik zmian parametrów (tylko odczyt z HA)."""
+        c = dbm.get_conn(db_path)
+        try:
+            telemetry.run(c, dbm.get_all_settings(c), datetime.now())
+        except Exception:
+            logger.exception("Telemetria pompy nieudana")
+        finally:
+            c.close()
+
+    def daily_summaries() -> None:
+        """Streszczenia dobowe (sprężarka, CWU, HBH, P0, energia) z historii HA — brakujące doby z ostatnich 7."""
+        c = dbm.get_conn(db_path)
+        try:
+            now = datetime.now()
+            settings = dbm.get_all_settings(c)
+            states = ha_client.get_all_states() or []
+            workday_cache: dict = {}
+
+            def is_workday(d) -> bool:
+                if d not in workday_cache:
+                    verdict = ha_client.check_workday(d.isoformat())
+                    workday_cache[d] = d.weekday() < 5 if verdict is None else verdict
+                return workday_cache[d]
+
+            for day in summaries.missing_days(c, now):
+                done = summaries.store_day(c, settings, day, states, now, is_workday=is_workday)
+                logger.info("Streszczenie doby %s: %s", day, sorted(done) or "brak danych")
+        except Exception:
+            logger.exception("Streszczenia dobowe nieudane")
+        finally:
+            c.close()
+
     def run_attic() -> None:
         c = dbm.get_conn(db_path)
         try:
@@ -249,6 +283,10 @@ def main() -> None:
                        next_run_time=datetime.now(), max_instances=1, coalesce=True)
     scheduler.add_job(run_attic, "interval", minutes=initial.get("attic_cycle_interval_min") or 5,
                        next_run_time=datetime.now(), max_instances=1, coalesce=True)
+    scheduler.add_job(run_telemetry, "interval", minutes=initial.get("cycle_interval_min") or 15,
+                       next_run_time=datetime.now() + timedelta(seconds=10), max_instances=1, coalesce=True)
+    scheduler.add_job(daily_summaries, "cron", hour=0, minute=20, max_instances=1, coalesce=True)
+    scheduler.add_job(daily_summaries, "date", run_date=datetime.now() + timedelta(seconds=60))
     scheduler.add_job(refit_model, "cron", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(bootstrap_model, "date", run_date=datetime.now() + timedelta(seconds=20))
     scheduler.add_job(peak_baseline, "date", run_date=datetime.now() + timedelta(seconds=45))

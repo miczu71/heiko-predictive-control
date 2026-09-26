@@ -1,6 +1,6 @@
 """Dostęp do Home Assistant przez Supervisor API (SUPERVISOR_TOKEN).
 
-Odczyt (get_state, get_forecast, check_workday, get_statistics, get_mqtt_service)
+Odczyt (get_state, get_all_states, get_history, get_forecast, check_workday, get_statistics, get_mqtt_service)
 oraz zapis (call_service, notify). Zapis do urządzeń woła dziś wyłącznie pętla B (cycle.run_attic_cycle,
 klimatyzacja poddasza); pętla A (Heiko) nadal niczego nie zapisuje."""
 from __future__ import annotations
@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime, timezone
 
 import requests
 
@@ -59,6 +60,52 @@ def get_bool_state(entity_id: str) -> bool | None:
     if state in ("false", "off", "0"):
         return False
     return None
+
+
+def get_all_states() -> list[dict] | None:
+    """Wszystkie stany HA jednym zapytaniem (telemetria, rozwiązywanie encji katalogu).
+    Tylko odczyt. None przy błędzie."""
+    try:
+        resp = requests.get(f"{_BASE}/states", headers=_headers(), timeout=30)
+        if resp.status_code == 200:
+            return resp.json()
+        logger.warning("HA states -> HTTP %d", resp.status_code)
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("HA API niedostępne (states): %s", exc)
+    return None
+
+
+def get_history(entity_ids: list[str], start_iso: str, end_iso: str
+                ) -> dict[str, list[tuple[datetime, str]]] | None:
+    """Historia stanów z recordera HA (REST, tylko odczyt; recorder trzyma ~7 dni):
+    {entity_id: [(czas zmiany UTC, stan), ...]}. Bez atrybutów. None przy błędzie."""
+    if not entity_ids:
+        return {}
+    try:
+        resp = requests.get(
+            f"{_BASE}/history/period/{start_iso}", headers=_headers(), timeout=120,
+            params={"filter_entity_id": ",".join(entity_ids), "end_time": end_iso,
+                    "minimal_response": "", "no_attributes": ""})
+        if resp.status_code != 200:
+            logger.warning("HA history -> HTTP %d", resp.status_code)
+            return None
+        out: dict[str, list[tuple[datetime, str]]] = {}
+        for series in resp.json():
+            if not series:
+                continue
+            entity = series[0].get("entity_id")
+            rows = []
+            for item in series:
+                stamp = item.get("last_changed") or item.get("last_updated")
+                if stamp:
+                    rows.append((datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(timezone.utc),
+                                 str(item.get("state"))))
+            if entity:
+                out[entity] = rows
+        return out
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("HA history niedostępna: %s", exc)
+        return None
 
 
 def get_forecast(entity_id: str, forecast_type: str = "hourly") -> list[dict] | None:

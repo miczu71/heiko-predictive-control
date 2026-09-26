@@ -31,6 +31,53 @@ CREATE TABLE IF NOT EXISTS cycles (
     write_enabled INTEGER NOT NULL   -- czy pętla miała wtedy włączony zapis
 );
 CREATE INDEX IF NOT EXISTS idx_cycles_loop_ts ON cycles(loop, ts);
+
+-- Doradca D1 (0.8.0): telemetria pompy co cykl. Wąska tabela (ts w sekundach UTC, klucz -> id),
+-- surowe dane 2 lata, starsze zwijane do agregatu godzinowego (telemetry.apply_retention).
+CREATE TABLE IF NOT EXISTS telemetry_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS telemetry (
+    ts INTEGER NOT NULL,
+    key_id INTEGER NOT NULL,
+    value REAL,
+    PRIMARY KEY (ts, key_id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS telemetry_hourly (
+    hour_ts INTEGER NOT NULL,
+    key_id INTEGER NOT NULL,
+    mean REAL, min REAL, max REAL,
+    n INTEGER NOT NULL,
+    PRIMARY KEY (hour_ts, key_id)
+) WITHOUT ROWID;
+
+-- Każda wykryta zmiana parametru z katalogu (dowolne źródło: panel, HA, automatyzacja) — licznik zapisów.
+CREATE TABLE IF NOT EXISTS param_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,                -- czas zmiany wg HA (ISO)
+    key TEXT NOT NULL,               -- klucz katalogu
+    entity_id TEXT NOT NULL,
+    old TEXT,
+    new TEXT,
+    source TEXT NOT NULL             -- 'użytkownik HA' | 'automatyzacja/skrypt' | 'nieznane'
+);
+CREATE INDEX IF NOT EXISTS idx_param_changes_ts ON param_changes(ts);
+
+-- Dobowe streszczenia (summaries.py): temat -> JSON.
+CREATE TABLE IF NOT EXISTS daily_summary (
+    day TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (day, topic)
+);
+
+-- Ostatni policzony raport analizy (analysis.py), do pokazania bez ponownego liczenia LTS.
+CREATE TABLE IF NOT EXISTS report_cache (
+    name TEXT PRIMARY KEY,
+    created TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 """
 
 

@@ -19,6 +19,11 @@
     <span class="stat-sub">koszt energii pompy wg licznika</span>
   </div>
   <div class="stat">
+    <span class="stat-label">Zmiany nastaw pompy</span>
+    <span class="stat-value" id="param-changes">{{ changes.today }}</span>
+    <span class="stat-sub">dziś · {{ changes.days30 }} w 30 dni · dowolne źródło</span>
+  </div>
+  <div class="stat">
     <span class="stat-label">Szac. oszczędność dziś</span>
     <span class="stat-value" id="cost-savings">—</span>
     <span class="stat-sub">profil {{ (settings.heiko_active_profile or 'ekonomia')|capitalize }} · wg modelu, bez zapisu</span>

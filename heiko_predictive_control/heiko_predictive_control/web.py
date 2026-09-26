@@ -3,12 +3,13 @@ wyłącznie względne) — Pulpit / Statystyki / Opcje."""
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date, datetime
 from typing import Callable, Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from . import __version__, attic, ha_client, layout, live, rooms
+from . import __version__, analysis, attic, catalog, ha_client, layout, live, rooms, telemetry
 from . import floor_model, kpi
 from . import db as dbm
 
@@ -22,6 +23,8 @@ def create_app(db_path: str,
                get_numeric: Callable[[str], float | None] = ha_client.get_numeric_state,
                house: Optional[rooms.House] = None,
                house_warnings: Optional[list[str]] = None,
+               get_states: Callable[[], list[dict] | None] = ha_client.get_all_states,
+               compute_report: Callable = analysis.compute_report,
                ) -> Flask:
     app = Flask(__name__)
     app.jinja_env.filters["temp"] = live.fmt_temp
@@ -83,11 +86,12 @@ def create_app(db_path: str,
         try:
             heiko = dbm.latest_cycle(conn, "heiko")
             attic = dbm.latest_cycle(conn, "attic")
+            changes = telemetry.changes_summary(conn, datetime.now())
         finally:
             conn.close()
         settings = get_settings()
         return render_template(
-            "dashboard.html", base=base(), active="dashboard",
+            "dashboard.html", base=base(), active="dashboard", changes=changes,
             heiko=dict(heiko) if heiko else None,
             attic=dict(attic) if attic else None,
             settings=settings, scene=scene, house=house, house_warnings=house_warnings,
@@ -102,6 +106,10 @@ def create_app(db_path: str,
     @app.get("/statistics")
     def page_statistics():
         return render_template("statistics.html", base=base(), active="statistics")
+
+    @app.get("/report")
+    def page_report():
+        return render_template("report.html", base=base(), active="report")
 
     @app.get("/options")
     def page_options():
@@ -183,6 +191,69 @@ def create_app(db_path: str,
             "kpi": recent,
             "kpi_baseline": None if not baseline else {k: baseline.get(k) for k in ("overall", "hours", "kwh", "at")},
         })
+
+    # ── Doradca D1: raport, katalog parametrów, dziennik zmian (tylko odczyt) ──
+
+    report_job = {"running": False, "error": None}
+
+    def _run_report() -> None:
+        conn = db_conn()
+        try:
+            report = compute_report(conn, get_settings(), datetime.now())
+            analysis.save_report(conn, report)
+            report_job["error"] = None
+        except Exception as exc:                                    # raport w tle nie może wywrócić serwera
+            logger.exception("Raport D1 nieudany")
+            report_job["error"] = str(exc)
+        finally:
+            conn.close()
+            report_job["running"] = False
+
+    @app.get("/api/report")
+    def api_report():
+        """Ostatni policzony raport (cache w bazie). `?refresh=1` startuje przeliczenie w tle (LTS: kilka minut)."""
+        if request.args.get("refresh") and not report_job["running"]:
+            report_job["running"] = True
+            threading.Thread(target=_run_report, daemon=True, name="report-d1").start()
+        conn = db_conn()
+        try:
+            report = analysis.load_report(conn)
+        finally:
+            conn.close()
+        return jsonify({"report": report, "running": report_job["running"], "error": report_job["error"]})
+
+    @app.get("/api/catalog")
+    def api_catalog():
+        """Katalog parametrów pompy + bieżące wartości z HA. Klasy A/B/C, zakresy, znacznik automatyzacji."""
+        states = get_states() or []
+        by_id = {st.get("entity_id"): st for st in states}
+        resolved = catalog.resolve_params(states)
+        managed = {k.strip() for k in str(get_settings().get("advisor_managed_keys") or "").split(",") if k.strip()}
+        items = []
+        for p in catalog.CATALOG:
+            row = catalog.describe(p)
+            eid = resolved.get(p.key)
+            st = by_id.get(eid) or {}
+            row.update({"entity_id": eid, "state": st.get("state"), "last_changed": st.get("last_changed"),
+                        "managed_by_automation": p.key in managed})
+            items.append(row)
+        return jsonify({"params": items, "found": len(resolved), "total": len(catalog.CATALOG)})
+
+    @app.get("/api/changes")
+    def api_changes():
+        """Dziennik zmian parametrów (licznik zapisów do pamięci pompy — dowolne źródło) + stan telemetrii."""
+        conn = db_conn()
+        try:
+            rows = conn.execute("SELECT ts, key, old, new, source FROM param_changes ORDER BY id DESC LIMIT 100").fetchall()
+            summary = telemetry.changes_summary(conn, datetime.now())
+            samples = conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0]
+            last = conn.execute("SELECT MAX(ts) FROM telemetry").fetchone()[0]
+            size = telemetry.db_size_bytes(conn)
+        finally:
+            conn.close()
+        return jsonify({"changes": [dict(r) for r in rows], "summary": summary,
+                        "telemetry": {"rows": samples, "last_ts": last, "db_bytes": size,
+                                      "db_warn": size > telemetry.DB_WARN_BYTES}})
 
     @app.get("/api/settings")
     def api_get_settings():

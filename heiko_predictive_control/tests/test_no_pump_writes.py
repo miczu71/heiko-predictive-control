@@ -6,10 +6,11 @@ import inspect
 
 import pytest
 
-from heiko_predictive_control import (comfort, cycle, floor_learn, floor_model, floor_plan,
-                                       kpi, live, publisher, web)
+from heiko_predictive_control import (analysis, catalog, comfort, cycle, floor_learn, floor_model, floor_plan,
+                                       kpi, live, publisher, summaries, telemetry, web)
 
-OBSERVING_MODULES = [comfort, floor_learn, floor_model, floor_plan, kpi, live, publisher, web]
+OBSERVING_MODULES = [analysis, catalog, comfort, floor_learn, floor_model, floor_plan, kpi, live, publisher,
+                     summaries, telemetry, web]
 WRITE_NAMES = {"call_service"}
 
 
@@ -53,3 +54,13 @@ def test_the_detector_itself_works():
     assert _uses(ast.parse("def f(call_service=None):\n    call_service('a', 'b', {})"), WRITE_NAMES)
     assert _uses(ast.parse("x = ha_client.call_service"), WRITE_NAMES)
     assert _uses(ast.parse('"""wzmianka call_service w docstringu"""'), WRITE_NAMES) == []
+
+
+def test_new_advisor_modules_only_read_from_ha():
+    """D1: telemetria, streszczenia i analiza używają wyłącznie odczytów z ha_client."""
+    read_only = {"get_all_states", "get_history", "get_statistics", "get_state", "check_workday"}
+    for module in (telemetry, summaries, analysis, catalog):
+        tree = ast.parse(inspect.getsource(module))
+        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
+                and isinstance(n.value, ast.Name) and n.value.id == "ha_client"}
+        assert used <= read_only, (module.__name__, used - read_only)

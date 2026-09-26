@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Raport{% endblock %}
+{% block content %}
+<section class="stats report">
+  <h2>Raport doradcy (D1) — tylko odczyt</h2>
+  <p class="sub" id="report-meta">ładowanie…</p>
+  <p><button type="button" id="report-refresh">Przelicz raport (kilka minut)</button></p>
+
+  <h2>Zbierane dane i zmiany parametrów pompy</h2>
+  <div id="changes-summary" class="history-table">ładowanie…</div>
+  <div id="changes-list" class="history-table"></div>
+
+  <h2>Wnioski i luki w danych</h2>
+  <div id="report-ideas">—</div>
+
+  <h2>Komfort — pokoje strefy dziennej (sezon grzewczy)</h2>
+  <div id="report-comfort" class="history-table">—</div>
+
+  <h2>Energia pompy i udział szczytu</h2>
+  <div id="report-energy" class="history-table">—</div>
+  <div id="report-peak-class" class="history-table"></div>
+
+  <h2>Praca pompy wg temperatury zewnętrznej (dobowe liczniki godzin)</h2>
+  <div id="report-hours" class="history-table">—</div>
+
+  <h2>COP wg temperatury zewnętrznej (od uruchomienia integracji)</h2>
+  <div id="report-cop" class="history-table">—</div>
+
+  <h2>Własne dane add-onu (średnie na dobę)</h2>
+  <div id="report-own" class="history-table">—</div>
+
+  <h2>Katalog parametrów pompy</h2>
+  <div id="catalog" class="history-table">ładowanie…</div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/report.js?v={{ version }}"></script>
+{% endblock %}

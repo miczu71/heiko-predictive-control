@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.8.0 — Doradca, etap D1: dane i katalog (nadal zero zapisów do pompy)
+
+Fundament pod „doradcę z zatwierdzaniem”: add-on zaczyna trwale zbierać dane pompy i opisuje, co
+mierzy — **wyłącznie odczyt**. Nic z tego wydania nie zapisuje do pompy (test strukturalny AST
+obejmuje nowe moduły i sprawdza, że używają tylko odczytów z `ha_client`).
+
+**Nowe moduły**
+
+| Moduł | Do czego |
+|---|---|
+| `catalog.py` | Katalog parametrów pompy z integracji `heiko_heatpump`: klasa bezpieczeństwa A/B/C, zakres, maks. krok, wpływ. Encje po **sufiksie** (`heiko_heat_pump_<klucz>`), pełne entity_id rozwiązywane w czasie pracy. `check_class_a()` — zakres klasy A i limit kroku. |
+| `telemetry.py` | Próbka co cykl (15 min): sensory pompy, temperatury stref, temp. zewn., licznik energii → wąska tabela; wykrywanie każdej zmiany parametru z katalogu (dowolne źródło) → dziennik; retencja: surowe 2 lata, potem agregat godzinowy. |
+| `summaries.py` | Dobowe streszczenia z historii HA (recorder trzyma ~7 dni): starty i długość pracy sprężarki, krótkie cykle, cykle CWU, przyrost licznika grzałek HBH/HWTBH, impulsy pompy obiegowej P0, energia szczyt/poza szczytem. Zadanie 00:20 + uzupełnianie brakujących dób z ostatnich 7. |
+| `analysis.py` | Raport opisowy (funkcje czyste na LTS): komfort, energia i udział szczytu, praca pompy wg temp. zewn., COP, własne dane, hipotezy i luki w danych. |
+
+**Klasy parametrów (decyzja 26.09)** — A: przesunięcie krzywej ±4 (krok ≤1), histereza ogrzewania 1–5,
+histereza CWU 3–10, nastawa CWU 45–55 (krok ≤2), pompa obiegowa P0 (czasy, obroty) w pełnym zakresie
+integracji; B: punkty krzywej, tryb/typ P0, magazynowanie CWU, grzałka HBH, anti-legionella (i wartości
+spoza zakresu A); C (nigdy nie zapisywane): tryb pracy, zasilanie, tryb wakacyjny, włącznik krzywej.
+
+**Endpointy (wszystkie GET)**
+
+| Endpoint | Zwraca |
+|---|---|
+| `/report` | Strona „Raport” |
+| `/api/report` | Ostatni raport z cache; `?refresh=1` przelicza w tle (LTS, ok. pół minuty–kilka minut) |
+| `/api/catalog` | Parametry z katalogu: klasa, zakres A, maks. krok, bieżąca wartość z HA, `last_changed`, znacznik automatyzacji (`advisor_managed_keys`) |
+| `/api/changes` | Dziennik zmian parametrów + licznik (dziś / 30 dni / łącznie) + stan telemetrii i rozmiar bazy (ostrzeżenie > 200 MB) |
+
+**Tabele bazy:** `telemetry_keys`, `telemetry`, `telemetry_hourly`, `param_changes`, `daily_summary`,
+`report_cache` (migracja automatyczna, istniejące dane bez zmian).
+
+**Ustawienie:** `advisor_managed_keys` (lista kluczy katalogu po przecinku) — parametry, którymi zarządzają
+automatyzacje HA; doradca nie będzie ich zapisywał. Ustawiane przez `POST /api/settings`.
+
+**Pulpit:** kafelek „Zmiany nastaw pompy” (dziś / 30 dni). **Nowa zakładka „Raport”.**
+
+**Zakres danych:** czujniki `heiko_heatpump` istnieją od 12.04.2026, więc COP/CWU/HBH/P0 z LTS są
+dostępne dopiero od tej daty; komfort, energia i udział szczytu — z całej zimy. COP estymowany przez
+integrację ma wartości nierealne dla pompy powietrznej (szacunek z nominalnego przepływu) — raport
+oznacza to w „lukach w danych”.
+
 ## 0.7.2 — cel wody w trybie CWU
 
 Zaobserwowane na żywo: encja celu wody (i nastawa stała) pokazuje cel **aktualnego trybu** — w CWU

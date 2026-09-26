@@ -277,3 +277,76 @@ def test_live_hides_dhw_target_and_labels_hot_water_mode(tmp_path):
         STATES["sensor.heiko_heat_pump_working_mode_2"] = old
         STATES.pop("sensor.heiko_heat_pump_water_temperature_setpoint")
     assert heiko["mode"] == "CWU" and heiko["setpoint"] == "— (CWU)"
+
+
+# ── Doradca D1: raport / katalog / dziennik zmian (tylko odczyt) ───────────────────────────────
+
+def _advisor_client(tmp_path, settings=None, states=None, compute=None):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    conn.close()
+    app = create_app(db_path, lambda: {**SETTINGS, **(settings or {})}, lambda k, v: None,
+                     get_state=get_state, get_numeric=get_numeric, house=HOUSE,
+                     get_states=lambda: states if states is not None else [],
+                     compute_report=compute or (lambda conn, settings, now: {"created": "2026-09-26T12:00", "window": {}}))
+    return app.test_client(), db_path
+
+
+def test_report_page_and_nav(tmp_path):
+    client, _ = _advisor_client(tmp_path)
+    html = client.get("/report").get_data(as_text=True)
+    assert "Raport doradcy" in html and 'href="/report"' in html
+
+
+def test_catalog_api_marks_automation_managed(tmp_path):
+    states = [{"entity_id": "number.heiko_heat_pump_dhw_setpoint", "state": "48", "last_changed": "2026-09-26T10:00:00+00:00"}]
+    client, _ = _advisor_client(tmp_path, {"advisor_managed_keys": "dhw_setpoint, backup_heater"}, states)
+    data = client.get("/api/catalog").get_json()
+    row = next(p for p in data["params"] if p["key"] == "dhw_setpoint")
+    assert row["state"] == "48" and row["managed_by_automation"] is True and row["cls"] == "A"
+    assert row["class_a_range"] == [45, 55] and row["max_step"] == 2
+    assert next(p for p in data["params"] if p["key"] == "curve_shift")["state"] is None       # brak encji w HA
+    assert data["found"] == 1 and data["total"] > 20
+
+
+def test_changes_api_shape_and_dashboard_counter(tmp_path):
+    client, db_path = _advisor_client(tmp_path)
+    conn = dbm.get_conn(db_path)
+    conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) "
+                 "VALUES ('2026-09-01T10:00:00+00:00', 'dhw_setpoint', 'e', '48', '58', 'automatyzacja/skrypt')")
+    conn.commit()
+    conn.close()
+    data = client.get("/api/changes").get_json()
+    assert data["changes"][0]["key"] == "dhw_setpoint" and data["summary"]["total"] == 1
+    assert data["telemetry"]["rows"] == 0 and data["telemetry"]["db_warn"] is False
+    assert "Zmiany nastaw pompy" in client.get("/").get_data(as_text=True)
+
+
+def test_report_api_refresh_runs_in_background_and_caches(tmp_path):
+    import time
+    client, _ = _advisor_client(tmp_path)
+    first = client.get("/api/report").get_json()
+    assert first["report"] is None and first["running"] is False
+    client.get("/api/report?refresh=1")
+    for _ in range(50):
+        data = client.get("/api/report").get_json()
+        if data["report"] and not data["running"]:
+            break
+        time.sleep(0.1)
+    assert data["report"]["created"] == "2026-09-26T12:00" and data["error"] is None
+
+
+def test_report_api_reports_failure_without_crashing(tmp_path):
+    import time
+
+    def boom(conn, settings, now):
+        raise RuntimeError("LTS niedostępne")
+    client, _ = _advisor_client(tmp_path, compute=boom)
+    client.get("/api/report?refresh=1")
+    for _ in range(50):
+        data = client.get("/api/report").get_json()
+        if not data["running"] and data["error"]:
+            break
+        time.sleep(0.1)
+    assert data["report"] is None and "LTS niedostępne" in data["error"]
