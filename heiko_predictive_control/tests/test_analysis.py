@@ -40,6 +40,19 @@ def test_comfort_time_in_band_and_coldest_room():
     assert out["average"]["mean"] == pytest.approx((20.6 + (22.5 + 20.6) / 2) / 2, abs=0.01)     # średnia z pokoi a i b
 
 
+def test_comfort_minimum_uses_only_rooms_selected_in_options():
+    hs = hours()
+    stats = {"out": [{"start": s, "mean": 0.0} for s in hs],
+             "a": [{"start": s, "mean": 21.0} for s in hs],
+             "b": [{"start": s, "mean": 16.0} for s in hs]}               # rzadko używany, zimny
+    everyone = an.comfort(stats, ["a", "b"], "out", SETTINGS, TZ)
+    picked = an.comfort(stats, ["a", "b"], "out", {**SETTINGS, "comfort_min_entities": "a"}, TZ)
+    assert everyone["coldest"]["below_room_min_h"] == len(hs) and everyone["min_rooms"] == ["a", "b"]
+    assert picked["coldest"]["below_room_min_h"] == 0 and picked["min_rooms"] == ["a"]
+    assert picked["average"]["mean"] == everyone["average"]["mean"]           # średnia stref bez zmian
+    assert picked["rooms"]["b"]["min"] == 16.0                                # wiersz pokoju nadal w raporcie
+
+
 def test_comfort_counts_hours_below_room_min_and_skips_warm_and_summer():
     hs = hours()
     stats = {"out": [{"start": s, "mean": 0.0} for s in hs],

@@ -1,5 +1,5 @@
 name: Heiko Predictive Control
-version: "0.8.4"
+version: "0.9.0"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
@@ -85,6 +85,12 @@ options:
   # Wspólne
   cycle_interval_min: 15
   notify_service: ""
+  # Doradca (D2) — propozycje bez zapisu do pompy. Puste comfort_min_entities = wszystkie strefy dzienne liczą się do minimum.
+  comfort_min_entities: ""
+  advisor_lens: "żaden"
+  advisor_notify_service: ""
+  advisor_anomaly_entities: ""
+  advisor_link_path: ""
   mqtt_host: "core-mosquitto"
   mqtt_port: 1883
   mqtt_user: ""
@@ -142,6 +148,11 @@ schema:
   attic_active_profile: "list(komfort|ekonomia)"
   cycle_interval_min: int
   notify_service: str?
+  comfort_min_entities: str?
+  advisor_lens: str?
+  advisor_notify_service: str?
+  advisor_anomaly_entities: str?
+  advisor_link_path: str?
   mqtt_host: str
   mqtt_port: int
   mqtt_user: str

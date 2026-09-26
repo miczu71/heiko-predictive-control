@@ -79,6 +79,46 @@ async function loadCatalog() {
   } catch (e) { put("catalog", "Błąd wczytywania katalogu."); }
 }
 
+const pct = v => v === null || v === undefined ? null : `${(v * 100).toFixed(0)}%`;
+
+function renderReplay(payload) {
+  const r = payload.replay;
+  if (!r) {
+    put("replay-meta", payload.running ? "Liczenie odtworzenia w toku…" : "Brak odtworzenia — kliknij „Przelicz odtworzenie”.");
+    return;
+  }
+  put("replay-meta", `Policzone ${r.created} · sezon ${r.window.start} – ${r.window.end}` +
+    (payload.running ? " · trwa przeliczanie…" : "") + (payload.error ? ` · błąd: ${payload.error}` : ""));
+  if (!r.ok) { put("replay-summary", `<p class="sub">${esc(r.error || "Brak danych.")}</p>`); return; }
+  const t = r.thresholds;
+  put("replay-summary",
+    `<p class="sub">Doba oceniana o ${r.decision_hour}:00 na statystykach z poprzednich 24 h, przy założeniu, że krzywa była włączona. ` +
+    `Dni ocenione: ${r.days_evaluated}. Reguła: −1, gdy średnia stref ≥ cel ${t.target_c} + ${t.down_avg_margin_c} i najzimniejszy pokój ≥ minimum ${t.room_min_c} + ${t.down_min_margin_c}; ` +
+    `+1, gdy średnia ≤ cel − ${t.up_avg_margin_c} albo najzimniejszy pokój < minimum + ${t.up_min_margin_c}.</p>` +
+    table(["Kierunek", "Dni", "Udział dni", "Zmiana kosztu zł/dobę", "Zmiana energii kWh/dobę", "Suma zł w sezonie", "Suma kWh w sezonie"],
+      [["Obniżenie krzywej o 1", r.down.days, pct(r.down.share), r.down.cost_delta_pln_day, r.down.energy_delta_kwh_day, r.down.cost_delta_pln_season, r.down.energy_delta_kwh_season],
+       ["Podniesienie krzywej o 1", r.up.days, pct(r.up.share), r.up.cost_delta_pln_day, r.up.energy_delta_kwh_day, r.up.cost_delta_pln_season, r.up.energy_delta_kwh_season]]) +
+    `<p class="sub">${esc(r.caveat)}</p>`);
+  put("replay-class", table(["Klasa temp. zewn. °C", "Dni z grzaniem", "Z propozycją −1", "Z propozycją +1"],
+    byTemp(r.by_class).map(([k, v]) => [k, v.days, v.down, v.up])));
+  put("replay-samples", `<h3>Ostatnie dni z propozycją</h3>` + table(["Dzień", "Kierunek", "Średnia stref °C", "Najzimniejszy (p5) °C", "Zewn. °C", "Δ koszt zł/dobę", "Δ energia kWh/dobę"],
+    r.samples.map(s => [s.day, s.side === "down" ? "−1" : "+1", s.avg24_c, s.cold24_c, s.outdoor_c, s.effects.cost_day_delta_pln, s.effects.energy_day_delta_kwh])));
+}
+
+async function loadReplay(refresh) {
+  try { renderReplay(await HPC.getJSON(`/api/advisor/replay${refresh ? "?refresh=1" : ""}`)); }
+  catch (e) { put("replay-meta", "Błąd wczytywania odtworzenia."); }
+}
+
+document.getElementById("replay-refresh")?.addEventListener("click", async () => {
+  await loadReplay(true);
+  const timer = setInterval(async () => {
+    const p = await HPC.getJSON("/api/advisor/replay");
+    renderReplay(p);
+    if (!p.running) clearInterval(timer);
+  }, 10000);
+});
+
 document.getElementById("report-refresh")?.addEventListener("click", async () => {
   await loadReport(true);
   const timer = setInterval(async () => {
@@ -87,4 +127,4 @@ document.getElementById("report-refresh")?.addEventListener("click", async () =>
     if (!p.running) clearInterval(timer);
   }, 10000);
 });
-loadReport(false); loadChanges(); loadCatalog();
+loadReport(false); loadChanges(); loadCatalog(); loadReplay(false);

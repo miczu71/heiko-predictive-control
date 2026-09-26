@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Doradca{% endblock %}
+{% block content %}
+<section class="stats advisor">
+  <h2>Doradca — propozycje</h2>
+  <p class="trial-badge">Tryb próbny: „Zatwierdź” zapisuje tylko decyzję. <strong>Nic nie trafia do pompy.</strong>
+    Pierwsze zapisy dopiero w etapie D3, za osobną zgodą.</p>
+  <p class="sub" id="advisor-meta">ładowanie…</p>
+  <div id="advisor-pending" class="lens-grid"></div>
+  <h2>Historia</h2>
+  <div id="advisor-history" class="history-table">ładowanie…</div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/advisor.js?v={{ version }}"></script>
+{% endblock %}

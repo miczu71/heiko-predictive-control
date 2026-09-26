@@ -1,5 +1,6 @@
 """Render pulpitu i /api/live z fałszywym stanem HA — bez sieci, na przykładowym domu."""
 import json
+from datetime import datetime
 
 import pytest
 
@@ -350,3 +351,122 @@ def test_report_api_reports_failure_without_crashing(tmp_path):
             break
         time.sleep(0.1)
     assert data["report"] is None and "LTS niedostępne" in data["error"]
+
+
+# ── Doradca D2: propozycje, decyzje w trybie próbnym, odtworzenie zimy, opcje pokoi ────────────────
+
+def _proposal_client(tmp_path, settings=None, states=None, replay=None):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    conn.close()
+    app = create_app(db_path, lambda: {**SETTINGS, **(settings or {})}, lambda k, v: None,
+                     get_state=get_state, get_numeric=get_numeric, house=HOUSE,
+                     get_states=lambda: states, replay_winter=replay or (lambda s, now, model: {"created": "2026-09-26T12:00", "ok": True}))
+    return app.test_client(), db_path
+
+
+def _insert_alert(db_path, status="oczekuje", expires="2999-01-01T00:00:00"):
+    conn = dbm.get_conn(db_path)
+    conn.execute("INSERT INTO proposals (created, updated, analyzer, dedupe_key, lens, kind, reason, evidence, effects, "
+                 "confidence, expires, status) VALUES ('2026-09-26T10:00:00', '2026-09-26T10:00:00', 'anomaly', 'anomaly:x', 'obie', "
+                 "'alert', 'Czujnik aktywny', '{\"a\": 1}', '{}', 'wysoka', ?, ?)", (expires, status))
+    conn.commit()
+    conn.close()
+
+
+def test_advisor_page_and_nav_render(tmp_path):
+    client, _ = _proposal_client(tmp_path)
+    html = client.get("/advisor").get_data(as_text=True)
+    assert "Doradca — propozycje" in html and "Nic nie trafia do pompy" in html and 'href="/advisor"' in html
+
+
+def test_proposals_api_lists_pending_with_lens(tmp_path):
+    client, db_path = _proposal_client(tmp_path, {"advisor_lens": "komfort"})
+    _insert_alert(db_path)
+    data = client.get("/api/proposals").get_json()
+    assert data["lens"] == "komfort" and data["pending"][0]["reason"] == "Czujnik aktywny" and data["history"] == []
+
+
+def test_decision_reject_and_approve_only_change_status(tmp_path):
+    states = [{"entity_id": "binary_sensor.eev", "state": "on"}]
+    client, db_path = _proposal_client(tmp_path, {"advisor_anomaly_entities": "binary_sensor.eev"}, states)
+    _insert_alert(db_path)
+    ok = client.post("/api/proposals/1/decision", json={"decision": "odrzucona"})
+    assert ok.status_code == 200 and ok.get_json() == {"ok": True, "status": "odrzucona", "trial": True}
+    again = client.post("/api/proposals/1/decision", json={"decision": "odrzucona"})
+    assert again.status_code == 409 and "status" in again.get_json()["error"]
+    data = client.get("/api/proposals").get_json()
+    assert data["pending"] == [] and data["history"][0]["status"] == "odrzucona"
+
+
+def test_approve_is_refused_without_ha_states(tmp_path):
+    client, db_path = _proposal_client(tmp_path, states=None)
+    _insert_alert(db_path)
+    refused = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert refused.status_code == 503 and "HA" in refused.get_json()["error"]
+    assert client.get("/api/proposals").get_json()["pending"]                     # propozycja nadal czeka
+
+
+def test_approve_is_refused_when_conditions_changed(tmp_path):
+    client, db_path = _proposal_client(tmp_path, states=[{"entity_id": "binary_sensor.eev", "state": "off"}])
+    _insert_alert(db_path)
+    stale = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert stale.status_code == 409 and "nieaktualna" in stale.get_json()["error"]
+    assert client.get("/api/proposals").get_json()["history"][0]["status"] == "zastąpiona"
+
+
+def test_approve_alert_when_condition_persists(tmp_path):
+    states = [{"entity_id": "binary_sensor.eev", "state": "on", "attributes": {"friendly_name": "EEV"}}]
+    client, db_path = _proposal_client(tmp_path, {"advisor_anomaly_entities": "binary_sensor.eev"}, states)
+    conn = dbm.get_conn(db_path)
+    from heiko_predictive_control import advisor
+    from heiko_predictive_control.analyzers import Draft
+    advisor.sync(conn, [Draft(analyzer="anomaly", dedupe_key="anomaly:binary_sensor.eev", lens="obie", kind="alert",
+                              reason="x", confidence="wysoka", ttl_h=24)], datetime.now())
+    conn.close()
+    resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert resp.status_code == 200 and resp.get_json()["trial"] is True
+
+
+def test_replay_api_refresh_runs_in_background_and_caches(tmp_path):
+    import time
+    client, _ = _proposal_client(tmp_path)
+    assert client.get("/api/advisor/replay").get_json()["replay"] is None
+    client.get("/api/advisor/replay?refresh=1")
+    for _ in range(50):
+        data = client.get("/api/advisor/replay").get_json()
+        if data["replay"] and not data["running"]:
+            break
+        time.sleep(0.1)
+    assert data["replay"]["created"] == "2026-09-26T12:00" and data["error"] is None
+
+
+def test_replay_api_reports_failure_without_crashing(tmp_path):
+    import time
+
+    def boom(settings, now, model):
+        raise RuntimeError("LTS niedostępne")
+    client, _ = _proposal_client(tmp_path, replay=boom)
+    client.get("/api/advisor/replay?refresh=1")
+    for _ in range(50):
+        data = client.get("/api/advisor/replay").get_json()
+        if not data["running"] and data["error"]:
+            break
+        time.sleep(0.1)
+    assert data["replay"] is None and "LTS niedostępne" in data["error"]
+
+
+def test_options_page_lists_zones_with_friendly_names_and_checked_state(tmp_path):
+    states = [{"entity_id": z, "state": "21", "attributes": {"friendly_name": f"Pokój {i}"}} for i, z in enumerate(ZONE, 1)]
+    client, _ = _proposal_client(tmp_path, {"comfort_min_entities": f"{ZONE[0]},{ZONE[1]}"}, states)
+    html = client.get("/options").get_data(as_text=True)
+    assert "Doradca" in html and 'name="advisor_lens"' in html
+    assert f'data-room="{ZONE[0]}" checked' in html and f'data-room="{ZONE[2]}" checked' not in html
+    assert "Pokój 1" in html
+
+
+def test_options_page_without_selection_checks_all_zones(tmp_path):
+    client, _ = _proposal_client(tmp_path, states=[])
+    html = client.get("/options").get_data(as_text=True)
+    assert all(f'data-room="{z}" checked' in html for z in ZONE)

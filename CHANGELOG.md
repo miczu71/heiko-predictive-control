@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.9.0 — Doradca, etap D2: silnik propozycji i zakładka „Doradca” (zero zapisów do pompy)
+
+Doradca liczy propozycje zmian nastaw i pokazuje je w nowej zakładce **Doradca**. W tym wydaniu „Zatwierdź”
+**zapisuje wyłącznie decyzję** (tryb próbny, `trial = 1`) — nic nie trafia do pompy; pierwszy zapis dopiero w D3,
+z własnym wykonawcą i allowlistą. Test AST pilnuje, że silnik i analizatory nie mają ścieżki zapisu.
+
+**Analizatory** (funkcje czyste w `analyzers/`, wejście: migawka danych, wyjście: szkice propozycji):
+
+| Analizator | Co robi | Pewność |
+|---|---|---|
+| `curve` | Przy włączonej krzywej i zapasie komfortu (24 h: średnia stref ≥ cel + 0,3°C, a najzimniejszy wybrany pokój ≥ minimum + 0,5°C) proponuje **eksperyment −1** przesunięcia krzywej; przy zbyt zimnym domu **+1**. Skutki (zł/dobę, kWh/dobę, temperatura) z planera. Przesuwanie w czasie pokazane tylko informacyjnie. | niska, dopóki model nie ma zidentyfikowanej bezwładności |
+| `dhw` | Histereza CWU +1 K przy ≥ 4 cyklach na dobę (klasa A: 3–10 K); wskazówka tekstowa, gdy > 40% CWU wypada w szczycie G12w. Nastawa CWU, grzałki i anty-legionella zostają przy automatyzacjach HA (tylko tekst). | niska |
+| `anomalies` | Same alerty: czujniki ostrzegawcze z HA (opcja) oraz skoki w streszczeniach dobowych (krótkie cykle, minuty grzałek, cykle CWU, impulsy P0) — odporny z-score (mediana + MAD) z 14 dób. | wysoka (czujnik) / niska (statystyka) |
+
+**Silnik** (`advisor.py`): ta sama propozycja nie dubluje się, tylko się odświeża (TTL od ostatniego potwierdzenia:
+krzywa 6 h, histereza/CWU/anomalie 72 h, czujniki 24 h); zmiana wartości = poprzednia „zastąpiona”; ustanie warunków =
+„wygasła”; jeden aktywny eksperyment naraz (48 h po zatwierdzeniu); przy „Zatwierdź” ponowne liczenie analizatorów i
+sprawdzenie, że parametr nadal ma wartość `from` (inaczej propozycja jest „zastąpiona”, brak połączenia z HA = odmowa).
+Przebieg co godzinę i o 0:30 (po streszczeniach dobowych).
+
+**Powiadomienia:** tylko o nowej propozycji wyróżnionej soczewki (albo „obie” — alerty), raz na propozycję, z linkiem
+do add-onu; soczewka „żaden” = bez powiadomień.
+
+**Minimum komfortu z wybranych pokoi:** nowa opcja `comfort_min_entities` (w Opcjach: pola wyboru przy strefach
+dziennych). Dotyczy bezpiecznika planera, alarmu „pokój za zimny”, raportu i oceny propozycji. Średnia stref liczy się
+zawsze ze wszystkich stref. Puste (albo same nieznane encje) = wszystkie strefy — bezpiecznik nigdy nie zostaje bez pokoi.
+
+**Odtworzenie zimy** (zakładka „Raport”, `GET /api/advisor/replay`): co analizator krzywej zaproponowałby w zeszłym sezonie
+grzewczym (raz na dobę o 7:00, na statystykach LTS z 24 h), z szacunkiem skutków z planera. To jedyny sposób oceny
+analizatora krzywej przed sezonem (krzywa jest wyłączona). Skutki bez zidentyfikowanej bezwładności to rząd wielkości,
+nie prognoza — raport mówi o tym wprost; brak punktów krzywej = „brak oszacowania”, nie 0.
+
+| Nowe | Opis |
+|---|---|
+| Tabela `proposals` | propozycje: analizator, soczewka, rodzaj, parametr, from → to, powód, dowody, skutki, pewność, TTL, status, decyzja, `trial` |
+| `GET /advisor` | zakładka „Doradca” (propozycje obok siebie wg soczewek, dowody, pewność, historia) |
+| `GET /api/proposals` | oczekujące + historia, pozostały czas, aktualna soczewka |
+| `POST /api/proposals/<id>/decision` | `{"decision": "zatwierdzona" \| "odrzucona"}` — tylko status; 409 przy nieaktualnej, 503 bez HA |
+| `GET /api/advisor/replay[?refresh=1]` | odtworzenie zimy (w tle, cache w bazie) |
+| Opcje: `comfort_min_entities`, `advisor_lens`, `advisor_notify_service`, `advisor_link_path`, `advisor_anomaly_entities` | patrz README |
+| `heiko_plan.uniform_shift` | skutki jednolitego przesunięcia ±1 w dokumencie planu (dla doradcy) |
+
+Zmiany w istniejącym kodzie: `cycle.run_heiko_cycle` (minimum z wybranych pokoi, `uniform_shift`), `comfort` (`min_room_entities`),
+`analysis.comfort` (minimum z wybranych, lista `min_rooms`), `ha_client.notify` (opcjonalne `data` z linkiem). Testy: 348.
+
 ## 0.8.4 — streszczenia: licznik bez zmian w dobie = 0 min
 
 Doba, w której licznik czasu pracy grzałki się nie zmienił, miała w historii HA jeden punkt i była pomijana

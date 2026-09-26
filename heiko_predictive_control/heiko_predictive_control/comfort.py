@@ -16,6 +16,21 @@ RECOVERY_MARGIN_C = 0.3
 _STATE_KEY = "heiko_comfort_alarm"
 
 
+def _split(raw) -> list[str]:
+    return [e.strip() for e in str(raw or "").split(",") if e.strip()]
+
+
+def min_room_entities(settings: dict, zones: list[str] | None = None) -> list[str]:
+    """Pokoje liczone do MINIMUM komfortu (bezpiecznik planera, alarm, ocena propozycji doradcy).
+
+    Wybór usera z Opcji (`comfort_min_entities`) zawężony do stref dziennych; puste albo bez wspólnej
+    części ze strefami = wszystkie strefy, żeby literówka w ustawieniu nie zostawiła bezpiecznika bez
+    pokoi. Średnia stref zawsze idzie ze wszystkich `day_zone_temp_entities`."""
+    zones = list(zones) if zones is not None else _split(settings.get("day_zone_temp_entities"))
+    chosen = [e for e in _split(settings.get("comfort_min_entities")) if e in zones]
+    return chosen or zones
+
+
 def comfort_alarm(conn, settings: dict, now: datetime, notify=ha_client.notify) -> str | None:
     """Zwraca "alarm" (wysłano/oznaczono nowy epizod), "koniec" albo None."""
     room_min = float(settings.get("heiko_room_min_c", 18.5))

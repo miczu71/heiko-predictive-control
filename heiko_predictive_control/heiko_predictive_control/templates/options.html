@@ -113,6 +113,37 @@
                placeholder="notify.…"></label>
     </fieldset>
 
+    <fieldset>
+      <legend>🧭 Doradca</legend>
+      <p class="hint">Doradca proponuje zmiany nastaw, ale w tej wersji <strong>niczego nie zapisuje do pompy</strong> —
+        „Zatwierdź” zapisuje tylko decyzję. Poniższe ustawienia działają od następnego przebiegu, bez restartu.</p>
+      <label>Wyróżniona soczewka i powiadomienia
+        <select name="advisor_lens">
+          <option value="żaden" {{ 'selected' if (settings.advisor_lens or 'żaden') == 'żaden' }}>Żaden (bez powiadomień)</option>
+          <option value="komfort" {{ 'selected' if settings.advisor_lens == 'komfort' }}>Komfort</option>
+          <option value="ekonomia" {{ 'selected' if settings.advisor_lens == 'ekonomia' }}>Oszczędność</option>
+        </select>
+      </label>
+      <label>Powiadomienia doradcy (usługa notify — tylko Twój telefon)
+        <input type="text" name="advisor_notify_service" value="{{ settings.advisor_notify_service or '' }}"
+               placeholder="notify.mobile_app_…"></label>
+      <label>Ścieżka linku w powiadomieniu (otwiera add-on w aplikacji HA)
+        <input type="text" name="advisor_link_path" value="{{ settings.advisor_link_path or '' }}"
+               placeholder="/hassio/ingress/…"></label>
+      <label>Czujniki ostrzegawcze z HA (po przecinku; aktywny = alert)
+        <input type="text" name="advisor_anomaly_entities" value="{{ settings.advisor_anomaly_entities or '' }}"
+               placeholder="binary_sensor.…, binary_sensor.…"></label>
+      <p class="hint">Pokoje liczone do <strong>minimum komfortu</strong> (bezpiecznik planera, alarm „pokój za zimny”,
+        ocena propozycji). Odznacz pokoje rzadko używane — nie będą blokować obniżania krzywej. Średnia stref liczy się
+        zawsze ze wszystkich stref dziennych. Bez zaznaczenia żadnego liczą się wszystkie.</p>
+      <div class="room-picks" id="min-rooms">
+        {% for z in zones %}
+        <label class="room-pick"><input type="checkbox" data-room="{{ z.entity }}" {{ 'checked' if z.entity in chosen }}>
+          {{ z.name }}</label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
     <button type="submit">Zapisz</button>
     <span id="save-status"></span>
   </form>

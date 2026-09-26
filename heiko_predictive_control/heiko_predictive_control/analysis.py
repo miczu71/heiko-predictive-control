@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from . import catalog, ha_client, summaries, telemetry
+from .comfort import min_room_entities
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
 from .kpi import baseline_from_stats, outdoor_class
 from .tariff import PEAK_WINDOWS
@@ -53,6 +54,7 @@ def comfort(stats: dict, zones: list[str], outdoor: str, s: dict, tz: ZoneInfo) 
     band_day, band_night = float(s.get("heiko_comfort_band_day_c", 1.0)), float(s.get("heiko_comfort_band_night_c", 1.5))
     d0, d1 = int(s.get("heiko_day_start_hour", 6)), int(s.get("heiko_day_end_hour", 22))
     room_min = float(s.get("heiko_room_min_c", 18.5))
+    selected = set(min_room_entities(s, zones))          # minimum liczy się tylko z pokoi wybranych w Opcjach
     temps = _by_start(stats.get(outdoor, []), "mean")
     rooms = {z: _by_start(stats.get(z, []), "mean") for z in zones}
     per: dict[str, list[tuple[float, bool]]] = {z: [] for z in zones}     # (temp, w paśmie)
@@ -70,8 +72,9 @@ def comfort(stats: dict, zones: list[str], outdoor: str, s: dict, tz: ZoneInfo) 
             per[z].append((t, abs(t - target) <= band))
             vals.append(t)
         if len(vals) == len(zones):
-            coldest.append(min(vals))
-            cold_hours += min(vals) < room_min
+            cold = min(rooms[z][start] for z in zones if z in selected)
+            coldest.append(cold)
+            cold_hours += cold < room_min
             avg = sum(vals) / len(vals)
             averages.append((avg, abs(avg - target) <= band))
     if not coldest:
@@ -89,7 +92,7 @@ def comfort(stats: dict, zones: list[str], outdoor: str, s: dict, tz: ZoneInfo) 
     av = [a for a, _ in averages]
     av_mean = sum(av) / len(av)
     return {"target": target, "band_day": band_day, "band_night": band_night, "room_min": room_min,
-            "hours": len(coldest), "rooms": out_rooms,
+            "hours": len(coldest), "rooms": out_rooms, "min_rooms": [z for z in zones if z in selected],
             # średnia stref = wielkość, którą reguluje add-on (cel liczony na średniej, nie na pojedynczym pokoju)
             "average": {"mean": _r(av_mean), "offset": _r(av_mean - target),
                         "sd": _r((sum((x - av_mean) ** 2 for x in av) / len(av)) ** 0.5),

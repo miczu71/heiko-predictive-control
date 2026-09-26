@@ -30,7 +30,7 @@ aktywnego profilu osobno per pętla. Każda pętla ma niezależny wyłącznik se
 wyłączony gasi tylko zapis do encji, add-on dalej zbiera dane i pokazuje dry-run
 (co by ustawił + szacowaną oszczędność), żeby dało się ocenić przed włączeniem.
 
-## Doradca (od 0.8.0) — dane i katalog, tylko odczyt
+## Doradca — dane i katalog (0.8.0), propozycje bez zapisu (0.9.0)
 
 Kierunek pętli A: **doradca z zatwierdzaniem** — add-on analizuje dane i parametry pompy, a zmiany
 proponuje; wykona jedną zmianę dopiero po zatwierdzeniu w UI (późniejsze etapy). Wydanie 0.8.0 to
@@ -43,6 +43,22 @@ fundament, **bez żadnego zapisu do pompy**:
 - **Dobowe streszczenia** pracy: sprężarka, cykle CWU, grzałki, pompa obiegowa, energia szczyt/poza szczytem.
 - **Raport** (zakładka „Raport”): komfort, energia i udział szczytu, praca pompy wg temperatury,
   COP, hipotezy i luki w danych.
+- **Propozycje (0.9.0, D2)** — zakładka „Doradca”: analizatory krzywej (eksperyment ±1 przy zapasie komfortu),
+  CWU (histereza, wskazówka o porze względem taryfy) i anomalii (alerty). Obie soczewki, Komfort i Oszczędność,
+  liczone obok siebie; wyróżniona soczewka decyduje o powiadomieniach. **„Zatwierdź” zapisuje tylko decyzję —
+  niczego nie ustawia w pompie** (pierwszy zapis dopiero w D3). Ta sama propozycja się odświeża, nie dubluje;
+  przy zatwierdzeniu analiza jest liczona ponownie. Odtworzenie zimy w „Raporcie” pokazuje, co analizator krzywej
+  zaproponowałby w zeszłym sezonie.
+- **Minimum komfortu z wybranych pokoi (0.9.0)** — w Opcjach wybierasz, które strefy dzienne liczą się do minimum
+  (bezpiecznik, alarm, ocena propozycji); średnia stref zawsze ze wszystkich.
+
+| Opcja | Znaczenie |
+|---|---|
+| `comfort_min_entities` | strefy liczone do minimum komfortu; puste = wszystkie |
+| `advisor_lens` | wyróżniona soczewka i powiadomienia: `żaden` / `komfort` / `ekonomia` |
+| `advisor_notify_service` | usługa `notify` telefonu, na który idą powiadomienia doradcy |
+| `advisor_link_path` | ścieżka linku w powiadomieniu (otwiera add-on w aplikacji HA) |
+| `advisor_anomaly_entities` | czujniki ostrzegawcze z HA (aktywny = alert), po przecinku |
 
 ## Pulpit
 
@@ -61,8 +77,8 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
 
 ## Status
 
-**0.8.0 — Doradca, etap D1: dane i katalog** (telemetria, dziennik zmian parametrów, dobowe streszczenia,
-raport; zero zapisów do pompy). Poprzednio 0.7.0 — Etap 3b′: pętla A obserwuje natywny mechanizm pompy** (krzywa grzewcza + „ograniczona
+**0.9.0 — Doradca, etap D2: silnik propozycji i zakładka „Doradca”** (zero zapisów do pompy, decyzje tylko próbne).
+0.8.x — D1: dane i katalog (telemetria, dziennik zmian parametrów, dobowe streszczenia, raport). Poprzednio 0.7.0 — Etap 3b′: pętla A obserwuje natywny mechanizm pompy** (krzywa grzewcza + „ograniczona
 nastawa” z zegarem, ustawiana na panelu): cel wody wg pompy, udział energii w szczycie vs zima,
 uczenie bezwładności z wymuszenia, alarm komfortu; zero zapisów do pompy. (0.6.0: model
 podłogówki i poglądowy plan optymalizatora.) Pętla B (AC poddasza) zapisuje do klimatyzatora

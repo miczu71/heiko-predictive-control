@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from . import __version__, analysis, attic, catalog, ha_client, layout, live, rooms, telemetry
+from . import __version__, advisor, analysis, attic, catalog, comfort, floor_learn, ha_client, layout, live, rooms, telemetry
 from . import floor_model, kpi
 from . import db as dbm
 
@@ -25,6 +25,7 @@ def create_app(db_path: str,
                house_warnings: Optional[list[str]] = None,
                get_states: Callable[[], list[dict] | None] = ha_client.get_all_states,
                compute_report: Callable = analysis.compute_report,
+               replay_winter: Callable = advisor.replay_winter,
                ) -> Flask:
     app = Flask(__name__)
     app.jinja_env.filters["temp"] = live.fmt_temp
@@ -111,10 +112,19 @@ def create_app(db_path: str,
     def page_report():
         return render_template("report.html", base=base(), active="report")
 
+    @app.get("/advisor")
+    def page_advisor():
+        return render_template("advisor.html", base=base(), active="advisor", settings=get_settings())
+
     @app.get("/options")
     def page_options():
-        return render_template("options.html", base=base(), active="options",
-                                settings=get_settings())
+        settings = get_settings()
+        by_id = {st.get("entity_id"): st for st in (get_states() or [])}
+        zones = [{"entity": e, "name": ((by_id.get(e) or {}).get("attributes") or {}).get("friendly_name") or e}
+                 for e in advisor.split_csv(settings.get("day_zone_temp_entities"))]
+        chosen = set(comfort.min_room_entities(settings))
+        return render_template("options.html", base=base(), active="options", settings=settings,
+                                zones=zones, chosen=chosen)
 
     # ── API ──────────────────────────────────────────────────────────────
 
@@ -254,6 +264,68 @@ def create_app(db_path: str,
         return jsonify({"changes": [dict(r) for r in rows], "summary": summary,
                         "telemetry": {"rows": samples, "last_ts": last, "db_bytes": size,
                                       "db_warn": size > telemetry.DB_WARN_BYTES}})
+
+    # ── Doradca D2: propozycje (decyzje w trybie próbnym — bez zapisu do pompy) i odtworzenie zimy ──
+
+    @app.get("/api/proposals")
+    def api_proposals():
+        settings = get_settings()
+        conn = db_conn()
+        try:
+            data = advisor.list_proposals(conn, datetime.now())
+        finally:
+            conn.close()
+        data["lens"] = settings.get("advisor_lens") or advisor.LENS_OFF
+        return jsonify(data)
+
+    @app.post("/api/proposals/<int:proposal_id>/decision")
+    def api_proposal_decision(proposal_id: int):
+        decision = (request.get_json(silent=True) or {}).get("decision", "")
+        now = datetime.now()
+        revalidate = None
+        if decision == advisor.STATUS_APPROVED:
+            states = get_states()
+            if not states:
+                return jsonify({"ok": False, "error": "brak połączenia z HA — nie mogę sprawdzić, czy warunki nadal są aktualne"}), 503
+            conn = db_conn()
+            try:
+                revalidate = advisor.make_revalidator(conn, get_settings(), now, states)
+            finally:
+                conn.close()
+        conn = db_conn()
+        try:
+            result = advisor.decide(conn, proposal_id, decision, now, revalidate)
+        finally:
+            conn.close()
+        return jsonify(result), (200 if result["ok"] else 409)
+
+    replay_job = {"running": False, "error": None}
+
+    def _run_replay() -> None:
+        conn = db_conn()
+        try:
+            result = replay_winter(get_settings(), datetime.now(), floor_learn.load_model(conn))
+            advisor.save_replay(conn, result)
+            replay_job["error"] = result.get("error")
+        except Exception as exc:                                    # odtworzenie w tle nie może wywrócić serwera
+            logger.exception("Odtworzenie zimy nieudane")
+            replay_job["error"] = str(exc)
+        finally:
+            conn.close()
+            replay_job["running"] = False
+
+    @app.get("/api/advisor/replay")
+    def api_advisor_replay():
+        """Ostatnie odtworzenie zimy dla analizatora krzywej (cache). `?refresh=1` liczy w tle (LTS: minuty)."""
+        if request.args.get("refresh") and not replay_job["running"]:
+            replay_job["running"] = True
+            threading.Thread(target=_run_replay, daemon=True, name="advisor-replay").start()
+        conn = db_conn()
+        try:
+            replay = advisor.load_replay(conn)
+        finally:
+            conn.close()
+        return jsonify({"replay": replay, "running": replay_job["running"], "error": replay_job["error"]})
 
     @app.get("/api/settings")
     def api_get_settings():

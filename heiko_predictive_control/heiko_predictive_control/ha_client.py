@@ -223,12 +223,15 @@ def call_service(domain: str, service: str, data: dict) -> bool:
         return False
 
 
-def notify(service: str, title: str, message: str) -> bool:
+def notify(service: str, title: str, message: str, data: dict | None = None) -> bool:
     if not service:
         return False
     domain_service = service.replace("notify.", "", 1) if service.startswith(
         "notify.") else service
-    return call_service("notify", domain_service, {"title": title, "message": message})
+    payload = {"title": title, "message": message}
+    if data:
+        payload["data"] = data                  # np. link do add-onu (Companion: url / clickAction)
+    return call_service("notify", domain_service, payload)
 
 
 def get_mqtt_service() -> dict | None:

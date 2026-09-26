@@ -8,12 +8,13 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 
-from . import attic
+from . import attic, comfort
 from . import db as dbm
 from . import floor_learn
 from . import floor_model as fm
 from . import floor_plan as fp
 from . import ha_client
+from .analyzers import curve as curve_analyzer
 from .profiles import AtticProfiles, HeikoProfiles
 from .tariff import (DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN,
                      is_peak_hour, price_for)
@@ -92,8 +93,9 @@ def _r(value, digits=2):
 
 def summarize_plan(now: datetime, t0: datetime, inp: fp.PlanInputs, base: fp.PlanResult,
                    plans: dict[str, fp.PlanResult], shifts: dict[str, fp.PlanResult],
-                   indoor_c: float, outdoor_c: float, min_room: tuple[float, str] | None) -> dict:
-    """Dokument planu do bazy (settings["heiko_plan"]) — czyta go pulpit."""
+                   indoor_c: float, outdoor_c: float, min_room: tuple[float, str] | None,
+                   uniform: dict | None = None) -> dict:
+    """Dokument planu do bazy (settings["heiko_plan"]) — czyta go pulpit i doradca (`uniform_shift`)."""
     n = len(inp.t_out_c)
     steps_per_hour = int(round(1 / inp.step_h))
     hours = []
@@ -129,6 +131,7 @@ def summarize_plan(now: datetime, t0: datetime, inp: fp.PlanInputs, base: fp.Pla
         "baseline": {"cost_pln": _r(base.cost_pln), "mean_temp_c": _r(fp.mean_temp(base)),
                      "min_temp_c": _r(min(base.temps_c))},
         "summary": summary, "blocks": blocks, "hours": hours,
+        "uniform_shift": uniform,
     }
 
 
@@ -142,16 +145,21 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
                      check_workday=ha_client.check_workday) -> dict:
     """Odczyt -> (uczenie modelu) -> plan blokowy dla obu profili -> baza.
     Nic nie zapisuje do pompy (faza cienia)."""
-    rooms: list[tuple[float, str]] = []
+    rooms: list[tuple[float, str]] = []                # wszystkie strefy — z nich średnia
+    min_pool = set(comfort.min_room_entities(settings))
+    min_rooms: list[tuple[float, str]] = []            # pokoje wybrane w Opcjach do minimum (bezpiecznik, alarm)
     for entity in _entity_list(settings.get("day_zone_temp_entities")):
         data = get_state(entity) or {}
         try:
-            rooms.append((float(data.get("state")),
-                          (data.get("attributes") or {}).get("friendly_name") or entity))
+            room = (float(data.get("state")),
+                    (data.get("attributes") or {}).get("friendly_name") or entity)
         except (TypeError, ValueError):
             continue                                   # niedostępny czujnik nie wchodzi do średniej
+        rooms.append(room)
+        if entity in min_pool:
+            min_rooms.append(room)
     indoor_c = average_temp([t for t, _ in rooms])
-    min_room = min(rooms) if rooms else None
+    min_room = min(min_rooms) if min_rooms else None
     outdoor_c = get_numeric(settings.get("outdoor_temp_entity", ""))
     is_peak = get_bool(settings.get("tariff_state_entity", ""))
     price = get_numeric(settings.get("tariff_price_entity", ""))
@@ -272,8 +280,9 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         result[f"sim_cost_today_{name}_pln"] = plan.energy_kwh[0] * price0
     result["plan_setpoint_c"] = result[f"setpoint_{active}"]
     result["baseline_cost_today_pln"] = base.energy_kwh[0] * price0
+    uniform = curve_analyzer.uniform_effects(inputs["komfort"], base)     # skutki przesunięcia krzywej ±1 (doradca)
     dbm.set_setting(conn, "heiko_plan", summarize_plan(
-        now, t0, inputs["komfort"], base, plans, shifts, indoor_c, outdoor_c, min_room))
+        now, t0, inputs["komfort"], base, plans, shifts, indoor_c, outdoor_c, min_room, uniform))
     dbm.insert_cycle(conn, result)
     return result
 

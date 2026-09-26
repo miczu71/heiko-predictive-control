@@ -257,3 +257,24 @@ def test_loop_a_code_contains_no_write_calls():
     """Twarda gwarancja fazy cienia: w ciele pętli A nie ma wywołań usług ani powiadomień."""
     source = inspect.getsource(cycle.run_heiko_cycle)
     assert "call_service" not in source and "notify(" not in source
+
+
+def test_min_room_comes_only_from_rooms_selected_in_options_but_average_uses_all(conn):
+    world = World(rooms=(20.6, 17.0, 20.6))                           # z2 = rzadko używany, zimny
+    settings = {**SETTINGS, "comfort_min_entities": "sensor.z1,sensor.z3"}
+    row = _run(conn, world, NOW, settings)
+    assert row["min_room_c"] == 20.6 and row["min_room_name"] in ("Pokój 1", "Pokój 3")
+    assert row["indoor_temp_c"] == pytest.approx((20.6 + 17.0 + 20.6) / 3)      # średnia stref nadal ze wszystkich
+    assert dbm.get_setting(conn, "heiko_plan")["fuse_active"] is False          # zimny pokój poza wyborem nie włącza bezpiecznika
+
+
+def test_fuse_still_reacts_when_the_cold_room_is_selected(conn):
+    _run(conn, World(rooms=(20.6, 17.0, 20.6)), NOW, {**SETTINGS, "comfort_min_entities": "sensor.z2"})
+    assert dbm.get_setting(conn, "heiko_plan")["fuse_active"] is True
+
+
+def test_plan_document_carries_uniform_shift_effects_for_the_advisor(conn):
+    _run(conn, World(), NOW)
+    uniform = dbm.get_setting(conn, "heiko_plan")["uniform_shift"]
+    assert uniform["horizon_h"] == 36.0 and set(uniform) >= {"-1", "+1", "base"}
+    assert uniform["-1"]["energy_day_delta_kwh"] < uniform["+1"]["energy_day_delta_kwh"]

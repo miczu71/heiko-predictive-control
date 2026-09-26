@@ -6,11 +6,13 @@ import inspect
 
 import pytest
 
-from heiko_predictive_control import (analysis, catalog, comfort, cycle, floor_learn, floor_model, floor_plan,
+from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, floor_learn, floor_model, floor_plan,
                                        kpi, live, publisher, summaries, telemetry, web)
+from heiko_predictive_control.analyzers import anomalies, curve, dhw
+import heiko_predictive_control.analyzers as analyzers_pkg
 
-OBSERVING_MODULES = [analysis, catalog, comfort, floor_learn, floor_model, floor_plan, kpi, live, publisher,
-                     summaries, telemetry, web]
+OBSERVING_MODULES = [advisor, analysis, catalog, comfort, floor_learn, floor_model, floor_plan, kpi, live, publisher,
+                     summaries, telemetry, web, analyzers_pkg, anomalies, curve, dhw]
 WRITE_NAMES = {"call_service"}
 
 
@@ -64,3 +66,37 @@ def test_new_advisor_modules_only_read_from_ha():
         used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
                 and isinstance(n.value, ast.Name) and n.value.id == "ha_client"}
         assert used <= read_only, (module.__name__, used - read_only)
+
+
+def test_advisor_d2_uses_only_reads_and_notify_from_ha():
+    """D2: silnik doradcy czyta z HA (stany, LTS) i najwyżej powiadamia usera — bez zapisu do pompy."""
+    allowed = {"get_statistics", "get_numeric_state", "notify"}
+    tree = ast.parse(inspect.getsource(advisor))
+    used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name) and n.value.id == "ha_client"}
+    assert used <= allowed, used - allowed
+
+
+def test_analyzers_do_not_touch_ha_at_all():
+    for module in (analyzers_pkg, anomalies, curve, dhw):
+        assert "ha_client" not in inspect.getsource(module), module.__name__
+
+
+def test_decision_endpoint_never_calls_a_service(monkeypatch):
+    """„Zatwierdź” w D2 = zmiana statusu w bazie. Każde wywołanie usługi HA wywraca test."""
+    from datetime import datetime, timedelta
+
+    from heiko_predictive_control import db as dbm
+    from heiko_predictive_control import ha_client
+    from heiko_predictive_control.analyzers import Draft
+
+    def boom(*a, **k):
+        raise AssertionError("decyzja doradcy wywołała usługę HA")
+    monkeypatch.setattr(ha_client, "call_service", boom)
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    now = datetime(2026, 1, 14, 7, 0)
+    (pid,) = advisor.sync(conn, [Draft(analyzer="curve", dedupe_key="curve:curve_shift", lens="ekonomia", kind="eksperyment",
+                                       reason="x", confidence="niska", ttl_h=6, param_key="curve_shift",
+                                       from_value=0.0, to_value=-1.0)], now)
+    assert advisor.decide(conn, pid, "zatwierdzona", now + timedelta(minutes=1))["ok"]

@@ -326,3 +326,25 @@ button[type=submit] {
 
 img { max-width: 100%; }
 [hidden] { display: none !important; }
+
+/* Doradca (D2) */
+.trial-badge { background: var(--card-bg); border: 1px solid var(--line); border-left: 4px solid #c9821e; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.lens-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; align-items: start; }
+.lens-col { border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 12px; background: var(--card-bg); }
+.lens-col.lens-active { border-color: #c9821e; box-shadow: 0 0 0 1px #c9821e inset; }
+.lens-col h3 { font-size: 15px; }
+.proposal { border-top: 1px solid var(--line); padding: 10px 0; font-size: 14px; }
+.proposal header { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.proposal .change { margin: 6px 0; }
+.proposal .effects { margin: 4px 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.proposal .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.proposal .actions button { padding: 6px 12px; }
+.proposal .actions .secondary { background: transparent; color: inherit; border: 1px solid var(--line); }
+.decision-status { font-size: 13px; color: var(--muted); }
+.badge { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.badge.kind-eksperyment { border-color: #c9821e; }
+.badge.kind-alert { border-color: #b3372f; }
+.badge.conf-niska { color: #b3372f; }
+.room-picks { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0; }
+.room-pick { display: flex; align-items: center; gap: 6px; }
+.advisor .history-table th, .advisor .history-table td { text-align: left; }

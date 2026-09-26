@@ -78,6 +78,31 @@ CREATE TABLE IF NOT EXISTS report_cache (
     created TEXT NOT NULL,
     data TEXT NOT NULL
 );
+
+-- Doradca D2 (0.9.0): propozycje analizatorów. W D2 „zatwierdź/odrzuć” zapisuje tylko decyzję (trial=1) —
+-- nic nie trafia do pompy. Ta sama para (analyzer, dedupe_key) w stanie 'oczekuje' jest aktualizowana, nie dublowana.
+CREATE TABLE IF NOT EXISTS proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    analyzer TEXT NOT NULL,          -- curve | dhw | anomaly
+    dedupe_key TEXT NOT NULL,
+    lens TEXT NOT NULL,              -- komfort | ekonomia | obie
+    kind TEXT NOT NULL,              -- zmiana | eksperyment | cofnięcie | alert
+    param_key TEXT,                  -- klucz katalogu (catalog.py) albo NULL
+    from_value REAL,
+    to_value REAL,                   -- NULL = sam tekst (alert / parametr prowadzony przez automatyzację)
+    reason TEXT NOT NULL,
+    evidence TEXT NOT NULL,          -- JSON: liczby, okno danych
+    effects TEXT NOT NULL,           -- JSON: przewidywane skutki (komfort, zł/dobę, kWh)
+    confidence TEXT NOT NULL,        -- niska | średnia | wysoka
+    expires TEXT NOT NULL,
+    status TEXT NOT NULL,            -- oczekuje | zatwierdzona | odrzucona | wygasła | zastąpiona
+    decided_at TEXT,
+    trial INTEGER NOT NULL DEFAULT 1,
+    notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status, analyzer, dedupe_key);
 """
 
 
