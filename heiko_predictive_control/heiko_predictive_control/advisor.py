@@ -434,7 +434,8 @@ def replay_winter(settings: dict, now: datetime, model, get_statistics=ha_client
         "down": side("down"), "up": side("up"),
         "by_class": {str(k): v for k, v in sorted(by_class.items())}, "samples": samples[-REPLAY_SAMPLES:],
         "model": {"identified": model.identified, "source": model.source},
-        "caveat": ("Skutki z planera przy modelu bez zidentyfikowanej bezwładności to rząd wielkości, nie prognoza. "
+        "caveat": ("Skutki z planera (po wycenie ciepła zabranego z domu na końcu doby) przy modelu bez zidentyfikowanej "
+                   "bezwładności to rząd wielkości, nie prognoza. "
                  "Reguła decyzyjna (zapas komfortu z 24 h) jest sprawdzana na faktycznych danych, skutków nie da się "
                  "zweryfikować bez eksperymentu w sezonie."),
         "thresholds": {"down_avg_margin_c": curve.DOWN_AVG_MARGIN_C, "down_min_margin_c": curve.DOWN_MIN_MARGIN_C,

@@ -7,8 +7,9 @@ const put = (id, html) => { const el = document.getElementById(id); if (el) el.i
 const KIND = { zmiana: "Zmiana", eksperyment: "Eksperyment", "cofnięcie": "Cofnięcie", alert: "Alert" };
 const LENSES = [["komfort", "Komfort"], ["ekonomia", "Oszczędność"], ["obie", "Alerty i wskazówki"]];
 const EFFECTS = [
-  ["cost_day_delta_pln", "koszt energii", v => `${signed(v)} zł/dobę`],
-  ["energy_day_delta_kwh", "energia pompy", v => `${signed(v)} kWh/dobę`],
+  ["cost_day_delta_pln", "koszt energii (po wycenie ciepła zabranego z domu)", v => `${signed(v)} zł/dobę`],
+  ["energy_day_delta_kwh", "energia pompy (po wycenie ciepła zabranego z domu)", v => `${signed(v)} kWh/dobę`],
+  ["end_temp_delta_c", "temperatura domu po 36 h", v => `${signed(v)}°C`],
   ["mean_temp_delta_c", "średnia temperatura pokoi", v => `${signed(v)}°C`],
   ["min_temp_c", "najniższa przewidywana średnia", v => `${num(v, 1)}°C`],
   ["time_shift_pln_day", "informacyjnie — przesuwanie grzania w czasie (osobno, pakiety dopiero w D5)", v => `${signed(-v)} zł/dobę`],

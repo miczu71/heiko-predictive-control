@@ -72,6 +72,26 @@ def test_uniform_effects_cheaper_and_colder_when_water_setpoint_lowered():
     assert eff["horizon_h"] == 36.0
 
 
+def test_uniform_effects_price_the_heat_debt_so_saving_is_not_overstated():
+    """Obniżenie nastawy oszczędza w horyzoncie głównie ciepło z zasobnika domu; po wycenie długu efekt jest
+    kilkukrotnie mniejszy niż surowa różnica energii i zależy od pogody (regresja: 0.9.0 pokazywało stałe ~1,8 kWh/dobę)."""
+    t0 = datetime(2026, 1, 14, 7, 0)
+    n = int(36 / fp.STEP_H)
+    blocks = fp.build_blocks(t0, n, lambda d: d.weekday() < 5, 6, 22, 1.2304, 0.6306)
+    model = FloorModel(tau_h=1.5, g=0.04721, c=0.006, e=0.70902)
+
+    def effects(out_c, base_c):
+        inp = fp.PlanInputs(model=model, tr0_c=21.5, qf0_kw=max(0.0, model.c * (21.5 - out_c) / model.g), t_out_c=[out_c] * n,
+                            base_c=[base_c] * n, blocks=blocks, bands=[(19.6, 21.6)] * n, target_c=20.6)
+        return curve.uniform_effects(inp)["-1"]
+    mild, cold = effects(8.0, 23.5), effects(-5.0, 26.5)
+    for eff in (mild, cold):
+        assert eff["end_temp_delta_c"] < 0                                           # dom kończy horyzont chłodniejszy
+        assert eff["energy_horizon_delta_kwh"] < eff["energy_day_delta_kwh"] < 0     # dług zmniejsza „oszczędność”, ale nie znosi jej
+        assert abs(eff["energy_day_delta_kwh"]) < 0.5 * abs(eff["energy_horizon_delta_kwh"])
+    assert cold["energy_day_delta_kwh"] < mild["energy_day_delta_kwh"]               # w mrozie oszczędność jest większa
+
+
 # ── CWU ──────────────────────────────────────────────────────────────────────
 
 def _days(n, cycles, minutes=50.0):

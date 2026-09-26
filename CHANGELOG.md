@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.1 — skutki przesunięcia krzywej po wycenie „długu cieplnego”
+
+Znalezione zaraz po wdrożeniu 0.9.0 przy sprawdzeniu liczb odtworzenia zimy: oszczędność z obniżenia krzywej o 1 wychodziła
+stała (~1,8 kWh/dobę) niezależnie od pogody i 3–8× za duża. Przyczyna: `curve.uniform_effects` liczył koszt samego horyzontu
+36 h, a obniżona nastawa oszczędza tam głównie ciepło wyjęte z zasobnika domu, które trzeba oddać, żeby wrócić do temperatury
+bazowej. Planer wycenia to w swoim celu, ale efekty pokazywane w propozycjach — nie.
+
+- `cost_day_delta_pln` i `energy_day_delta_kwh` uwzględniają teraz dług cieplny (ΔT końcowa / g / COP, koszt po cenie taniej
+  taryfy). Dla −1: ok. −0,2…−0,8 kWh/dobę zależnie od pogody (wcześniej ok. −1,8…−3).
+- Nowe pola: `energy_horizon_delta_kwh` (surowa różnica w horyzoncie) i `end_temp_delta_c` (temperatura domu po 36 h);
+  karta propozycji pokazuje temperaturę końcową i oznacza wycenę długu.
+- Test regresji: dług zmniejsza „oszczędność”, ale jej nie znosi; w mrozie efekt jest większy niż w łagodnej pogodzie.
+
 ## 0.9.0 — Doradca, etap D2: silnik propozycji i zakładka „Doradca” (zero zapisów do pompy)
 
 Doradca liczy propozycje zmian nastaw i pokazuje je w nowej zakładce **Doradca**. W tym wydaniu „Zatwierdź”

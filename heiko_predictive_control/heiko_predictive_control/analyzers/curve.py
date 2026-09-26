@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from .. import catalog
 from .. import floor_plan as fp
+from ..floor_model import cop
 from . import (CONF_LOW, CONF_MEDIUM, KIND_CHANGE, KIND_EXPERIMENT, LENS_COMFORT, LENS_ECONOMY,
                Draft, Snapshot)
 
@@ -28,17 +29,29 @@ def uniform_effects(inp: fp.PlanInputs, base: fp.PlanResult | None = None,
                     deltas: tuple[int, ...] = (-1, 1)) -> dict:
     """Skutki jednolitego przesunięcia nastawy wody o δ we wszystkich blokach względem natywnej krzywej,
     przeliczone na dobę: zmiana kosztu [zł], energii [kWh], średniej temperatury oraz najniższa
-    przewidywana średnia. Ten sam planer i model co plan blokowy, więc różnice są spójne z planem."""
+    przewidywana średnia. Ten sam planer i model co plan blokowy, więc różnice są spójne z planem.
+
+    Koszt i energia są skorygowane o „dług cieplny”: obniżenie nastawy oszczędza w horyzoncie głównie ciepło
+    wyjęte z zasobnika domu, które trzeba oddać, żeby wrócić do temperatury bazowej na końcu. Bez tej korekty
+    oszczędność wychodziła 3–8× za duża i nie zależała od pogody. Korekta jest wyceniana tak samo jak w celu
+    planera (`floor_plan.evaluate`): ΔT_końcowa / g / COP × cena taniej taryfy. Surowa energia horyzontu zostaje
+    w `energy_horizon_delta_kwh` dla przejrzystości."""
     base = base or fp.baseline(inp)
     n = len(inp.t_out_c)
     day = 24.0 / (n * inp.step_h)
+    ref_cop = cop(sum(inp.t_out_c) / n, sum(inp.base_c) / n)
+    debt_kwh_per_k = 1.0 / max(inp.model.g, 1e-3) / ref_cop            # prąd na 1 K różnicy temperatury końcowej
     out: dict = {"horizon_h": round(n * inp.step_h, 1),
                  "base": {"mean_temp_c": round(fp.mean_temp(base), 2), "min_temp_c": round(min(base.temps_c), 2)}}
     for d in deltas:
         res = fp.evaluate(inp, [float(d)] * len(inp.blocks))
+        end_gap = res.temps_c[-1] - base.temps_c[-1]
+        energy_h = sum(res.energy_kwh) - sum(base.energy_kwh)
         out[f"{d:+d}"] = {
-            "cost_day_delta_pln": round((res.cost_pln - base.cost_pln) * day, 3),
-            "energy_day_delta_kwh": round((sum(res.energy_kwh) - sum(base.energy_kwh)) * day, 3),
+            "cost_day_delta_pln": round((res.cost_pln - base.cost_pln - end_gap * debt_kwh_per_k * inp.offpeak_price) * day, 3),
+            "energy_day_delta_kwh": round((energy_h - end_gap * debt_kwh_per_k) * day, 3),
+            "energy_horizon_delta_kwh": round(energy_h * day, 3),
+            "end_temp_delta_c": round(end_gap, 2),
             "mean_temp_delta_c": round(fp.mean_temp(res) - fp.mean_temp(base), 2),
             "min_temp_c": round(min(res.temps_c), 2),
         }
