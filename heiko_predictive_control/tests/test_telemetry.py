@@ -98,3 +98,69 @@ def test_run_with_fake_states(conn):
     assert out == {"samples": 1, "changes": 0, "ok": True}
     assert telemetry.run(conn, SETTINGS, now, get_states=lambda: None)["ok"] is False
     assert json.loads(json.dumps(out)) == out
+
+
+# ── źródło zmiany z logbooka (kontekst stanu ginie przy następnej ramce z pompy) ───────────────
+
+CHANGED = "2026-09-26T07:55:41.147783+00:00"
+
+
+def test_source_from_logbook_user_automation_and_none():
+    user = [{"when": "2026-09-26T07:55:41.147783+00:00", "state": "on", "context_user_id": "u1",
+             "context_event_type": "call_service", "context_service": "turn_on"}]
+    assert telemetry.source_from_logbook(user, CHANGED) == "użytkownik HA"
+    auto = [{"when": "2026-09-26T07:55:42+00:00", "state": "on", "context_entity_id": "automation.x",
+             "context_event_type": "automation_triggered"}]
+    assert telemetry.source_from_logbook(auto, CHANGED) == "automatyzacja/skrypt"
+    no_ctx = [{"when": CHANGED, "state": "on"}]                               # panel pompy / integracja
+    assert telemetry.source_from_logbook(no_ctx, CHANGED) is None
+    far = [{"when": "2026-09-26T07:59:00+00:00", "context_user_id": "u1"}]     # wpis spoza tolerancji
+    assert telemetry.source_from_logbook(far, CHANGED) is None
+    assert telemetry.source_from_logbook(None, CHANGED) is None and telemetry.source_from_logbook([], CHANGED) is None
+    assert telemetry.source_from_logbook(user, "nie-data") is None
+
+
+def test_source_from_logbook_prefers_the_closest_entry():
+    entries = [{"when": "2026-09-26T07:55:44+00:00", "context_entity_id": "automation.x"},
+               {"when": "2026-09-26T07:55:41.5+00:00", "context_user_id": "u1"}]
+    assert telemetry.source_from_logbook(entries, CHANGED) == "użytkownik HA"
+
+
+def test_detect_changes_uses_logbook_when_state_context_is_empty(conn):
+    """Przypadek z produkcji: kliknięcie w UI, a stan ma już pusty kontekst (nadpisany ramką z pompy)."""
+    eid = "switch.heiko_heat_pump_backup_heater_hbh"
+    telemetry.detect_changes(conn, [st(eid, "off")])
+    asked = {}
+
+    def fake_logbook(entity, start, end):
+        asked.update(entity=entity, start=start, end=end)
+        return [{"when": CHANGED, "state": "on", "context_user_id": "u1", "context_event_type": "call_service"}]
+
+    out = telemetry.detect_changes(conn, [st(eid, "on", CHANGED, {})], get_logbook=fake_logbook)
+    assert out[0]["source"] == "użytkownik HA" and asked["entity"] == eid
+    assert asked["start"] < CHANGED < asked["end"]
+
+
+def test_detect_changes_falls_back_to_state_context_then_unknown(conn):
+    eid = "number.heiko_heat_pump_dhw_setpoint"
+    telemetry.detect_changes(conn, [st(eid, "48")])
+    out = telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:00:00+00:00", {"parent_id": "p"})],
+                                   get_logbook=lambda *a: None)                    # logbook niedostępny
+    assert out[0]["source"] == "automatyzacja/skrypt"
+    out = telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T12:00:00+00:00", {})], get_logbook=lambda *a: [])
+    assert out[0]["source"] == "nieznane"
+
+
+def test_reattribute_unknown_fixes_only_what_logbook_explains(conn):
+    for key, ts in (("dhw_setpoint", CHANGED), ("curve_shift", "2026-09-25T10:00:00+00:00")):
+        conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) VALUES (?, ?, 'e.' || ?, '1', '2', 'nieznane')",
+                     (ts, key, key))
+    conn.commit()
+
+    def fake_logbook(entity, start, end):
+        return [{"when": CHANGED, "context_user_id": "u1"}] if entity == "e.dhw_setpoint" else []
+
+    assert telemetry.reattribute_unknown(conn, get_logbook=fake_logbook) == 1
+    rows = {r["key"]: r["source"] for r in conn.execute("SELECT key, source FROM param_changes")}
+    assert rows == {"dhw_setpoint": "użytkownik HA", "curve_shift": "nieznane"}
+    assert telemetry.reattribute_unknown(conn, get_logbook=fake_logbook) == 0      # idempotentne

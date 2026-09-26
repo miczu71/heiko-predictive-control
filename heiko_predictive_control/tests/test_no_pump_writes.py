@@ -58,7 +58,7 @@ def test_the_detector_itself_works():
 
 def test_new_advisor_modules_only_read_from_ha():
     """D1: telemetria, streszczenia i analiza używają wyłącznie odczytów z ha_client."""
-    read_only = {"get_all_states", "get_history", "get_statistics", "get_state", "check_workday"}
+    read_only = {"get_all_states", "get_history", "get_logbook", "get_statistics", "get_state", "check_workday"}
     for module in (telemetry, summaries, analysis, catalog):
         tree = ast.parse(inspect.getsource(module))
         used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)

@@ -83,7 +83,58 @@ def change_source(context: dict | None) -> str:
     return "nieznane"
 
 
-def detect_changes(conn, states: list[dict]) -> list[dict]:
+def source_from_logbook(entries: list[dict] | None, changed_iso: str, tolerance_s: float = 5.0) -> str | None:
+    """Źródło zmiany z wpisu logbooka o czasie zgodnym ze zmianą stanu. Logbook zachowuje kontekst,
+    który stan encji traci przy następnej ramce z pompy: użytkownik (UI/API) ma `context_user_id`,
+    automatyzacja/skrypt — `context_entity_id` albo zdarzenie `automation_triggered`/`script_started`.
+    None = brak wpisu lub brak informacji (panel pompy i integracja nie zostawiają kontekstu)."""
+    try:
+        target = datetime.fromisoformat(changed_iso.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    best = None
+    for e in entries or []:
+        try:
+            when = datetime.fromisoformat(str(e.get("when")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        gap = abs((when - target).total_seconds())
+        if gap <= tolerance_s and (best is None or gap < best[0]):
+            best = (gap, e)
+    if best is None:
+        return None
+    e = best[1]
+    if e.get("context_user_id"):
+        return "użytkownik HA"
+    if e.get("context_entity_id") or e.get("context_event_type") in ("automation_triggered", "script_started"):
+        return "automatyzacja/skrypt"
+    return None
+
+
+def _logbook_source(get_logbook, entity_id: str, changed_iso: str) -> str | None:
+    try:
+        moment = datetime.fromisoformat(changed_iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    entries = get_logbook(entity_id, (moment - timedelta(minutes=1)).isoformat(), (moment + timedelta(minutes=1)).isoformat())
+    return source_from_logbook(entries, changed_iso)
+
+
+def reattribute_unknown(conn, get_logbook=ha_client.get_logbook, limit: int = 20) -> int:
+    """Uzupełnia źródło dla wpisów oznaczonych „nieznane” (logbook sięga kilka dni wstecz)."""
+    fixed = 0
+    for row in conn.execute("SELECT id, ts, entity_id FROM param_changes WHERE source = 'nieznane' "
+                            "ORDER BY id DESC LIMIT ?", (limit,)).fetchall():
+        found = _logbook_source(get_logbook, row["entity_id"], row["ts"])
+        if found:
+            conn.execute("UPDATE param_changes SET source = ? WHERE id = ?", (found, row["id"]))
+            fixed += 1
+    if fixed:
+        conn.commit()
+    return fixed
+
+
+def detect_changes(conn, states: list[dict], get_logbook=ha_client.get_logbook) -> list[dict]:
     """Porównuje `last_changed` parametrów katalogu z ostatnio widzianym i loguje zmiany.
     Pierwsze uruchomienie tylko zapamiętuje stan (bez wpisów). Przejścia przez unavailable/unknown pomijane."""
     by_id = {s.get("entity_id"): s for s in states}
@@ -99,8 +150,11 @@ def detect_changes(conn, states: list[dict]) -> list[dict]:
             continue
         if now_state.lower() in _BAD_STATES or str(prev.get("state")).lower() in _BAD_STATES:
             continue
+        # Kontekst stanu jest nadpisywany przy kolejnej ramce z pompy (co ~3 min), więc źródło bierzemy
+        # z logbooka; kontekst stanu zostaje tylko jako zapasowy trop.
+        source = _logbook_source(get_logbook, eid, changed) or change_source(st.get("context"))
         row = {"ts": changed, "key": key, "entity_id": eid, "old": prev.get("state"), "new": now_state,
-               "source": change_source(st.get("context"))}
+               "source": source}
         conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) "
                      "VALUES (:ts, :key, :entity_id, :old, :new, :source)", row)
         logged.append(row)
@@ -159,6 +213,7 @@ def run(conn, settings: dict, now: datetime, get_states=ha_client.get_all_states
         return {"samples": 0, "changes": 0, "ok": False}
     stored = store_sample(conn, now, collect_values(settings, states))
     changes = detect_changes(conn, states)
+    reattribute_unknown(conn)
     if now.hour == 3 and now.minute < 15:                         # raz na dobę, poza szczytem
         apply_retention(conn, now)
     return {"samples": stored, "changes": len(changes), "ok": True}

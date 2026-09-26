@@ -1,6 +1,6 @@
 """Dostęp do Home Assistant przez Supervisor API (SUPERVISOR_TOKEN).
 
-Odczyt (get_state, get_all_states, get_history, get_forecast, check_workday, get_statistics, get_mqtt_service)
+Odczyt (get_state, get_all_states, get_history, get_logbook, get_forecast, check_workday, get_statistics, get_mqtt_service)
 oraz zapis (call_service, notify). Zapis do urządzeń woła dziś wyłącznie pętla B (cycle.run_attic_cycle,
 klimatyzacja poddasza); pętla A (Heiko) nadal niczego nie zapisuje."""
 from __future__ import annotations
@@ -106,6 +106,21 @@ def get_history(entity_ids: list[str], start_iso: str, end_iso: str
     except (requests.RequestException, ValueError) as exc:
         logger.warning("HA history niedostępna: %s", exc)
         return None
+
+
+def get_logbook(entity_id: str, start_iso: str, end_iso: str) -> list[dict] | None:
+    """Wpisy logbooka HA dla encji (REST, tylko odczyt) — zawierają kontekst zmiany stanu
+    (`context_user_id`, `context_event_type`, `context_entity_id`), który stan encji traci przy
+    kolejnym odświeżeniu z pompy. None przy błędzie."""
+    try:
+        resp = requests.get(f"{_BASE}/logbook/{start_iso}", headers=_headers(), timeout=30,
+                            params={"entity": entity_id, "end_time": end_iso})
+        if resp.status_code == 200:
+            return resp.json()
+        logger.warning("HA logbook(%s) -> HTTP %d", entity_id, resp.status_code)
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("HA logbook niedostępny (%s): %s", entity_id, exc)
+    return None
 
 
 def get_forecast(entity_id: str, forecast_type: str = "hourly") -> list[dict] | None:

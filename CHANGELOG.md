@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.2 — dziennik zmian parametrów: źródło zmiany z logbooka
+
+Znalezione na żywo: zmiana parametru wykonana kliknięciem w UI HA była zapisana ze źródłem „nieznane”.
+Przyczyna: kontekst stanu encji jest nadpisywany przy kolejnym odświeżeniu z pompy (co ok. 3 min), a add-on
+próbkuje co 15 min, więc `user_id` prawie zawsze już znika.
+
+- Źródło zmiany jest teraz brane z **logbooka HA** (`GET /api/logbook`, tylko odczyt): użytkownik (UI/API) →
+  „użytkownik HA”, automatyzacja/skrypt → „automatyzacja/skrypt”; kontekst stanu zostaje tylko jako zapasowy trop.
+  Zmiana bez śladu w logbooku (panel pompy, integracja) nadal jest „nieznane”.
+- Wpisy już zapisane jako „nieznane” są uzupełniane z logbooka przy kolejnych cyklach (kilka dni wstecz).
+- Bez zmian w danych i w zapisach do pompy (nadal zero).
+
 ## 0.8.1 — Raport: kolejność klas temperatury
 
 Poprawka UI zakładki „Raport” znaleziona przy weryfikacji na żywo: klasy temperatury zewnętrznej
