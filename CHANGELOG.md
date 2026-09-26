@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.3 — grzałki: jednostki w minutach, licznik AH, poprawny opis rejestru 9.4
+
+Znalezione przy weryfikacji z instrukcją Heiko: liczniki czasu pracy grzałek w integracji są w **minutach**
+(`Time_AH`/`Time_HBH`/`Time_HWTBH`), a streszczenia dobowe nazywały je godzinami; brakowało też licznika **AH**
+(grzałka pomocnicza jednostki wewnętrznej), który jest kluczowy dla oceny kosztu CWU.
+
+- Streszczenia dobowe: `backup` = `ah_min` / `hbh_min` / `hwtbh_min` (minuty). Stare streszczenia (złe nazwy i
+  jednostki) są jednorazowo kasowane przy starcie, brakujące doby (ostatnie 7) uzupełnia backfill.
+- Telemetria loguje `ah_working_time`; raport i tabela „Własne dane” pokazują AH/HBH/HWTBH w min/dobę.
+- Katalog: parametr `backup_heater` (encja „Backup Heater (HBH)”) opisany zgodnie z instrukcją — to pozycja menu
+  **9.4 „Priorytet dla dodatkowego źródła ciepła w podgrzewaczu c.w.u.”** (HWTBH vs AH, rejestr 50), a nie włącznik
+  grzałki HBH (HBH to 9.1/9.2, rejestry 47/48, niewystawione). ON (0.0) = „Niższe dla grzałki wewnętrznej AH” = AH ma
+  pierwszeństwo jako wspomaganie CWU.
+
 ## 0.8.2 — dziennik zmian parametrów: źródło zmiany z logbooka
 
 Znalezione na żywo: zmiana parametru wykonana kliknięciem w UI HA była zapisana ze źródłem „nieznane”.

@@ -127,6 +127,12 @@ def migrate(conn: sqlite3.Connection) -> None:
     for name, decl in _ADDED_COLUMNS:
         if name not in existing:
             conn.execute(f"ALTER TABLE cycles ADD COLUMN {name} {decl}")
+    # 0.8.3: klucz `backup` w streszczeniach zmienił jednostki (godziny -> minuty) i nazwy pól; jednorazowo
+    # kasujemy stare streszczenia, brakujące doby (ostatnie 7) uzupełni backfill.
+    row = conn.execute("SELECT value FROM settings WHERE key = 'summary_schema'").fetchone()
+    if row is None:
+        conn.execute("DELETE FROM daily_summary")
+        conn.execute("INSERT INTO settings (key, value) VALUES ('summary_schema', '2')")
     conn.commit()
 
 

@@ -184,7 +184,8 @@ def own_data(sums: dict[str, dict[str, dict]], changes: dict) -> dict:
                             "mean_run_min": avg("compressor", "mean_run_min"),
                             "dhw_cycles": avg("modes", "dhw_cycles"), "dhw_min": avg("modes", "dhw_min"),
                             "heating_min": avg("modes", "heating_min"),
-                            "hbh_h": avg("backup", "hbh_h"), "p0_pulses": avg("p0", "pulses"),
+                            "ah_min": avg("backup", "ah_min"), "hbh_min": avg("backup", "hbh_min"),
+                            "hwtbh_min": avg("backup", "hwtbh_min"), "p0_pulses": avg("p0", "pulses"),
                             "kwh": avg("energy", "kwh"), "peak_share": avg("energy", "peak_share")}}
 
 
@@ -224,8 +225,10 @@ def ideas(report: dict) -> list[str]:
         out.append(f"Histereza: {a['short_cycles']:.0f} krótkich cykli sprężarki na dobę — kandydat na analizator histerezy (stop/restart).")
     if a.get("dhw_cycles") is not None and a["dhw_cycles"] >= 3:
         out.append(f"CWU: {a['dhw_cycles']:.0f} cykli CWU na dobę — sprawdź histerezę CWU i porę względem taryfy.")
-    if a.get("hbh_h"):
-        out.append(f"Grzałka HBH pracowała średnio {a['hbh_h']} h/dobę — sprawdź, czy to program anti-legionella, czy mróz.")
+    heaters = {k: a.get(f"{k}_min") for k in ("ah", "hbh", "hwtbh")}
+    if any(heaters.values()):
+        txt = ", ".join(f"{k.upper()} {v:g} min/dobę" for k, v in heaters.items() if v)
+        out.append(f"Grzałki (liczniki czasu pracy, średnio na dobę): {txt} — sprawdź, czy to anti-legionella, CWU 58°C, czy mróz.")
     return out
 
 

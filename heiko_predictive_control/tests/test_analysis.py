@@ -92,7 +92,7 @@ def _report(offset=1.2, in_band=0.5, below=0):
                         "rooms": {"sensor.x_salon": {"offset": 1.4}, "sensor.x_kitchen": {"offset": -0.2}},
                         "coldest": {"below_room_min_h": below}},
             "energy": {"peak_share": {"overall": 0.41}},
-            "own": {"days": 3, "avg_per_day": {"short_cycles": 5, "dhw_cycles": 4, "hbh_h": 0.4}},
+            "own": {"days": 3, "avg_per_day": {"short_cycles": 5, "dhw_cycles": 4, "ah_min": 9.0, "hwtbh_min": 30.0}},
             "pump_hours": {"by_class": {"-3": {"days": 10, "heating_h": 13.3, "dhw_h": 1.3},
                                         "6": {"days": 20, "heating_h": 5.9, "dhw_h": 1.4}}}}
 
@@ -110,7 +110,8 @@ def test_ideas_offpeak_ceiling_and_rule_based_text():
     joined = " ".join(ideas)
     assert "Sufit przesuwania" in joined and "13 h/dobę" in joined and "10 h" in joined     # 24 − 14 h szczytu
     assert "242 godz." in joined and "41%" in joined
-    assert "krótkich cykli" in joined and "cykli CWU" in joined and "HBH" in joined
+    assert "krótkich cykli" in joined and "cykli CWU" in joined
+    assert "AH 9 min/dobę" in joined and "HWTBH 30 min/dobę" in joined and "HBH" not in joined     # tylko niezerowe liczniki
     assert not any("Sufit" in i for i in an.ideas({**_report(), "pump_hours": {"by_class": {"6": {"days": 20, "heating_h": 5.9}}}}))
     assert an.ideas({}) == []
 

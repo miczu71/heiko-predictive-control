@@ -42,12 +42,13 @@ def test_run_continuing_from_previous_day_counts_from_midnight():
     assert out["run_min"] == 60.0 and out["starts"] == 1
 
 
-def test_backup_counters_delta_and_reset_ignored():
+def test_backup_counters_are_minutes_with_ah_and_reset_ignored():
+    """Liczniki czasu pracy grzałek w integracji są w MINUTACH; AH = grzałka pomocnicza."""
+    ah = series((z(0, d=20), "40.0"), (z(19), "48.0"), (z(19, 30), "50.0"))
     hbh = series((z(0, d=20), "100.0"), (z(12), "100.5"), (z(23, d=21), "101.25"))
-    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "hbh": hbh, "hwtbh": series(
-        (z(1), "500"), (z(20), "3"))}, TZ)["backup"]
-    assert out["hbh_h"] == 1.25                                           # 101,25 (21:00Z, w dobie) − 100,0 (przed dobą)
-    assert out["hwtbh_h"] is None                                         # reset licznika → brak przyrostu
+    hwtbh = series((z(1), "500"), (z(20), "3"))                            # reset licznika
+    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "ah": ah, "hbh": hbh, "hwtbh": hwtbh}, TZ)["backup"]
+    assert out == {"ah_min": 10.0, "hbh_min": 1.2, "hwtbh_min": None}     # 50−40 min; 101,25−100 → 1,25 → 1,2 (zaokr. do 0,1)
 
 
 def test_p0_pulses():
@@ -102,3 +103,18 @@ def test_store_day_persists_and_missing_days(conn):
 def test_store_day_without_history_stores_nothing(conn):
     assert sm.store_day(conn, {"timezone": TZ}, DAY, [], datetime(2026, 9, 22), get_history=lambda *a: None) == {}
     assert conn.execute("SELECT COUNT(*) FROM daily_summary").fetchone()[0] == 0
+
+
+def test_migration_drops_old_summaries_once(tmp_path):
+    """0.8.3: streszczenia sprzed zmiany jednostek (godziny→minuty) są kasowane jednorazowo."""
+    c = dbm.get_conn(str(tmp_path / "m.db"))
+    c.executescript(dbm._SCHEMA)
+    c.execute("INSERT INTO daily_summary (day, topic, data) VALUES ('2026-09-20', 'backup', '{\"hbh_h\": 1}')")
+    c.commit()
+    dbm.migrate(c)
+    assert c.execute("SELECT COUNT(*) FROM daily_summary").fetchone()[0] == 0
+    c.execute("INSERT INTO daily_summary (day, topic, data) VALUES ('2026-09-21', 'backup', '{\"ah_min\": 1}')")
+    c.commit()
+    dbm.migrate(c)                                                          # drugi start nie kasuje
+    assert c.execute("SELECT COUNT(*) FROM daily_summary").fetchone()[0] == 1
+    c.close()

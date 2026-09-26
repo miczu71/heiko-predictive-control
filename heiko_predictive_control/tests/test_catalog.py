@@ -89,3 +89,11 @@ def test_catalog_module_contains_no_full_entity_ids():
     """Repo jest publiczne: katalog zna tylko sufiksy, pełne entity_id domu rozwiązuje się w czasie pracy."""
     import re
     assert re.findall(r"\b(?:sensor|number|select|switch|binary_sensor)\.\w+", inspect.getsource(catalog)) == []
+
+
+def test_backup_heater_is_documented_as_hwtbh_priority_not_hbh_switch():
+    """Rejestr idx 50 = menu 9.4 (priorytet HWTBH vs AH), nie włącznik HBH — opis w katalogu ma to mówić."""
+    p = catalog.BY_KEY["backup_heater"]
+    assert p.suffix == "backup_heater_hbh" and p.cls == "B"                # encja w HA nadal nazywa się „HBH”
+    assert "AH" in p.label and "HWTBH" in p.label and "9.4" in p.note
+    assert "ah_working_time" in catalog.TELEMETRY_SENSORS

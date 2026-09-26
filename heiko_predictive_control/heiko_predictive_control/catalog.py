@@ -75,8 +75,12 @@ CATALOG: tuple[Param, ...] = (
     Param("p0_type", "circulation_pump_p0_type", "select", CLASS_B, "Pompa obiegowa P0: typ",
           "zużycie prądu, przepływ"),
     Param("dhw_storage", "dhw_storage", "switch", CLASS_B, "Magazynowanie CWU", "zaplanowane CWU, koszt"),
-    Param("backup_heater", "backup_heater_hbh", "switch", CLASS_B, "Grzałka zapasowa HBH",
-          "koszt (prąd), komfort przy mrozie", note="odwrócona logika w integracji"),
+    # Rejestr idx 50 = pozycja 9.4 menu „Priorytet dla dodatkowego źródła ciepła w podgrzewaczu c.w.u.” (HWTBH vs AH),
+    # a NIE włącznik grzałki HBH (HBH to 9.1/9.2 = idx 47/48, niewystawione w integracji). Odwrócona logika:
+    # ON = 0.0 = „Niższe dla grzałki wewnętrznej AH” (AH ma pierwszeństwo jako wspomaganie CWU).
+    Param("backup_heater", "backup_heater_hbh", "switch", CLASS_B, "Priorytet grzałek CWU: AH vs HWTBH",
+          "koszt (prąd) przy CWU, szybkość podgrzewu CWU",
+          note="w integracji „Backup Heater (HBH)”, w rzeczywistości menu 9.4; ON = AH ma pierwszeństwo"),
     Param("anti_leg_program", "anti_legionella_program", "switch", CLASS_B, "Anti-legionella: program",
           "higiena wody, koszt", note="nigdy nie obniżać poniżej normy higienicznej"),
     _n("anti_leg_setpoint", "anti_legionella_setpoint", CLASS_B, "Anti-legionella: temperatura",
@@ -98,7 +102,7 @@ BY_KEY: dict[str, Param] = {p.key: p for p in CATALOG}
 # Sensory pompy logowane co cykl (sufiks object_id; domena sensor). Wartość tekstowa/`unknown`
 # zapisuje się jako NULL; kod trybu pracy (`working_mode`) to liczba, nie napis.
 TELEMETRY_SENSORS: tuple[str, ...] = (
-    "ambient_air_temperature", "compressor_current", "compressor_frequency", "condenser_temperature",
+    "ah_working_time", "ambient_air_temperature", "compressor_current", "compressor_frequency", "condenser_temperature",
     "cop_estimated", "discharge_pressure", "discharge_temperature", "electrical_power",
     "expansion_valve_opening", "fan_1_speed", "fan_2_speed", "hbh_working_time", "hwtbh_working_time",
     "outdoor_unit_inlet_temperature", "outdoor_unit_outlet_temperature", "pipe_temperature",

@@ -110,7 +110,7 @@ def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_wor
 def summarize_day(day: date, series: dict[str, Series], tz_name: str,
                   is_workday: Callable[[date], bool] = lambda d: d.weekday() < 5) -> dict[str, dict]:
     """Streszczenia doby per temat. `series`: role → historia: mode, freq, hbh, hwtbh, p1, energy.
-    Zwraca {} gdy nie ma danych trybu ani sprężarki (doba poza zasięgiem recordera)."""
+    Klucz `backup`: ah_min/hbh_min/hwtbh_min (minuty). Zwraca {} gdy nie ma danych trybu ani sprężarki (doba poza zasięgiem recordera)."""
     start, end = day_bounds(day, tz_name)
     tz = ZoneInfo(tz_name)
     out: dict[str, dict] = {}
@@ -134,9 +134,12 @@ def summarize_day(day: date, series: dict[str, Series], tz_name: str,
                              "short_cycles": sum(1 for r in runs if r < SHORT_CYCLE_MIN),
                              "mean_run_min": round(run_min / len(runs), 1) if runs else None,
                              "mean_hz": round(weighted / run_min, 1) if run_min else None}
-    backup = {"hbh_h": _delta(series.get("hbh", []), start, end), "hwtbh_h": _delta(series.get("hwtbh", []), start, end)}
+    # Liczniki czasu pracy grzałek w integracji są w MINUTACH (AH = grzałka pomocnicza jednostki wewnętrznej,
+    # HBH = rezerwowa w buforze, HWTBH = rezerwowa zbiornika CWU).
+    backup = {"ah_min": _delta(series.get("ah", []), start, end), "hbh_min": _delta(series.get("hbh", []), start, end),
+              "hwtbh_min": _delta(series.get("hwtbh", []), start, end)}
     if any(v is not None for v in backup.values()):
-        out["backup"] = {k: None if v is None else round(v, 2) for k, v in backup.items()}
+        out["backup"] = {k: None if v is None else round(v, 1) for k, v in backup.items()}
     p1 = _segments(series.get("p1", []), start, end)
     if p1:
         runs = _runs(p1, lambda v: v > 0)
@@ -153,7 +156,8 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
     """Pobiera historię doby z HA i zapisuje streszczenia (INSERT OR REPLACE). Pusty wynik = nic nie zapisujemy."""
     tel = catalog.resolve_telemetry(states)
     roles = {"mode": tel.get("working_mode"), "freq": tel.get("compressor_frequency"),
-             "hbh": tel.get("hbh_working_time"), "hwtbh": tel.get("hwtbh_working_time"),
+             "ah": tel.get("ah_working_time"), "hbh": tel.get("hbh_working_time"),
+             "hwtbh": tel.get("hwtbh_working_time"),
              "p1": tel.get("water_pump_p1"), "energy": settings.get("pump_energy_entity") or None}
     entities = [e for e in roles.values() if e]
     tz_name = settings.get("timezone") or "Europe/Warsaw"
