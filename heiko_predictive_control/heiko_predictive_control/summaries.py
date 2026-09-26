@@ -76,8 +76,10 @@ def _runs(segments, predicate) -> list[float]:
 def _delta(series: Series, start: datetime, end: datetime) -> float | None:
     """Przyrost licznika w dobie (ostatnia − pierwsza wartość w oknie/przed nim); reset licznika → None."""
     pts = sorted((t, _num(s)) for t, s in series if _num(s) is not None and t < end)
-    if len(pts) < 2:
+    if not pts:
         return None
+    if len(pts) == 1:                      # licznik nie zmienił się w dobie (HA zwraca tylko stan początkowy) → przyrost 0
+        return 0.0
     inside = [v for t, v in pts if t >= start]
     before = [v for t, v in pts if t < start]
     first = before[-1] if before else (inside[0] if inside else None)

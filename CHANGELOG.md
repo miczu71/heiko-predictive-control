@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.4 — streszczenia: licznik bez zmian w dobie = 0 min
+
+Doba, w której licznik czasu pracy grzałki się nie zmienił, miała w historii HA jeden punkt i była pomijana
+(brak danych), więc średnie „min/dobę” liczyły się tylko z dób ze zmianą i były zawyżone (AH: 9 zamiast ok. 2,6
+min/dobę na 7 dób). Teraz taka doba to 0 min; brak samego licznika nadal oznacza brak danych. Streszczenia z 0.8.3
+są jednorazowo przeliczane (znacznik schematu podniesiony).
+
 ## 0.8.3 — grzałki: jednostki w minutach, licznik AH, poprawny opis rejestru 9.4
 
 Znalezione przy weryfikacji z instrukcją Heiko: liczniki czasu pracy grzałek w integracji są w **minutach**

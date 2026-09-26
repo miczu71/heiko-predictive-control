@@ -113,8 +113,17 @@ def test_migration_drops_old_summaries_once(tmp_path):
     c.commit()
     dbm.migrate(c)
     assert c.execute("SELECT COUNT(*) FROM daily_summary").fetchone()[0] == 0
+    assert c.execute("SELECT value FROM settings WHERE key = 'summary_schema'").fetchone()["value"] == "3"
     c.execute("INSERT INTO daily_summary (day, topic, data) VALUES ('2026-09-21', 'backup', '{\"ah_min\": 1}')")
     c.commit()
-    dbm.migrate(c)                                                          # drugi start nie kasuje
+    dbm.migrate(c)                                                          # znacznik ustawiony -> drugi start nie kasuje
     assert c.execute("SELECT COUNT(*) FROM daily_summary").fetchone()[0] == 1
     c.close()
+
+
+def test_counter_unchanged_all_day_is_zero_not_missing():
+    """Licznik bez zmian w dobie ma w historii jeden punkt — to 0 min, a nie brak danych (inaczej średnie są zawyżone)."""
+    quiet = series((z(0, d=20), "42.0"))
+    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "ah": quiet}, TZ)["backup"]
+    assert out["ah_min"] == 0.0
+    assert sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0"))}, TZ).get("backup") is None     # brak licznika = brak danych
