@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.3 — katalog: dodatkowe źródła ciepła (sloty 47–52) i ograniczona nastawa (77/78); dziennik liczy tylko realne zmiany
+
+Plan A1 analizatora grzałki AH. **Zero zapisów do pompy** (test AST bez zmian). Integracja `heiko_heatpump` 1.13.0 wystawiła
+nowe encje; add-on je obserwuje i poprawnie loguje ich zmiany przed eksperymentem A3.
+
+**Nowe w katalogu (klasa C — tylko obserwacja)**
+
+| Slot | Encja (sufiks) | Opis |
+|---|---|---|
+| 47 | `backup_source_for_heating` (switch) | dodatkowe źródło przy ogrzewaniu |
+| 48 | `backup_priority_heating` (select) | priorytet w buforze przy c.o. |
+| 49 | `backup_source_for_dhw` (switch) | dodatkowe źródło przy c.w.u. |
+| 50 | `backup_priority_dhw` (select) — klucz `backup_heater` | priorytet HWTBH względem AH przy CWU; **kanoniczny select zamiast aliasu switch** (odwrócona logika), jedna zmiana = jeden wpis |
+| 51 | `backup_source_start_dependency` (number 0–600) | zależność temp. ↔ czas startu źródła |
+| 52 | `backup_source_start_delay` (number, min) | czas do uruchomienia dodatkowego źródła |
+| 77 | `reduced_setpoint` (switch) | ograniczona nastawa: **funkcja włączona** (nie „aktywna teraz”) |
+| 78 | `reduced_setpoint_drop_rise` (number, °C) | o ile spada cel wody |
+
+Katalog: 31 → 34 parametry. Usunięte: cztery parametry anty-legionelli (poza add-onem).
+
+**Naprawa dziennika zmian.** `last_changed` odnawia się dla wszystkich encji przy przeładowaniu HA bez zmiany wartości, więc 33 z 37
+wpisów z 26.09 miało `old = new` (31 naraz po restarcie), a dwa szybkie przełączenia w jednym cyklu 15 min dawały `off → off`.
+Teraz dla encji z nowym `last_changed` add-on pobiera historię recordera od poprzedniego odczytu i loguje każde przejście wartości
+(A→B, B→A); bez historii — zmiana tylko gdy stan faktycznie inny. Encja niedostępna zostaje przy ostatniej znanej wartości, więc zmiana
+w czasie niedostępności nie ginie.
+- Migracja jednorazowa: wpisy `old = new` trafiają do `param_changes_legacy`, a realne przejścia z ostatnich ~7 dni są odtwarzane z historii
+  (bez historii — ponowi w następnym cyklu, niczego nie ruszając). `advisor_managed_keys` traci klucze `anti_leg_*`.
+
+**HWTBH to licznik sygnału, nie grzałka** (jej w instalacji nie ma, licznik liczy urojone minuty): brak alarmu anomalii `hwtbh_min`,
+zdanie o grzałkach w raporcie obejmuje tylko AH i HBH, kolumna raportu nazywa się „Sygnał HWTBH min”.
+
+**Pulpit:** dwa wiersze zamiast jednego — „Ograniczona nastawa — funkcja (panel)” (switch 77) i „— aktywna teraz (wnioskowana)”.
+
 ## 0.9.2 — kalibracja reguły krzywej po odtworzeniu zimy: zapas nad minimum po ostygnięciu domu
 
 Odtworzenie zimy 2025/26 (180 dób) ujawniło lukę w regule „−1”: wymagała +0,5°C zapasu najzimniejszego pokoju nad minimum

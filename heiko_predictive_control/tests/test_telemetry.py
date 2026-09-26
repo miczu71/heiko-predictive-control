@@ -15,6 +15,9 @@ def conn(tmp_path):
     c.close()
 
 
+NO_HISTORY = lambda *a: None          # noqa: E731 — testy nie sięgają do HA (domyślny get_history to prawdziwy recorder)
+
+
 def st(eid, state, lc="2026-09-26T10:00:00+00:00", ctx=None):
     return {"entity_id": eid, "state": state, "last_changed": lc, "context": ctx or {}}
 
@@ -51,19 +54,20 @@ def test_change_source():
 
 def test_detect_changes_baseline_then_changes(conn):
     eid = "number.heiko_heat_pump_dhw_setpoint"
-    assert telemetry.detect_changes(conn, [st(eid, "48")]) == []                        # baza, bez wpisu
-    assert telemetry.detect_changes(conn, [st(eid, "48")]) == []                        # bez zmian
-    out = telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:00:00+00:00", {"parent_id": "x"})])
+    assert telemetry.detect_changes(conn, [st(eid, "48")], get_history=NO_HISTORY) == []          # baza, bez wpisu
+    assert telemetry.detect_changes(conn, [st(eid, "48")], get_history=NO_HISTORY) == []          # bez zmian
+    out = telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:00:00+00:00", {"parent_id": "x"})],
+                                   get_logbook=lambda *a: None, get_history=NO_HISTORY)
     assert [(r["key"], r["old"], r["new"], r["source"]) for r in out] == [("dhw_setpoint", "48", "58", "automatyzacja/skrypt")]
-    assert telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:00:00+00:00")]) == []   # ta sama zmiana nie liczy się 2x
+    assert telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:00:00+00:00")], get_history=NO_HISTORY) == []   # ta sama zmiana nie liczy się 2x
     assert conn.execute("SELECT COUNT(*) FROM param_changes").fetchone()[0] == 1
 
 
 def test_detect_changes_ignores_unavailable_transitions(conn):
     eid = "number.heiko_heat_pump_dhw_setpoint"
-    telemetry.detect_changes(conn, [st(eid, "48")])
-    assert telemetry.detect_changes(conn, [st(eid, "unavailable", "2026-09-26T11:00:00+00:00")]) == []
-    assert telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T11:05:00+00:00")]) == []   # powrót po unavailable
+    telemetry.detect_changes(conn, [st(eid, "48")], get_history=NO_HISTORY)
+    assert telemetry.detect_changes(conn, [st(eid, "unavailable", "2026-09-26T11:00:00+00:00")], get_history=NO_HISTORY) == []
+    assert telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T11:05:00+00:00")], get_history=NO_HISTORY) == []   # powrót po unavailable
     assert conn.execute("SELECT COUNT(*) FROM param_changes").fetchone()[0] == 0
 
 
@@ -94,7 +98,7 @@ def test_changes_summary_counts_by_time_not_text(conn):
 
 def test_run_with_fake_states(conn):
     now = datetime(2026, 9, 26, 10, 0)
-    out = telemetry.run(conn, SETTINGS, now, get_states=lambda: [st("sensor.room_a", "21.0")])
+    out = telemetry.run(conn, SETTINGS, now, get_states=lambda: [st("sensor.room_a", "21.0")], get_history=NO_HISTORY)
     assert out == {"samples": 1, "changes": 0, "ok": True}
     assert telemetry.run(conn, SETTINGS, now, get_states=lambda: None)["ok"] is False
     assert json.loads(json.dumps(out)) == out
@@ -128,26 +132,27 @@ def test_source_from_logbook_prefers_the_closest_entry():
 
 def test_detect_changes_uses_logbook_when_state_context_is_empty(conn):
     """Przypadek z produkcji: kliknięcie w UI, a stan ma już pusty kontekst (nadpisany ramką z pompy)."""
-    eid = "switch.heiko_heat_pump_backup_heater_hbh"
-    telemetry.detect_changes(conn, [st(eid, "off")])
+    eid = "select.heiko_heat_pump_backup_priority_dhw"                                   # kanoniczny select slotu 50
+    telemetry.detect_changes(conn, [st(eid, "Wyższe")], get_history=NO_HISTORY)
     asked = {}
 
     def fake_logbook(entity, start, end):
         asked.update(entity=entity, start=start, end=end)
-        return [{"when": CHANGED, "state": "on", "context_user_id": "u1", "context_event_type": "call_service"}]
+        return [{"when": CHANGED, "state": "Niższe", "context_user_id": "u1", "context_event_type": "call_service"}]
 
-    out = telemetry.detect_changes(conn, [st(eid, "on", CHANGED, {})], get_logbook=fake_logbook)
+    out = telemetry.detect_changes(conn, [st(eid, "Niższe", CHANGED, {})], get_logbook=fake_logbook, get_history=NO_HISTORY)
     assert out[0]["source"] == "użytkownik HA" and asked["entity"] == eid
     assert asked["start"] < CHANGED < asked["end"]
 
 
 def test_detect_changes_falls_back_to_state_context_then_unknown(conn):
     eid = "number.heiko_heat_pump_dhw_setpoint"
-    telemetry.detect_changes(conn, [st(eid, "48")])
+    telemetry.detect_changes(conn, [st(eid, "48")], get_history=NO_HISTORY)
     out = telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:00:00+00:00", {"parent_id": "p"})],
-                                   get_logbook=lambda *a: None)                    # logbook niedostępny
+                                   get_logbook=lambda *a: None, get_history=NO_HISTORY)      # logbook niedostępny
     assert out[0]["source"] == "automatyzacja/skrypt"
-    out = telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T12:00:00+00:00", {})], get_logbook=lambda *a: [])
+    out = telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T12:00:00+00:00", {})], get_logbook=lambda *a: [],
+                                   get_history=NO_HISTORY)
     assert out[0]["source"] == "nieznane"
 
 
@@ -164,3 +169,129 @@ def test_reattribute_unknown_fixes_only_what_logbook_explains(conn):
     rows = {r["key"]: r["source"] for r in conn.execute("SELECT key, source FROM param_changes")}
     assert rows == {"dhw_setpoint": "użytkownik HA", "curve_shift": "nieznane"}
     assert telemetry.reattribute_unknown(conn, get_logbook=fake_logbook) == 0      # idempotentne
+
+
+# ── 0.9.3: dziennik liczy zmiany WARTOŚCI (nie odświeżenia last_changed) ──────────────────────────
+
+def _t(h, m, s=0):
+    return datetime(2026, 9, 26, h, m, s, tzinfo=timezone.utc)
+
+
+def test_transitions_ignore_repeats_bad_states_and_report_every_flip():
+    hist = [(_t(9, 0), "off"), (_t(9, 30), "unavailable"), (_t(9, 31), "off"),          # przeładowanie: ta sama wartość
+            (_t(9, 55, 22), "on"), (_t(9, 55, 42), "off")]                              # szybkie tam i z powrotem
+    out = telemetry.transitions(hist, "off", since=_t(9, 0))
+    assert [(w, o, n) for w, o, n in out] == [(_t(9, 55, 22), "off", "on"), (_t(9, 55, 42), "on", "off")]
+    assert telemetry.transitions([(_t(9, 0), "5"), (_t(10, 0), "5")], "5", since=_t(9, 0)) == []
+
+
+def test_transitions_first_known_value_is_only_a_reference_and_old_rows_are_skipped():
+    assert telemetry.transitions([(_t(9, 0), "unavailable"), (_t(9, 5), "1"), (_t(9, 10), "2")], "unavailable") == \
+        [(_t(9, 10), "1", "2")]
+    old = [(_t(7, 0), "9"), (_t(9, 0), "1"), (_t(9, 10), "2")]                          # wiersz sprzed `since` nie fałszuje starej wartości
+    assert telemetry.transitions(old, "1", since=_t(9, 0)) == [(_t(9, 10), "1", "2")]
+
+
+def test_detect_changes_reload_of_ha_is_not_a_change(conn):
+    """31 encji naraz dostaje nowy `last_changed` po restarcie HA, a wartości są te same — 0 wpisów."""
+    eid = "number.heiko_heat_pump_dhw_setpoint"
+    telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T10:00:00+00:00")])
+    hist = {eid: [(_t(10, 0), "48"), (_t(14, 26), "unavailable"), (_t(14, 27), "48")]}
+    out = telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T14:27:00+00:00")], get_logbook=lambda *a: [],
+                                   get_history=lambda ids, a, b: hist)
+    assert out == [] and conn.execute("SELECT COUNT(*) FROM param_changes").fetchone()[0] == 0
+
+
+def test_detect_changes_logs_both_flips_of_a_short_toggle_within_one_cycle(conn):
+    eid = "select.heiko_heat_pump_backup_priority_dhw"
+    telemetry.detect_changes(conn, [st(eid, "Wyższe", "2026-09-26T13:00:00+00:00")])
+    hist = {eid: [(_t(13, 0), "Wyższe"), (_t(14, 34, 22), "Niższe"), (_t(14, 34, 42), "Wyższe")]}
+    asked = {}
+
+    def fake_history(ids, start, end):
+        asked.update(ids=ids, start=start)
+        return hist
+
+    out = telemetry.detect_changes(conn, [st(eid, "Wyższe", "2026-09-26T14:34:42+00:00", {})], get_logbook=lambda *a: [],
+                                   get_history=fake_history)
+    assert [(r["key"], r["old"], r["new"]) for r in out] == [("backup_heater", "Wyższe", "Niższe"),
+                                                              ("backup_heater", "Niższe", "Wyższe")]
+    assert asked["ids"] == [eid] and asked["start"].startswith("2026-09-26T13:00:00")
+    assert out[0]["ts"].startswith("2026-09-26T14:34:22")
+
+
+def test_detect_changes_fallback_without_history_logs_only_a_real_difference(conn):
+    eid = "number.heiko_heat_pump_dhw_setpoint"
+    telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T10:00:00+00:00")])
+    same = telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T11:00:00+00:00")], get_history=lambda *a: None)
+    diff = telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T12:00:00+00:00")], get_logbook=lambda *a: [],
+                                    get_history=lambda *a: None)
+    assert same == [] and [(r["old"], r["new"]) for r in diff] == [("48", "58")]
+
+
+def test_change_during_unavailable_is_not_lost(conn):
+    """Encja niedostępna zostaje przy ostatniej znanej wartości — zmiana w tym czasie łapie się po powrocie."""
+    eid = "number.heiko_heat_pump_dhw_setpoint"
+    telemetry.detect_changes(conn, [st(eid, "48", "2026-09-26T10:00:00+00:00")])
+    assert telemetry.detect_changes(conn, [st(eid, "unavailable", "2026-09-26T11:00:00+00:00")]) == []
+    hist = {eid: [(_t(10, 0), "48"), (_t(11, 0), "unavailable"), (_t(11, 5), "58")]}
+    out = telemetry.detect_changes(conn, [st(eid, "58", "2026-09-26T11:05:00+00:00")], get_logbook=lambda *a: [],
+                                   get_history=lambda *a: hist)
+    assert [(r["old"], r["new"]) for r in out] == [("48", "58")]
+
+
+def _fake_rows(conn):
+    """Stan produkcyjny z 26.09: 31 odświeżeń po restarcie HA + dwa przełączenia zapisane jako off → off + jedna prawdziwa zmiana."""
+    rows = [("2026-09-26T09:10:50+00:00", "dhw_setpoint", "number.heiko_heat_pump_dhw_setpoint", "58", "48", "nieznane"),
+            ("2026-09-26T13:57:22+00:00", "backup_heater", "select.heiko_heat_pump_backup_priority_dhw", "Wyższe", "Wyższe", "nieznane"),
+            ("2026-09-26T14:26:15+00:00", "backup_heater", "select.heiko_heat_pump_backup_priority_dhw", "Wyższe", "Wyższe", "nieznane"),
+            ("2026-09-26T14:26:15+00:00", "anti_leg_program", "switch.heiko_heat_pump_anti_legionella_program", "off", "off", "nieznane"),
+            ("2026-09-26T14:34:42+00:00", "backup_heater", "select.heiko_heat_pump_backup_priority_dhw", "Wyższe", "Wyższe", "nieznane")]
+    for r in rows:
+        conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) VALUES (?, ?, ?, ?, ?, ?)", r)
+    conn.commit()
+
+
+def test_migrate_fake_changes_moves_them_to_legacy_and_restores_real_transitions(conn, monkeypatch):
+    _fake_rows(conn)
+    monkeypatch.setattr(telemetry.ha_client, "get_logbook", lambda *a: [])
+    eid = "select.heiko_heat_pump_backup_priority_dhw"
+    hist = {eid: [(_t(12, 0), "Wyższe"), (_t(13, 56, 22), "Niższe"), (_t(13, 57, 22), "Wyższe"),
+                  (_t(14, 34, 22), "Niższe"), (_t(14, 34, 42), "Wyższe")]}
+    states = [st(eid, "Wyższe"), st("number.heiko_heat_pump_dhw_setpoint", "48")]
+    assert telemetry.migrate_fake_changes(conn, states, get_history=lambda *a: hist) is True
+    rows = conn.execute("SELECT key, old, new, ts FROM param_changes ORDER BY ts").fetchall()
+    assert [(r["key"], r["old"], r["new"]) for r in rows] == [
+        ("dhw_setpoint", "58", "48"),                                                      # prawdziwy wpis zostaje
+        ("backup_heater", "Wyższe", "Niższe"), ("backup_heater", "Niższe", "Wyższe"),
+        ("backup_heater", "Wyższe", "Niższe"), ("backup_heater", "Niższe", "Wyższe")]
+    assert conn.execute("SELECT COUNT(*) FROM param_changes_legacy").fetchone()[0] == 4    # 3 × backup_heater + anti_leg
+    assert dbm.get_setting(conn, "param_changes_schema") == 2
+    before = conn.execute("SELECT COUNT(*) FROM param_changes").fetchone()[0]
+    assert telemetry.migrate_fake_changes(conn, states, get_history=lambda *a: 1 / 0) is True      # idempotentne: nie woła historii
+    assert conn.execute("SELECT COUNT(*) FROM param_changes").fetchone()[0] == before
+
+
+def test_migrate_fake_changes_retries_later_when_history_is_missing(conn):
+    _fake_rows(conn)
+    states = [st("select.heiko_heat_pump_backup_priority_dhw", "Wyższe")]
+    assert telemetry.migrate_fake_changes(conn, states, get_history=lambda *a: None) is False
+    assert conn.execute("SELECT COUNT(*) FROM param_changes").fetchone()[0] == 5              # nic nie ruszone
+    assert conn.execute("SELECT COUNT(*) FROM param_changes_legacy").fetchone()[0] == 0
+    assert dbm.get_setting(conn, "param_changes_schema") is None
+
+
+def test_db_migrate_drops_anti_legionella_and_repoints_backup_heater_in_settings(tmp_path):
+    c = dbm.get_conn(str(tmp_path / "old.db"))
+    dbm.migrate(c)
+    c.execute("DELETE FROM settings WHERE key = 'catalog_schema'")
+    dbm.set_setting(c, "advisor_managed_keys", "dhw_setpoint,backup_heater,anti_leg_program")
+    dbm.set_setting(c, "catalog_last_seen", {"dhw_setpoint": {"state": "48", "lc": "x"}, "backup_heater": {"state": "on", "lc": "y"},
+                                             "anti_leg_setpoint": {"state": "70", "lc": "z"}})
+    dbm.migrate(c)
+    assert dbm.get_setting(c, "advisor_managed_keys") == "dhw_setpoint,backup_heater"
+    assert list(dbm.get_setting(c, "catalog_last_seen")) == ["dhw_setpoint"]
+    dbm.set_setting(c, "advisor_managed_keys", "dhw_setpoint,anti_leg_program")            # kolejne migrate już nie rusza
+    dbm.migrate(c)
+    assert dbm.get_setting(c, "advisor_managed_keys") == "dhw_setpoint,anti_leg_program"
+    c.close()

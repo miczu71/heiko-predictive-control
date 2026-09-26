@@ -12,7 +12,7 @@ from heiko_predictive_control.kpi import outdoor_class
 NOW = datetime(2026, 1, 14, 7, 0)
 ZONES = "sensor.z1,sensor.z2,sensor.z3"
 SETTINGS = {"day_zone_temp_entities": ZONES, "heiko_room_target_c": 20.6, "heiko_room_min_c": 18.5,
-            "advisor_managed_keys": "dhw_setpoint,backup_heater,anti_leg_program"}
+            "advisor_managed_keys": "dhw_setpoint,backup_heater"}
 
 
 @pytest.fixture

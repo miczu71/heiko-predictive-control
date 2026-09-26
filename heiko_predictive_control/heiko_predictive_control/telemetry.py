@@ -8,7 +8,7 @@ parametru z katalogu (z panelu, HA albo automatyzacji) → `param_changes` (licz
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from . import catalog
 from . import db as dbm
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 KEEP_RAW_DAYS = 730
 DB_WARN_BYTES = 200 * 1024 * 1024
 _LAST_SEEN_KEY = "catalog_last_seen"
+_CHANGES_SCHEMA_KEY = "param_changes_schema"
+_CHANGES_SCHEMA = 2
 _BAD_STATES = ("unavailable", "unknown", "none", "")
 
 
@@ -134,36 +136,139 @@ def reattribute_unknown(conn, get_logbook=ha_client.get_logbook, limit: int = 20
     return fixed
 
 
-def detect_changes(conn, states: list[dict], get_logbook=ha_client.get_logbook) -> list[dict]:
-    """Porównuje `last_changed` parametrów katalogu z ostatnio widzianym i loguje zmiany.
-    Pierwsze uruchomienie tylko zapamiętuje stan (bez wpisów). Przejścia przez unavailable/unknown pomijane."""
+def _parse_ts(value) -> datetime | None:
+    try:
+        t = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def transitions(history: list[tuple[datetime, str]], prev_state: str | None,
+                since: datetime | None = None) -> list[tuple[datetime, str, str]]:
+    """Realne zmiany wartości z historii recordera: [(czas UTC, stara, nowa)].
+    Wpisy `unavailable`/`unknown` pomijamy (wartość „sprzed” przechodzi przez nie bez zmian), a powtórzenie tej samej
+    wartości (przeładowanie HA zmienia `last_changed`, nie wartość) niczego nie zwraca. `prev_state` None/nieznany =
+    pierwsza znana wartość jest tylko punktem odniesienia. Wiersze starsze niż `since` (−1 s) są pomijane."""
+    cur = None if prev_state is None or str(prev_state).lower() in _BAD_STATES else str(prev_state)
+    floor = since - timedelta(seconds=1) if since else None
+    out: list[tuple[datetime, str, str]] = []
+    for when, state in sorted(history, key=lambda r: r[0]):
+        if floor is not None and when < floor:
+            continue
+        if str(state).lower() in _BAD_STATES:
+            continue
+        if cur is None:
+            cur = str(state)
+        elif str(state) != cur:
+            out.append((when, cur, str(state)))
+            cur = str(state)
+    return out
+
+
+def _fetch_history(get_history, entity_ids: list[str], start: datetime) -> dict | None:
+    if not entity_ids:
+        return {}
+    try:
+        return get_history(entity_ids, start.astimezone(timezone.utc).isoformat(),
+                           datetime.now(timezone.utc).isoformat())
+    except Exception:                                    # historia to dodatek — dziennik ma działać bez niej
+        logger.warning("Historia parametrów niedostępna — zmiany liczone ze stanu", exc_info=True)
+        return None
+
+
+def detect_changes(conn, states: list[dict], get_logbook=ha_client.get_logbook,
+                   get_history=ha_client.get_history) -> list[dict]:
+    """Loguje zmiany WARTOŚCI parametrów katalogu. `last_changed` nie wystarcza: przeładowanie HA odnawia go dla
+    wszystkich encji bez zmiany wartości, a dwa szybkie przełączenia w jednym cyklu dają ten sam stan końcowy.
+    Dlatego dla encji z nowym `last_changed` bierzemy historię recordera od poprzedniego odczytu i logujemy każde
+    przejście wartości (A→B, B→A); brak historii = ostrożny zapas: jedna zmiana, tylko gdy stan faktycznie inny.
+    Pierwsze uruchomienie tylko zapamiętuje stan. Encja niedostępna zostaje przy ostatniej znanej wartości, więc
+    zmiana przez okres niedostępności też się złapie."""
     by_id = {s.get("entity_id"): s for s in states}
     seen = dbm.get_setting(conn, _LAST_SEEN_KEY) or {}
     current: dict[str, dict] = {}
-    logged: list[dict] = []
+    pending: list[tuple[str, str, dict, dict]] = []      # (klucz, entity_id, stan HA, poprzednio widziane)
     for key, eid in catalog.resolve_params(states).items():
         st = by_id[eid]
         now_state, changed = str(st.get("state")), st.get("last_changed")
-        current[key] = {"state": now_state, "lc": changed}
         prev = seen.get(key)
+        if now_state.lower() in _BAD_STATES:
+            if prev is not None:
+                current[key] = prev
+            continue
+        current[key] = {"state": now_state, "lc": changed}
         if prev is None or prev.get("lc") == changed:
             continue
-        if now_state.lower() in _BAD_STATES or str(prev.get("state")).lower() in _BAD_STATES:
-            continue
-        # Kontekst stanu jest nadpisywany przy kolejnej ramce z pompy (co ~3 min), więc źródło bierzemy
-        # z logbooka; kontekst stanu zostaje tylko jako zapasowy trop.
-        source = _logbook_source(get_logbook, eid, changed) or change_source(st.get("context"))
-        row = {"ts": changed, "key": key, "entity_id": eid, "old": prev.get("state"), "new": now_state,
-               "source": source}
-        conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) "
-                     "VALUES (:ts, :key, :entity_id, :old, :new, :source)", row)
-        logged.append(row)
+        pending.append((key, eid, st, prev))
+
+    starts = [t for _, _, _, prev in pending if (t := _parse_ts(prev.get("lc"))) is not None]
+    hist = _fetch_history(get_history, [eid for _, eid, _, _ in pending], min(starts)) if starts else None
+
+    logged: list[dict] = []
+    for key, eid, st, prev in pending:
+        now_state, changed = str(st.get("state")), st.get("last_changed")
+        since = _parse_ts(prev.get("lc"))
+        series = (hist or {}).get(eid)
+        if series is not None and since is not None:
+            found = [(w.isoformat(), o, n) for w, o, n in transitions(series, prev.get("state"), since)]
+        elif str(prev.get("state")).lower() in _BAD_STATES or str(prev.get("state")) == now_state:
+            found = []
+        else:
+            found = [(changed, prev.get("state"), now_state)]
+        for i, (ts, old, new) in enumerate(found):
+            # Kontekst stanu jest nadpisywany przy kolejnej ramce z pompy (co ~3 min), więc źródło bierzemy
+            # z logbooka; kontekst stanu to zapasowy trop tylko dla ostatniego przejścia (to jego stan).
+            fallback = change_source(st.get("context")) if i == len(found) - 1 else "nieznane"
+            source = _logbook_source(get_logbook, eid, ts)
+            source = source or fallback
+            row = {"ts": ts, "key": key, "entity_id": eid, "old": old, "new": new, "source": source}
+            conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) "
+                         "VALUES (:ts, :key, :entity_id, :old, :new, :source)", row)
+            logged.append(row)
     if logged:
         conn.commit()
         logger.info("Zmiany parametrów pompy: %s", [(r["key"], r["old"], r["new"], r["source"]) for r in logged])
     if current != seen:
         dbm.set_setting(conn, _LAST_SEEN_KEY, {**seen, **current})
     return logged
+
+
+def migrate_fake_changes(conn, states: list[dict], get_history=ha_client.get_history) -> bool:
+    """Jednorazowo (0.9.3): wpisy `old == new` z dziennika (przeładowania HA, dwa przełączenia w jednym cyklu) trafiają do
+    `param_changes_legacy`, a realne przejścia wartości tych parametrów są odtwarzane z historii recordera (~7 dni).
+    Zwraca True, gdy migracja jest zakończona; brak historii = spróbuje w następnym cyklu, niczego nie ruszając."""
+    if dbm.get_setting(conn, _CHANGES_SCHEMA_KEY) == _CHANGES_SCHEMA:
+        return True
+    fakes = conn.execute("SELECT * FROM param_changes WHERE old IS NOT NULL AND old = new ORDER BY id").fetchall()
+    resolved = catalog.resolve_params(states)
+    keys = sorted({r["key"] for r in fakes if r["key"] in resolved})
+    hist: dict = {}
+    if keys:
+        starts = [t for r in fakes if r["key"] in resolved and (t := _parse_ts(r["ts"])) is not None]
+        hist = _fetch_history(get_history, [resolved[k] for k in keys], min(starts) - timedelta(hours=1)) if starts else {}
+        if hist is None:
+            return False
+    conn.execute("INSERT INTO param_changes_legacy (id, ts, key, entity_id, old, new, source) "
+                 "SELECT id, ts, key, entity_id, old, new, source FROM param_changes WHERE old IS NOT NULL AND old = new")
+    conn.execute("DELETE FROM param_changes WHERE old IS NOT NULL AND old = new")
+    restored = 0
+    for key in keys:
+        eid = resolved[key]
+        have = [t for r in conn.execute("SELECT ts FROM param_changes WHERE key = ?", (key,))
+                if (t := _parse_ts(r["ts"])) is not None]
+        for when, old, new in transitions(hist.get(eid) or [], None):
+            if any(abs((when - t).total_seconds()) <= 2 for t in have):
+                continue                                  # ta zmiana jest już w dzienniku (prawdziwy wpis)
+            source = _logbook_source(ha_client.get_logbook, eid, when.isoformat()) or "nieznane"
+            conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) VALUES (?, ?, ?, ?, ?, ?)",
+                         (when.isoformat(), key, eid, old, new, source))
+            restored += 1
+    dbm.set_setting(conn, _CHANGES_SCHEMA_KEY, _CHANGES_SCHEMA)
+    conn.commit()
+    logger.info("Dziennik zmian: %d fałszywych wpisów (old = new) przeniesiono do param_changes_legacy, odtworzono %d realnych",
+                len(fakes), restored)
+    return True
 
 
 def apply_retention(conn, now: datetime, keep_days: int = KEEP_RAW_DAYS) -> int:
@@ -206,13 +311,15 @@ def _count_since(conn, since: datetime) -> int:
     return n
 
 
-def run(conn, settings: dict, now: datetime, get_states=ha_client.get_all_states) -> dict:
+def run(conn, settings: dict, now: datetime, get_states=ha_client.get_all_states,
+        get_history=ha_client.get_history) -> dict:
     """Jeden krok telemetrii (z cyklu pętli A): próbka + zmiany parametrów + retencja raz na dobę."""
     states = get_states()
     if not states:
         return {"samples": 0, "changes": 0, "ok": False}
     stored = store_sample(conn, now, collect_values(settings, states))
-    changes = detect_changes(conn, states)
+    migrate_fake_changes(conn, states, get_history)
+    changes = detect_changes(conn, states, get_history=get_history)
     reattribute_unknown(conn)
     if now.hour == 3 and now.minute < 15:                         # raz na dobę, poza szczytem
         apply_retention(conn, now)

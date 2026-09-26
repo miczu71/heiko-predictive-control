@@ -2,7 +2,7 @@
 
 Dwa źródła: (1) czujniki ostrzegawcze z pakietu HA `heatpump_efficiency` (dryf przegrzania, sufit Td, EEV,
 Pd/Ps, skok grzałki) — ich logiki nie liczymy drugi raz; (2) skoki w własnych streszczeniach dobowych
-(krótkie cykle sprężarki, minuty grzałek, cykle CWU, impulsy P0) wobec mediany z poprzednich dób (odporny
+(krótkie cykle sprężarki, minuty grzałek AH i HBH, cykle CWU, impulsy P0) wobec mediany z poprzednich dób (odporny
 z-score: mediana i MAD)."""
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ METRICS: tuple[tuple[str, str, str, float], ...] = (
     ("compressor", "short_cycles", "krótkie cykle sprężarki", 3),
     ("backup", "hbh_min", "praca grzałki HBH (min)", 10),
     ("backup", "ah_min", "praca grzałki AH (min)", 10),
-    ("backup", "hwtbh_min", "praca grzałki HWTBH (min)", 10),
     ("modes", "dhw_cycles", "cykle CWU", 2),
     ("p0", "pulses", "impulsy pompy obiegowej P0", 40),
 )
@@ -56,7 +55,7 @@ def analyze(snap: Snapshot) -> list[Draft]:
                 analyzer="anomaly", dedupe_key=f"anomaly:{topic}.{field}", lens=LENS_BOTH, kind=KIND_ALERT,
                 ttl_h=TTL_SUMMARY_H, confidence=CONF_LOW,
                 reason=(f"Doba {last}: {label} = {value:g}, zwykle około {median(history):g} (próg alarmu {limit:.1f}). "
-                        "Sprawdź, czy to anty-legionella, CWU 58°C, mróz albo usterka."),
+                        "Sprawdź, czy to CWU 58°C, mróz albo usterka."),
                 evidence={"day": last, "value": value, "median": median(history), "limit": round(limit, 2),
                           "history_days": len(history)}))
     return drafts

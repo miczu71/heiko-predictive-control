@@ -124,7 +124,8 @@ def test_ideas_offpeak_ceiling_and_rule_based_text():
     assert "Sufit przesuwania" in joined and "13 h/dobę" in joined and "10 h" in joined     # 24 − 14 h szczytu
     assert "242 godz." in joined and "41%" in joined
     assert "krótkich cykli" in joined and "cykli CWU" in joined
-    assert "AH 9 min/dobę" in joined and "HWTBH 30 min/dobę" in joined and "HBH" not in joined     # tylko niezerowe liczniki
+    assert "AH 9 min/dobę" in joined and "HBH" not in joined     # tylko niezerowe liczniki grzałek
+    assert "HWTBH" not in joined and "anti-legionella" not in joined     # HWTBH: licznik sygnału (grzałki nie ma), anty-legionella poza add-onem
     assert not any("Sufit" in i for i in an.ideas({**_report(), "pump_hours": {"by_class": {"6": {"days": 20, "heating_h": 5.9}}}}))
     assert an.ideas({}) == []
 

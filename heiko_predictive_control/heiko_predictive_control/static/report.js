@@ -47,7 +47,7 @@ function renderReport(payload) {
       byTemp(r.cop).map(([k, v]) => [k, v.hours, v.mean, v.min, v.max])));
   const o = r.own || {}, a = o.avg_per_day || {};
   put("report-own", `<p class="sub">Dób ze streszczeniami: ${o.days ?? 0}</p>` +
-    table(["Starty sprężarki", "Praca sprężarki min", "Krótkie cykle", "Śr. cykl min", "Cykle CWU", "CWU min", "Grzanie min", "AH min", "HBH min", "HWTBH min", "Impulsy P0", "kWh", "Udział szczytu"],
+    table(["Starty sprężarki", "Praca sprężarki min", "Krótkie cykle", "Śr. cykl min", "Cykle CWU", "CWU min", "Grzanie min", "AH min", "HBH min", "Sygnał HWTBH min", "Impulsy P0", "kWh", "Udział szczytu"],
       [[a.compressor_starts, a.compressor_run_min, a.short_cycles, a.mean_run_min, a.dhw_cycles, a.dhw_min, a.heating_min, a.ah_min, a.hbh_min, a.hwtbh_min, a.p0_pulses, a.kwh, a.peak_share]]));
 }
 

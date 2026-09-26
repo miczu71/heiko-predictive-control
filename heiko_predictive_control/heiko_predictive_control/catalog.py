@@ -42,6 +42,7 @@ def _n(key, suffix, cls, label, impact, unit, full, a=None, step=None, note=""):
 
 
 _SPEED = ("Wysokie obroty", "Średnie obroty", "Niskie obroty")
+_AH_PRIORITY = ("Niższe dla grzałki wewnętrznej AH", "Wyższe dla grzałki wewnętrznej AH")
 
 CATALOG: tuple[Param, ...] = (
     # ── Klasa A ────────────────────────────────────────────────────────────
@@ -75,26 +76,39 @@ CATALOG: tuple[Param, ...] = (
     Param("p0_type", "circulation_pump_p0_type", "select", CLASS_B, "Pompa obiegowa P0: typ",
           "zużycie prądu, przepływ"),
     Param("dhw_storage", "dhw_storage", "switch", CLASS_B, "Magazynowanie CWU", "zaplanowane CWU, koszt"),
-    # Rejestr idx 50 = pozycja 9.4 menu „Priorytet dla dodatkowego źródła ciepła w podgrzewaczu c.w.u.” (HWTBH vs AH),
-    # a NIE włącznik grzałki HBH (HBH to 9.1/9.2 = idx 47/48, niewystawione w integracji). Odwrócona logika:
-    # ON = 0.0 = „Niższe dla grzałki wewnętrznej AH” (AH ma pierwszeństwo jako wspomaganie CWU).
-    Param("backup_heater", "backup_heater_hbh", "switch", CLASS_B, "Priorytet grzałek CWU: AH vs HWTBH",
-          "koszt (prąd) przy CWU, szybkość podgrzewu CWU",
-          note="w integracji „Backup Heater (HBH)”, w rzeczywistości menu 9.4; ON = AH ma pierwszeństwo"),
-    Param("anti_leg_program", "anti_legionella_program", "switch", CLASS_B, "Anti-legionella: program",
-          "higiena wody, koszt", note="nigdy nie obniżać poniżej normy higienicznej"),
-    _n("anti_leg_setpoint", "anti_legionella_setpoint", CLASS_B, "Anti-legionella: temperatura",
-       "higiena wody, koszt", "°C", (40, 70)),
-    _n("anti_leg_duration", "anti_legionella_duration", CLASS_B, "Anti-legionella: czas",
-       "higiena wody, koszt", "min", (1, 120)),
-    _n("anti_leg_finish", "anti_legionella_finish_time", CLASS_B, "Anti-legionella: okno",
-       "higiena wody, koszt", "min", (1, 240)),
     # ── Klasa C (tylko obserwacja; doradca nie zapisuje) ───────────────────
     Param("working_mode", "working_mode", "select", CLASS_C, "Tryb pracy pompy", "krytyczne"),
     Param("power", "heat_pump_power", "switch", CLASS_C, "Zasilanie pompy", "krytyczne"),
     Param("vacation_mode", "vacation_mode", "switch", CLASS_C, "Tryb wakacyjny", "krytyczne"),
     Param("heating_curve", "heating_curve", "switch", CLASS_C, "Krzywa grzewcza (włącznik)",
           "krytyczne", note="włącza user na starcie sezonu"),
+    # Menu „Dodatkowe źródła ciepła” (sloty 47–52, potwierdzone panelem 26.09) i „ograniczona nastawa” (77/78) —
+    # integracja 1.13.0. Tylko obserwacja: dziennik zmian + kontekst dla doradcy, add-on ich nie zapisuje.
+    # Slot 50 ma w HA dwie encje: ten select (kanoniczny) i alias switch `backup_heater_hbh` (ON = „Niższe”);
+    # do katalogu trafia tylko select, żeby jedna zmiana dawała jeden wpis w dzienniku.
+    Param("backup_heater", "backup_priority_dhw", "select", CLASS_C, "CWU: priorytet HWTBH względem AH (slot 50)",
+          "koszt (prąd) przy CWU, moment startu grzałki AH",
+          options=_AH_PRIORITY,
+          note="menu 9.4; alias switch „backup_heater_hbh” ma odwróconą logikę (ON = „Niższe”). Skutek dla AH badany (plan A3): "
+               "przy „Wyższe” 23–24.09 AH weszła po ok. 19 min cyklu CWU (≈ slot 52); skutek drugiej wartości niezmierzony; "
+               "HWTBH nie istnieje w instalacji"),
+    Param("backup_heating_enabled", "backup_source_for_heating", "switch", CLASS_C,
+          "Dodatkowe źródło przy ogrzewaniu (slot 47)", "koszt ogrzewania przy mrozie",
+          note="deklaracja obecności grzałki HBH (jej nie ma)"),
+    Param("backup_heating_priority", "backup_priority_heating", "select", CLASS_C,
+          "Priorytet w buforze przy c.o. (slot 48)", "które źródło rezerwowe pracuje przy c.o.", options=_AH_PRIORITY),
+    Param("backup_dhw_enabled", "backup_source_for_dhw", "switch", CLASS_C,
+          "Dodatkowe źródło przy c.w.u. (slot 49)", "czy grzałki rezerwowe wspomagają CWU",
+          note="1 = włączone (decyzja usera 26.09: zostaje)"),
+    _n("backup_start_dependency", "backup_source_start_dependency", CLASS_C,
+       "Zależność temp. ↔ czas startu źródła (slot 51)", "kiedy dochodzi grzałka rezerwowa", "", (0, 600)),
+    _n("backup_start_delay", "backup_source_start_delay", CLASS_C,
+       "Czas do uruchomienia dodatkowego źródła (slot 52)", "po ilu minutach cyklu dochodzi grzałka AH", "min", (1, 120)),
+    Param("reduced_setpoint", "reduced_setpoint", "switch", CLASS_C, "Ograniczona nastawa: funkcja włączona (slot 77)",
+          "cel wody obniżony wg zegara panelu",
+          note="oznacza „funkcja włączona”, nie „aktywna teraz” — to zależy od zegara panelu, którego nie ma w ramkach"),
+    _n("reduced_setpoint_drop", "reduced_setpoint_drop_rise", CLASS_C, "Ograniczona nastawa: obniżenie (slot 78)",
+       "o ile °C spada cel wody", "°C", (2, 10)),
 )
 
 BY_KEY: dict[str, Param] = {p.key: p for p in CATALOG}

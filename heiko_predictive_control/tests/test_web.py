@@ -195,7 +195,8 @@ def _app_with_db(tmp_path, settings, rows=()):
         dbm.insert_cycle(conn, row)
     conn.close()
     return create_app(db_path, lambda: dict(settings), lambda k, v: None,
-                      get_state=get_state, get_numeric=get_numeric, house=HOUSE)
+                      get_state=get_state, get_numeric=get_numeric, house=HOUSE,
+                      get_states=lambda: [{"entity_id": e, "state": d["state"]} for e, d in STATES.items()])
 
 
 def test_api_plan_without_data_returns_default_model(tmp_path):
@@ -470,3 +471,30 @@ def test_options_page_without_selection_checks_all_zones(tmp_path):
     client, _ = _proposal_client(tmp_path, states=[])
     html = client.get("/options").get_data(as_text=True)
     assert all(f'data-room="{z}" checked' in html for z in ZONE)
+
+
+def _sub(tmp_path, name):
+    (tmp_path / name).mkdir()
+    return tmp_path / name
+
+
+def test_live_shows_reduced_setpoint_function_separately_from_inferred_active_state(tmp_path):
+    eid = "switch.obszar_heiko_heat_pump_reduced_setpoint"                                 # prefiks obszaru jak w domu
+    row = {"ts": "2026-01-12T06:15:00", "loop": "heiko", "active_profile": "ekonomia", "write_enabled": 0,
+           "reduced_active": 0, "curve_on": 1}
+    try:
+        STATES[eid] = {"state": "on"}
+        heiko = _app_with_db(tmp_path, SETTINGS, [row]).test_client().get("/api/live").get_json()["heiko"]
+        assert heiko["reduced_enabled"] == "włączona" and heiko["reduced"] == "nieaktywna"    # funkcja włączona ≠ aktywna teraz
+        STATES[eid] = {"state": "off"}
+        heiko = _app_with_db(_sub(tmp_path, "b"), SETTINGS, [row]).test_client().get("/api/live").get_json()["heiko"]
+        assert heiko["reduced_enabled"] == "wyłączona"
+    finally:
+        STATES.pop(eid, None)
+    heiko = _app_with_db(_sub(tmp_path, "c"), SETTINGS).test_client().get("/api/live").get_json()["heiko"]
+    assert heiko["reduced_enabled"] == "—"                                                 # starsza integracja bez slotu 77
+
+
+def test_dashboard_page_renders_both_reduced_setpoint_rows(tmp_path):
+    html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
+    assert "Ograniczona nastawa — funkcja (panel)" in html and "aktywna teraz (wnioskowana)" in html

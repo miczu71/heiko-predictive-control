@@ -121,6 +121,7 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
                      fmt_temp(water_target if water_target is not None
                               else get_numeric(settings.get("heiko_setpoint_entity") or ""))),
         "reduced": "—",
+        "reduced_enabled": "—",
         "outdoor": fmt_temp(get_numeric(settings.get("outdoor_temp_entity") or "")),
         "avg": fmt_temp(avg),
         "mode": pump_mode,
@@ -142,6 +143,11 @@ def reduced_label(reduced_active, curve_on) -> str:
     if reduced_active == 0:
         return "nieaktywna"
     return "nieznany (krzywa wyłączona)" if curve_on == 0 else "—"
+
+
+def reduced_enabled_label(state: Any) -> str:
+    """Stan przełącznika „ograniczona nastawa” (slot 77): funkcja włączona w panelu pompy, NIE „aktywna teraz”."""
+    return {True: "włączona", False: "wyłączona"}.get(_as_bool(state), "—")
 
 
 def fmt_vacant(presence: Any, vacant_min: Any) -> str:

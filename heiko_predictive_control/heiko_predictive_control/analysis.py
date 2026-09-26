@@ -228,10 +228,10 @@ def ideas(report: dict) -> list[str]:
         out.append(f"Histereza: {a['short_cycles']:.0f} krótkich cykli sprężarki na dobę — kandydat na analizator histerezy (stop/restart).")
     if a.get("dhw_cycles") is not None and a["dhw_cycles"] >= 3:
         out.append(f"CWU: {a['dhw_cycles']:.0f} cykli CWU na dobę — sprawdź histerezę CWU i porę względem taryfy.")
-    heaters = {k: a.get(f"{k}_min") for k in ("ah", "hbh", "hwtbh")}
+    heaters = {k: a.get(f"{k}_min") for k in ("ah", "hbh")}                # HWTBH: licznik sygnału, grzałki nie ma
     if any(heaters.values()):
         txt = ", ".join(f"{k.upper()} {v:g} min/dobę" for k, v in heaters.items() if v)
-        out.append(f"Grzałki (liczniki czasu pracy, średnio na dobę): {txt} — sprawdź, czy to anti-legionella, CWU 58°C, czy mróz.")
+        out.append(f"Grzałki (liczniki czasu pracy, średnio na dobę): {txt} — sprawdź, czy to CWU 58°C, czy mróz.")
     return out
 
 

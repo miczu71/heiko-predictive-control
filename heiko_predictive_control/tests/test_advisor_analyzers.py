@@ -174,3 +174,10 @@ def test_robust_threshold_scales_with_noise():
     quiet = anomalies.robust_threshold([10, 10, 10, 10, 10, 10, 10], 3)
     noisy = anomalies.robust_threshold([2, 18, 5, 15, 8, 12, 10], 3)
     assert quiet == 13 and noisy > quiet
+
+
+def test_hwtbh_counter_is_not_an_alarm_source_the_heater_does_not_exist():
+    """Licznik HWTBH liczy urojone minuty (do 94/dobę) — nie może wywoływać alarmu „grzałka pracuje”."""
+    from heiko_predictive_control.analyzers import anomalies
+    assert not [m for m in anomalies.METRICS if m[1] == "hwtbh_min"]
+    assert {m[1] for m in anomalies.METRICS if m[0] == "backup"} == {"hbh_min", "ah_min"}

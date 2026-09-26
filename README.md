@@ -37,9 +37,12 @@ proponuje; wykona jedną zmianę dopiero po zatwierdzeniu w UI (późniejsze eta
 fundament, **bez żadnego zapisu do pompy**:
 
 - **Katalog parametrów** pompy z klasami bezpieczeństwa A/B/C, zakresami i limitem kroku (`catalog.py`,
-  `GET /api/catalog`); encje identyfikowane po sufiksie, bez pełnych identyfikatorów domu.
+  `GET /api/catalog`); encje identyfikowane po sufiksie, bez pełnych identyfikatorów domu. Od 0.9.3 obejmuje też
+  menu „Dodatkowe źródła ciepła” (sloty 47–52) i „ograniczoną nastawę” (77/78) jako **klasę C — tylko obserwacja**.
 - **Telemetria** sensorów pompy i temperatur co 15 min (surowe 2 lata) oraz **dziennik każdej zmiany
-  parametru** (panel, HA, automatyzacja) z licznikiem na pulpicie.
+  wartości parametru** (panel, HA, automatyzacja) z licznikiem na pulpicie. Przeładowanie HA (nowy `last_changed`
+  bez zmiany wartości) nie jest zmianą; szybkie przełączenie tam i z powrotem w jednym cyklu daje dwa wpisy
+  (wg historii recordera HA).
 - **Dobowe streszczenia** pracy: sprężarka, cykle CWU, grzałki, pompa obiegowa, energia szczyt/poza szczytem.
 - **Raport** (zakładka „Raport”): komfort, energia i udział szczytu, praca pompy wg temperatury,
   COP, hipotezy i luki w danych.

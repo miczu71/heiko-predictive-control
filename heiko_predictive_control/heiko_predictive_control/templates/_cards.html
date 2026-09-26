@@ -23,7 +23,8 @@
     <dt>Tryb pracy</dt><dd data-live="heiko.mode">{{ live.heiko.mode }}</dd>
     <dt>Krzywa grzewcza</dt><dd data-live="heiko.curve">{{ live.heiko.curve }}</dd>
     <dt>Cel wody wg pompy teraz</dt><dd data-live="heiko.setpoint">{{ live.heiko.setpoint }}</dd>
-    <dt>Ograniczona nastawa (natywna)</dt><dd data-live="heiko.reduced">{{ live.heiko.reduced }}</dd>
+    <dt>Ograniczona nastawa — funkcja (panel)</dt><dd data-live="heiko.reduced_enabled">{{ live.heiko.reduced_enabled }}</dd>
+    <dt>Ograniczona nastawa — aktywna teraz (wnioskowana)</dt><dd data-live="heiko.reduced">{{ live.heiko.reduced }}</dd>
     <dt>Równoważnik krzywej teraz</dt><dd>{{ (heiko.base_curve_c if heiko else none)|temp }}</dd>
     <dt>Optymalizator (poglądowo) — Komfort</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
     <dt>Optymalizator (poglądowo) — Ekonomia</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>

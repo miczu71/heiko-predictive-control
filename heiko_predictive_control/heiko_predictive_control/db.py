@@ -64,6 +64,17 @@ CREATE TABLE IF NOT EXISTS param_changes (
 );
 CREATE INDEX IF NOT EXISTS idx_param_changes_ts ON param_changes(ts);
 
+-- Wpisy dziennika z `old = new` sprzed 0.9.3 (przeładowania HA liczone jako zmiany) — kopia przed migracją, nie liczy się nigdzie.
+CREATE TABLE IF NOT EXISTS param_changes_legacy (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    key TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    old TEXT,
+    new TEXT,
+    source TEXT NOT NULL
+);
+
 -- Dobowe streszczenia (summaries.py): temat -> JSON.
 CREATE TABLE IF NOT EXISTS daily_summary (
     day TEXT NOT NULL,
@@ -159,7 +170,28 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("DELETE FROM daily_summary")
         conn.execute("INSERT INTO settings (key, value) VALUES ('summary_schema', '3') "
                      "ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    _migrate_catalog_0_9_3(conn)
     conn.commit()
+
+
+# Klucze katalogu usunięte w 0.9.3 (anty-legionella poza add-onem) albo przepięte na inną encję (`backup_heater`:
+# alias switch → select slotu 50). Ich „ostatnio widziany stan” nie ma sensu dla nowej encji.
+_DROPPED_KEYS = ("anti_leg_program", "anti_leg_setpoint", "anti_leg_duration", "anti_leg_finish")
+_REPOINTED_KEYS = ("backup_heater",)
+
+
+def _migrate_catalog_0_9_3(conn: sqlite3.Connection) -> None:
+    if get_setting(conn, "catalog_schema") == 2:
+        return
+    managed = get_setting(conn, "advisor_managed_keys")
+    if isinstance(managed, str):
+        kept = [k.strip() for k in managed.split(",") if k.strip() and k.strip() not in _DROPPED_KEYS]
+        set_setting(conn, "advisor_managed_keys", ",".join(kept))
+    seen = get_setting(conn, "catalog_last_seen")
+    if isinstance(seen, dict):
+        set_setting(conn, "catalog_last_seen",
+                    {k: v for k, v in seen.items() if k not in _DROPPED_KEYS + _REPOINTED_KEYS})
+    set_setting(conn, "catalog_schema", 2)
 
 
 def seed_from_options(conn: sqlite3.Connection, options: dict[str, Any]) -> None:

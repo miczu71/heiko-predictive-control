@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import date, datetime
 from typing import Callable, Optional
 
@@ -62,10 +63,26 @@ def create_app(db_path: str,
     def db_conn():
         return dbm.get_conn(db_path)
 
+    reduced_switch: dict = {"eid": None, "checked": float("-inf")}
+
+    def reduced_enabled() -> str:
+        """Stan switcha „ograniczona nastawa” (slot 77). Encję rozwiązujemy z katalogu (pełna lista stanów jest ciężka,
+        a /api/live odpytuje się co minutę): sukces zostaje w pamięci, brak encji (starsza integracja) sprawdzamy
+        najwyżej co 10 min, zniknięcie encji wymusza ponowne rozwiązanie."""
+        if reduced_switch["eid"] is None and time.monotonic() - reduced_switch["checked"] > 600:
+            reduced_switch["checked"] = time.monotonic()
+            reduced_switch["eid"] = catalog.resolve_params(get_states() or []).get("reduced_setpoint")
+        eid = reduced_switch["eid"]
+        state = get_state(eid) if eid else None
+        if eid and state is None:
+            reduced_switch["eid"] = None
+        return live.reduced_enabled_label((state or {}).get("state"))
+
     def live_data(settings: dict) -> dict:
         """live.collect + stan sterowania poddaszem (z bazy) — ten sam słownik
         dla renderu strony i /api/live."""
         data = live.collect(settings, get_state, get_numeric, house)
+        data["heiko"]["reduced_enabled"] = reduced_enabled()
         conn = db_conn()
         try:
             row = dbm.latest_cycle(conn, "attic")
