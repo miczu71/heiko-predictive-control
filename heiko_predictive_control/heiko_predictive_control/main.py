@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import __version__, advisor, comfort, cycle, floor_learn, ha_client, kpi, layout, summaries, telemetry
+from . import __version__, advisor, comfort, cycle, dhw_cycles, floor_learn, ha_client, kpi, layout, summaries, telemetry
 from . import attic as attic_mod
 from . import db as dbm
 from .publisher import MQTTPublisher
@@ -65,6 +65,7 @@ def _options_from_env() -> dict:
         "tariff_state_entity": _env("TARIFF_STATE_ENTITY"),
         "tariff_price_entity": _env("TARIFF_PRICE_ENTITY"),
         "pump_energy_entity": _env("PUMP_ENERGY_ENTITY"),
+        "ah_energy_entity": _env("AH_ENERGY_ENTITY"),
         "heiko_setpoint_entity": _env("HEIKO_SETPOINT_ENTITY"),
         "heiko_curve_switch_entity": _env("HEIKO_CURVE_SWITCH_ENTITY"),
         "heiko_curve_ambient_entities": _env("HEIKO_CURVE_AMBIENT_ENTITIES"),
@@ -251,6 +252,21 @@ def main() -> None:
         finally:
             c.close()
 
+    def dhw_cycles_backfill() -> None:
+        """Dziennik cykli CWU/AH (A2) — brakujące doby z zasięgu recordera (7 dni), zapis trwały."""
+        c = dbm.get_conn(db_path)
+        try:
+            now = datetime.now()
+            settings = dbm.get_all_settings(c)
+            states = ha_client.get_all_states() or []
+            for day in dhw_cycles.missing_days(c, now):
+                stored = dhw_cycles.store_cycles(c, settings, day, states, now, is_workday=is_workday)
+                logger.info("Cykle CWU doby %s: zapisano %d", day, stored)
+        except Exception:
+            logger.exception("Dziennik cykli CWU nieudany")
+        finally:
+            c.close()
+
     def run_advisor() -> None:
         """Doradca D2: analizatory -> propozycje w bazie -> powiadomienie. Tylko odczyt z HA, zero zapisów do pompy."""
         c = dbm.get_conn(db_path)
@@ -309,6 +325,8 @@ def main() -> None:
                        next_run_time=datetime.now() + timedelta(seconds=10), max_instances=1, coalesce=True)
     scheduler.add_job(daily_summaries, "cron", hour=0, minute=20, max_instances=1, coalesce=True)
     scheduler.add_job(daily_summaries, "date", run_date=datetime.now() + timedelta(seconds=60))
+    scheduler.add_job(dhw_cycles_backfill, "cron", hour=0, minute=25, max_instances=1, coalesce=True)
+    scheduler.add_job(dhw_cycles_backfill, "date", run_date=datetime.now() + timedelta(seconds=90))
     scheduler.add_job(run_advisor, "interval", hours=1, next_run_time=datetime.now() + timedelta(seconds=120),
                        max_instances=1, coalesce=True)
     scheduler.add_job(run_advisor, "cron", hour=0, minute=30, max_instances=1, coalesce=True)   # po streszczeniach dobowych

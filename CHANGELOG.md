@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.0 — dziennik cykli CWU i grzałki AH (A2), zero propozycji
+
+Plan A2 analizatora grzałki AH — automat tabel budowanych dotąd ręcznie z recordera dla eksperymentów A3a–A3d
+(`docs/HEIKO_AH_cost_report.md` §9–12 w prywatnym repo `/config`). Ani slot 49, ani slot 50 nie okazały się warunkiem
+wejścia AH, więc decyzję o polityce (A4) muszą nieść pojedyncze cykle CWU, nie porównanie dobowe ON/OFF. **Zero zapisów
+do pompy, zero propozycji** (test AST bez zmian).
+
+**Nowe: `GET /api/dhw_cycles`, zakładka „Raport”.** Dla każdego cyklu CWU (`working_mode` w trybie CWU, ≥ 1 min):
+cel, woda na starcie i w minucie 19 (deficyt), tempo, temperatura zewnętrzna, typ (zegar / zmiana celu / zapotrzebowanie),
+minuta pierwszego ticku AH, minuty AH, kWh i PLN z fazy C licznika pompy (opcja `ah_energy_entity`, domyślnie
+`sensor.energia_pompa_ciepla_energy_c`), i konfiguracja slotów 49/50/52 w chwili startu (z dziennika zmian od 0.9.3 —
+sprzed niego „?”, uczciwie nieznane). Grupowanie po konfiguracji z licznikiem cykli, cykli z AH, medianą minuty ticku
+i flagą małej próby (n < 5).
+
+**Zapis trwały, nie tylko recorder (7 dni).** Nowa tabela `dhw_cycles`; harmonogram dobowy uzupełnia brakujące doby
+z zasięgu recordera (backfill 7 dni), niezależnie od streszczeń dobowych (D1). Cykl wciąż trwający na granicy okna nie
+jest zapisywany — kolejny przebieg złapie go w całości.
+
 ## 0.9.3 — katalog: dodatkowe źródła ciepła (sloty 47–52) i ograniczona nastawa (77/78); dziennik liczy tylko realne zmiany
 
 Plan A1 analizatora grzałki AH. **Zero zapisów do pompy** (test AST bez zmian). Integracja `heiko_heatpump` 1.13.0 wystawiła

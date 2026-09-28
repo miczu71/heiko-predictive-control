@@ -59,6 +59,9 @@
         <input type="text" name="heiko_curve_shift_entity" value="{{ settings.heiko_curve_shift_entity or '' }}"></label>
       <label>Temp. zewnętrzna z długą historią (bootstrap modelu z zeszłej zimy)
         <input type="text" name="heiko_bootstrap_outdoor_entity" value="{{ settings.heiko_bootstrap_outdoor_entity or '' }}"></label>
+      <label>Energia grzałki AH (faza C licznika pompy) — dziennik cykli CWU (A2)
+        <input type="text" name="ah_energy_entity" value="{{ settings.ah_energy_entity or '' }}"
+               placeholder="sensor.energia_pompa_ciepla_energy_c"></label>
     </fieldset>
 
     <fieldset>

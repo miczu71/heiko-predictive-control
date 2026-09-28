@@ -83,6 +83,15 @@ CREATE TABLE IF NOT EXISTS daily_summary (
     PRIMARY KEY (day, topic)
 );
 
+-- Cykle CWU i grzałka AH (A2, dhw_cycles.py): jeden wiersz na cykl, dane jako JSON (recorder HA
+-- trzyma tylko ~7 dni, więc trwały zapis pozwala zbierać cykle przed sezonem). `end` osobną kolumną
+-- ułatwia zapytania zakresowe bez parsowania JSON.
+CREATE TABLE IF NOT EXISTS dhw_cycles (
+    start TEXT PRIMARY KEY,
+    end TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
 -- Ostatni policzony raport analizy (analysis.py), do pokazania bez ponownego liczenia LTS.
 CREATE TABLE IF NOT EXISTS report_cache (
     name TEXT PRIMARY KEY,

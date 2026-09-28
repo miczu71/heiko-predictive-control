@@ -6,13 +6,13 @@ import inspect
 
 import pytest
 
-from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, floor_learn, floor_model, floor_plan,
-                                       kpi, live, publisher, summaries, telemetry, web)
+from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, dhw_cycles, floor_learn, floor_model,
+                                       floor_plan, kpi, live, publisher, summaries, telemetry, web)
 from heiko_predictive_control.analyzers import anomalies, curve, dhw
 import heiko_predictive_control.analyzers as analyzers_pkg
 
-OBSERVING_MODULES = [advisor, analysis, catalog, comfort, floor_learn, floor_model, floor_plan, kpi, live, publisher,
-                     summaries, telemetry, web, analyzers_pkg, anomalies, curve, dhw]
+OBSERVING_MODULES = [advisor, analysis, catalog, comfort, dhw_cycles, floor_learn, floor_model, floor_plan, kpi, live,
+                     publisher, summaries, telemetry, web, analyzers_pkg, anomalies, curve, dhw]
 WRITE_NAMES = {"call_service"}
 
 
@@ -61,7 +61,7 @@ def test_the_detector_itself_works():
 def test_new_advisor_modules_only_read_from_ha():
     """D1: telemetria, streszczenia i analiza używają wyłącznie odczytów z ha_client."""
     read_only = {"get_all_states", "get_history", "get_logbook", "get_statistics", "get_state", "check_workday"}
-    for module in (telemetry, summaries, analysis, catalog):
+    for module in (telemetry, summaries, analysis, catalog, dhw_cycles):
         tree = ast.parse(inspect.getsource(module))
         used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
                 and isinstance(n.value, ast.Name) and n.value.id == "ha_client"}

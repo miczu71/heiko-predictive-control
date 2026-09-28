@@ -11,6 +11,7 @@ export SOLCAST_REMAINING_TODAY_ENTITY=$(jq -r '.solcast_remaining_today_entity /
 export TARIFF_STATE_ENTITY=$(jq -r '.tariff_state_entity // ""' "$CONFIG")
 export TARIFF_PRICE_ENTITY=$(jq -r '.tariff_price_entity // ""' "$CONFIG")
 export PUMP_ENERGY_ENTITY=$(jq -r '.pump_energy_entity // ""' "$CONFIG")
+export AH_ENERGY_ENTITY=$(jq -r '.ah_energy_entity // ""' "$CONFIG")
 export HEIKO_SETPOINT_ENTITY=$(jq -r '.heiko_setpoint_entity // ""' "$CONFIG")
 export HEIKO_CURVE_SWITCH_ENTITY=$(jq -r '.heiko_curve_switch_entity // ""' "$CONFIG")
 export HEIKO_CURVE_AMBIENT_ENTITIES=$(jq -r '.heiko_curve_ambient_entities // ""' "$CONFIG")

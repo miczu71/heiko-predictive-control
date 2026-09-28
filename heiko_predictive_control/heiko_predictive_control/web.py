@@ -10,7 +10,7 @@ from typing import Callable, Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from . import __version__, advisor, analysis, attic, catalog, comfort, floor_learn, ha_client, layout, live, rooms, telemetry
+from . import __version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, floor_learn, ha_client, layout, live, rooms, telemetry
 from . import floor_model, kpi
 from . import db as dbm
 
@@ -265,6 +265,17 @@ def create_app(db_path: str,
                         "managed_by_automation": p.key in managed})
             items.append(row)
         return jsonify({"params": items, "found": len(resolved), "total": len(catalog.CATALOG)})
+
+    @app.get("/api/dhw_cycles")
+    def api_dhw_cycles():
+        """Dziennik cykli CWU i grzałki AH (A2) — tylko odczyt. `?days=` (domyślnie 60)."""
+        days = min(int(request.args.get("days", 60)), 365)
+        conn = db_conn()
+        try:
+            cycles = dhw_cycles.load_cycles(conn, days)
+        finally:
+            conn.close()
+        return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles)})
 
     @app.get("/api/changes")
     def api_changes():

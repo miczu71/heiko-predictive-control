@@ -63,6 +63,19 @@ fundament, **bez żadnego zapisu do pompy**:
 | `advisor_link_path` | ścieżka linku w powiadomieniu (otwiera add-on w aplikacji HA) |
 | `advisor_anomaly_entities` | czujniki ostrzegawcze z HA (aktywny = alert), po przecinku |
 
+### Cykle CWU i grzałka AH (0.10.0, A2) — dziennik, zero propozycji
+
+Zakładka „Raport” ma dziennik każdego cyklu CWU (`working_mode` w trybie CWU): cel, woda na starcie i w minucie 19,
+deficyt, minuta i minuty pracy grzałki AH, kWh i koszt PLN z fazy C licznika pompy oraz konfiguracja slotów **49/50/52**
+w chwili startu cyklu (z dziennika zmian, `docs/PLAN…` w prywatnym repo `/config`). Recorder HA trzyma tylko ~7 dni —
+dziennik cykli jest zapisywany trwale w bazie add-onu (`GET /api/dhw_cycles`), z automatycznym uzupełnieniem brakujących
+dób w zasięgu recordera. **Tylko odczyt, zero propozycji** — to surowe dane pod przyszłą decyzję o polityce AH, nie
+analizator doradcy (żaden slot badany dotąd nie okazał się warunkiem wejścia AH).
+
+| Opcja | Znaczenie |
+|---|---|
+| `ah_energy_entity` | licznik energii grzałki AH (domyślnie faza C licznika pompy) |
+
 ## Pulpit
 
 Izometryczny model domu z aktywnymi miejscami: pokoje z termometrami (podłoga

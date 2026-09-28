@@ -2,6 +2,14 @@
 {% block title %}Raport{% endblock %}
 {% block content %}
 <section class="stats report">
+  <h2>Cykle CWU i grzałka AH (A2) — tylko odczyt</h2>
+  <p class="sub">Warunek wejścia AH przy danym cyklu jest nieznany (sloty 49 i 50 badane i obalone, plan
+    `docs/PLAN_heiko_backup_sources_ah.md`) — tabela zbiera surowe cykle pod decyzję A4. Dane letnie, próby małe;
+    „konfiguracja” to sloty 49/50/52 w chwili startu cyklu, „?” = sprzed dziennika zmian (od 26.09).
+    Koszt AH liczony z fazy C licznika pompy (opcja w Opcjach), nie z minut × moc nominalna.</p>
+  <div id="dhw-groups" class="history-table">ładowanie…</div>
+  <div id="dhw-cycles" class="history-table"></div>
+
   <h2>Raport doradcy (D1) — tylko odczyt</h2>
   <p class="sub" id="report-meta">ładowanie…</p>
   <p><button type="button" id="report-refresh">Przelicz raport (kilka minut)</button></p>

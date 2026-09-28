@@ -1,5 +1,5 @@
 name: Heiko Predictive Control
-version: "0.9.3"
+version: "0.10.0"
 slug: heiko_predictive_control
 description: >-
   Predykcyjne sterowanie pompą ciepła Heiko (podłogówka) i klimatyzacją
@@ -32,6 +32,8 @@ options:
   tariff_state_entity: "sensor.power_tauron_g12w_current_tariff"
   tariff_price_entity: "sensor.power_tauron_g12w_current_price"
   pump_energy_entity: "sensor.energia_pompa_ciepla_energy"
+  # A2: energia grzałki AH — faza C licznika pompy (jedyna faza, którą AH obciąża; potwierdzone A0)
+  ah_energy_entity: "sensor.energia_pompa_ciepla_energy_c"
   heiko_setpoint_entity: "number.heiko_heat_pump_heating_setpoint"
   heiko_curve_switch_entity: "switch.heiko_heat_pump_heating_curve"
   # Punkty krzywej grzewczej (5 par temp. zewn. -> woda) i sensory pompy do uczenia modelu
@@ -106,6 +108,7 @@ schema:
   tariff_state_entity: str
   tariff_price_entity: str?
   pump_energy_entity: str
+  ah_energy_entity: str?
   heiko_setpoint_entity: str
   heiko_curve_switch_entity: str
   heiko_curve_ambient_entities: str?

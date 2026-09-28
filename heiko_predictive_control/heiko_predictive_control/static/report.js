@@ -51,6 +51,27 @@ function renderReport(payload) {
       [[a.compressor_starts, a.compressor_run_min, a.short_cycles, a.mean_run_min, a.dhw_cycles, a.dhw_min, a.heating_min, a.ah_min, a.hbh_min, a.hwtbh_min, a.p0_pulses, a.kwh, a.peak_share]]));
 }
 
+const cfgSwitch = v => v === null || v === undefined ? "?" : (v === "on" ? "WŁ" : v === "off" ? "WYŁ" : v);
+
+function renderDhwCycles(payload) {
+  const groups = payload.groups || [], cycles = payload.cycles || [];
+  put("dhw-groups", `<h3>Grupy wg konfiguracji (sloty 49/50/52 w chwili startu)</h3>` +
+    table(["Slot 49", "Slot 50", "Slot 52 (min)", "Cykle ≥19 min", "Z AH", "Mediana minuty ticku", "kWh AH", "PLN AH", "Mała próba"],
+      groups.map(g => [cfgSwitch(g.cfg_49), esc(g.cfg_50), esc(g.cfg_52), g.cycles, g.cycles_with_ah,
+        g.median_ah_tick_min, g.kwh, g.pln, g.small_sample ? "tak" : ""])));
+  put("dhw-cycles", `<h3>Cykle (najnowsze u góry)</h3>` +
+    table(["Start", "Typ", "Cel °C", "Woda start", "Woda min 19", "Deficyt", "T zewn.", "Czas min",
+           "Minuta AH", "AH min", "AH kWh", "AH PLN", "49", "50", "52"],
+      cycles.map(c => [new Date(c.start).toLocaleString("pl-PL"), c.type, c.target_c, c.water_start_c,
+        c.water_min19_c, c.deficit_c, c.outdoor_c, c.duration_min, c.ah_tick_min, c.ah_min, c.ah_kwh, c.ah_pln,
+        cfgSwitch(c.cfg_49), esc(c.cfg_50), esc(c.cfg_52)])));
+}
+
+async function loadDhwCycles() {
+  try { renderDhwCycles(await HPC.getJSON("/api/dhw_cycles")); }
+  catch (e) { put("dhw-groups", "Błąd wczytywania cykli CWU."); }
+}
+
 async function loadReport(refresh) {
   try { renderReport(await HPC.getJSON(`/api/report${refresh ? "?refresh=1" : ""}`)); }
   catch (e) { put("report-meta", "Błąd wczytywania raportu."); }
@@ -127,4 +148,4 @@ document.getElementById("report-refresh")?.addEventListener("click", async () =>
     if (!p.running) clearInterval(timer);
   }, 10000);
 });
-loadReport(false); loadChanges(); loadCatalog(); loadReplay(false);
+loadReport(false); loadChanges(); loadCatalog(); loadReplay(false); loadDhwCycles();
