@@ -238,6 +238,12 @@ class EquipmentShape:
     leader_end: tuple[float, float] | None = None  # kropka na końcu linii
 
 
+PILL_W = 180    # plakietka odnośnika (jednostki viewBox)
+PILL_H = 66
+PILL_GAP = 8    # odstęp między plakietkami w kolumnie
+COL_GAP = 30    # odstęp kolumny od bocznego obrysu domu
+
+
 @dataclass
 class Callout:
     """Plakietka pokoju poza obrysem domu + linia do kropki na środku pokoju."""
@@ -246,8 +252,8 @@ class Callout:
     pill: tuple[float, float]           # środek plakietki
     anchor: tuple[float, float]         # kropka na środku pokoju
     leader: str                         # atrybut `points` linii odnośnika
-    w: float = 180                      # wymiary plakietki (= PILL_W, PILL_H)
-    h: float = 66
+    w: float = PILL_W
+    h: float = PILL_H
 
 
 @dataclass
@@ -275,12 +281,6 @@ class Scene:
 
 # ── Odnośniki pokoi ────────────────────────────────────────────────────────
 
-PILL_W = 180    # plakietka odnośnika (jednostki viewBox)
-PILL_H = 66
-PILL_GAP = 8    # odstęp między plakietkami w kolumnie
-COL_GAP = 30    # odstęp kolumny od bocznego obrysu domu
-
-
 def layout_callouts(anchors: list[tuple[Room, tuple[float, float]]],
                     left_edge: float, right_edge: float, center_x: float
                     ) -> list[tuple[Room, str, tuple[float, float], tuple[float, float]]]:
@@ -302,7 +302,7 @@ def layout_callouts(anchors: list[tuple[Room, tuple[float, float]]],
     return out
 
 
-# ── Bryły──────────────────────────────────────────────────────────────────
+# ── Bryły ──────────────────────────────────────────────────────────────────
 
 def box_faces(x: float, y: float, w: float, d: float, z0: float, z1: float
               ) -> dict[str, list[tuple[float, float]]]:
@@ -466,22 +466,20 @@ def build_scene(house: House) -> Scene:
                     continue
                 top_z, cut = CUT_H, True
             faces = box_faces(x, y, w, d, lv.z + b.z0, lv.z + top_z)
-            for part in ("s", "f", "t"):
-                material = b.style if part != "t" or cut else (b.top or b.style)
-                furniture.append((faces[part], f"bx {material} {part}" + (" cut" if cut and part == "t" else "")))
+            furniture += [(faces["s"], f"bx {b.style} s"), (faces["f"], f"bx {b.style} f"),
+                          (faces["t"], f"bx {b.style} t cut" if cut else f"bx {b.top or b.style} t")]
 
     # Otwory w ścianach przednich — obrys-duch, żeby nie zasłaniać wnętrza.
     fronts: list[tuple[list, str]] = []
     for ff in house.fronts:
         z = floors[ff.floor]
         za, zb = z + ff.z0, z + ff.h
-        if ff.wall == "x_max":
-            pts = [iso(W, ff.start, za), iso(W, ff.end, za), iso(W, ff.end, zb),
-                   iso(W, ff.start, zb)]
-        else:
-            pts = [iso(ff.start, D, za), iso(ff.end, D, za), iso(ff.end, D, zb),
-                   iso(ff.start, D, zb)]
-        fronts.append((pts, f"ghost {ff.style}"))
+
+        def on_front(u: float, zz: float, wall=ff.wall) -> tuple[float, float]:
+            return iso(W, u, zz) if wall == "x_max" else iso(u, D, zz)
+
+        fronts.append(([on_front(ff.start, za), on_front(ff.end, za), on_front(ff.end, zb),
+                        on_front(ff.start, zb)], f"ghost {ff.style}"))
 
     by_key = {r.key: r for r in house.rooms}
 
@@ -520,8 +518,7 @@ def build_scene(house: House) -> Scene:
         every += ([xy] if xy else []) + vents + (leader or [])
 
     # Plakietki pokoi z czujnikiem — w kolumnach po bokach sylwetki domu.
-    anchors = [(r, iso(r.rect[0] + r.rect[2] / 2, r.rect[1] + r.rect[3] / 2, floors[r.floor]))
-               for r in house.rooms if r.entity]
+    anchors = [(r, c) for r, _, c in rooms if r.entity]
     callouts = layout_callouts(anchors, min(p[0] for p in every), max(p[0] for p in every),
                                iso(W / 2, D / 2)[0])
     for _, _, (cx, cy), _ in callouts:
@@ -540,6 +537,11 @@ def build_scene(house: House) -> Scene:
     def faces_of(items: list[tuple[list, str]]) -> list[Face]:
         return [Face(points_attr(p, dx, dy), c) for p, c in items]
 
+    def callout(r: Room, side: str, pill: tuple[float, float], anchor: tuple[float, float]) -> Callout:
+        # linia odnośnika kończy się na wewnętrznej krawędzi plakietki (od strony domu)
+        edge = (pill[0] + (PILL_W / 2 if side == "left" else -PILL_W / 2), pill[1])
+        return Callout(r, side, shift(pill), shift(anchor), points_attr([anchor, edge], dx, dy))
+
     return Scene(
         viewbox=f"0 0 {width} {height}", width=width, height=height,
         faces_back=faces_of(back), wall_features=faces_of(wall_features),
@@ -555,9 +557,5 @@ def build_scene(house: House) -> Scene:
                                   shift(leader[-1]) if leader else None)
                    for eq, xy, vents, leader in equipment],
         floor_labels=[(label, shift(xy)) for label, xy in labels],
-        callouts=[Callout(r, side, shift(pill), shift(anchor),
-                          points_attr([anchor, (pill[0] + (PILL_W / 2 if side == "left"
-                                                           else -PILL_W / 2), pill[1])], dx, dy),
-                          PILL_W, PILL_H)
-                  for r, side, pill, anchor in callouts],
+        callouts=[callout(*c) for c in callouts],
     )

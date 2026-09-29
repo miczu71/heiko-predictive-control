@@ -185,9 +185,7 @@ def _scene_with(house, **changes):
 
 
 def test_tall_boxes_cut_at_cut_h_and_high_boxes_skipped():
-    from heiko_predictive_control.rooms import CUT_H, box_faces
     house = example()
-    lv = house.floors["parter"]
     tall = Box("parter", (10, 10, 50, 50), 200, style="graphite", top="oak")
     high = Box("parter", (100, 10, 50, 50), 40, z0=150, style="oak")
     stair = Box("parter", (200, 10, 50, 50), 30, z0=190, style="black", cut=False)
@@ -197,9 +195,7 @@ def test_tall_boxes_cut_at_cut_h_and_high_boxes_skipped():
     assert "bx graphite t cut" in classes and "bx oak t" not in classes
     # w całości ponad przekrojem: pominięta; cut=False: w pełnej wysokości
     assert classes.count("bx black t") == 1 and len(classes) == 6
-    raw_top = box_faces(10, 10, 50, 50, lv, lv + CUT_H)["t"]
-    ref = build_scene(house.__class__(**{**house.__dict__, "boxes": (tall,), "stairs": ()}))
-    assert len(ref.furniture) == 3 and len(raw_top) == 4
+    assert len(_scene_with(house, boxes=(tall,), stairs=()).furniture) == 3
 
 
 def test_front_feature_sill():

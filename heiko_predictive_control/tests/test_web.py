@@ -109,7 +109,7 @@ def test_dashboard_renders_model_with_all_hotspots(client):
     for card in ("loop_heiko", "loop_attic", "ac_salon", "room-salon"):
         assert f'<section class="detail" data-card="{card}"' in html
     assert "SZCZYT" in html and "24,2°C" in html
-    assert 'class="temp-pill' in html                     # salon ma realistyczną podłogę
+    assert 'class="temp-pill' in html                     # plakietki odnośników pokoi
     assert "Tu stoi jednostka wewnętrzna pompy ciepła." in html   # notatka pokoju z układu
     assert 'class="notice"' not in html                    # brak ostrzeżeń układu
     assert resp.headers["Cache-Control"] == "no-store"

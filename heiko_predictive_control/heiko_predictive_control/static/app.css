@@ -214,12 +214,14 @@ body {
   /* halo — podpisy czytelne na krokwiach i kolorowych podłogach */
   paint-order: stroke; stroke: var(--card-bg); stroke-opacity: .85; stroke-width: 4px; stroke-linejoin: round;
 }
-.house .room-temp { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.house .room-name { font-size: 13px; fill: var(--muted); }
+.house .room-temp { font-size: 27px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.house .room-name { font-size: 17px; fill: var(--muted); }
+.house .room-hum { font-size: 19px; font-weight: 400; fill: var(--muted); }
 /* Na telefonie SVG jest skalowane ~0,6× — tekst w jednostkach viewBox musi być większy. */
 @media (max-width: 560px) {
-  .house .room-temp { font-size: 25px; }
-  .house .room-name { font-size: 17px; }
+  .house .room-temp { font-size: 30px; }
+  .house .room-name { font-size: 19px; }
+  .house .room-hum { font-size: 21px; }
   .house .floor-label { font-size: 19px !important; }
 }
 .house .floor-label { font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; fill: var(--muted); text-anchor: start; }
@@ -237,14 +239,6 @@ body {
 .house .equip.is-on use,
 .house .equip.controlled use { color: var(--accent); }
 .house .equip .vent .badge { stroke-width: 1.2; }
-.house .callout .room-temp { font-size: 27px; }
-.house .callout .room-name { font-size: 17px; }
-.house .callout .room-hum { font-size: 19px; font-weight: 400; fill: var(--muted); }
-@media (max-width: 560px) {
-  .house .callout .room-temp { font-size: 30px; }
-  .house .callout .room-name { font-size: 19px; }
-  .house .callout .room-hum { font-size: 21px; }
-}
 .house .callout .leader { fill: none; stroke: var(--muted); stroke-width: 1.2; opacity: .75; }
 .house .callout .leader-end { fill: var(--muted); }
 .house .callout:hover .temp-pill { filter: brightness(0.97); }
