@@ -4,6 +4,7 @@ zasila render strony i endpoint /api/live, z którego pulpit odświeża się co
 minutę bez przeładowania."""
 from __future__ import annotations
 
+import math
 from typing import Any, Callable
 
 from .cycle import DEFAULT_WATER_TARGET_ENTITY
@@ -43,9 +44,10 @@ def fmt_temp(value: Any) -> str:
 
 
 def fmt_humidity(value: Any) -> str:
-    """Wilgotność względna na plakietce: liczba całkowita z %, pusto bez danych."""
+    """Wilgotność względna na plakietce: liczba całkowita z %, pusto bez danych
+    (także nan/inf — round() by na nich rzucił i wywalił cały pulpit)."""
     v = _to_float(value)
-    return "" if v is None else f"{round(v)}%"
+    return "" if v is None or not math.isfinite(v) else f"{round(v)}%"
 
 
 def fmt_price(value: Any) -> str:

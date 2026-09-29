@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1 — poprawka: wilgotność nan/inf nie wywala pulpitu
+
+`live.fmt_humidity` robił `round()` na wartości `nan`/`inf` (np. czujnik ESPHome/szablon po błędzie odczytu), co
+rzucało wyjątek — pulpit i `/api/live` zwracały 500. Teraz taka wartość daje pustą wilgotność na plakietce, jak brak
+danych. Pętle sterowania bez zmian, zero zapisów do pompy.
+
 ## 0.11.0 — pulpit: plakietki poza obrysem, wilgotność, przekrój mebli, okna z parapetem
 
 Zmiana wyłącznie w rysowaniu modelu domu. **Pętle sterowania bez zmian, zero zapisów do pompy** (test AST bez zmian).

@@ -504,6 +504,7 @@ def test_humidity_on_callout_is_informational_and_optional():
     from dataclasses import replace
     from heiko_predictive_control.live import fmt_humidity
     assert fmt_humidity("54.6") == "55%" and fmt_humidity(None) == "" and fmt_humidity("x") == ""
+    assert fmt_humidity("nan") == "" and fmt_humidity("inf") == "" and fmt_humidity("-inf") == ""
     room = next(r for r in HOUSE.rooms if r.entity)
     house = replace(HOUSE, rooms=tuple(replace(r, humidity_entity="sensor.hum")
                                        if r.key == room.key else r for r in HOUSE.rooms))
