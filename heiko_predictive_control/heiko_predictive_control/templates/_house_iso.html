@@ -65,28 +65,28 @@
   </g>
   {% endif %}
 
-  {# Etykiety pokoi — nad meblami. Pokoje z realistyczną podłogą dostają
-     „pigułkę" w kolorze temperatury (podłoga nie niesie już tej informacji). #}
   <g class="labels">
-  {% for rs in scene.rooms %}
-    {% set r = rs.room %}
-    {% if r.entity %}
-      {% set lv = live.rooms[r.key] %}
-      {% if r.floor_style %}
-      <rect class="temp-pill {{ lv.cls }}" data-tclass="{{ r.key }}"
-            x="{{ rs.label_xy[0] - 40 }}" y="{{ rs.label_xy[1] - 20 }}" width="80" height="44" rx="10"/>
-      {% endif %}
-      <text class="room-temp" x="{{ rs.label_xy[0] }}" y="{{ rs.label_xy[1] }}"
-            data-live="rooms.{{ r.key }}.text">{{ lv.text }}</text>
-      <text class="room-name" x="{{ rs.label_xy[0] }}" y="{{ rs.label_xy[1] }}" dy="1.3em">{{ r.label }}</text>
-    {% else %}
-      <text class="room-name" x="{{ rs.label_xy[0] }}" y="{{ rs.label_xy[1] + 4 }}">{{ r.label }}</text>
-    {% endif %}
-  {% endfor %}
   {% for label, xy in scene.floor_labels %}
     <text class="floor-label" x="{{ xy[0] }}" y="{{ xy[1] }}">{{ label }}</text>
   {% endfor %}
   </g>
+
+  {# Odnośniki pokoi — plakietki w kolumnach poza obrysem domu, linia do kropki
+     na środku pokoju. Plakietka w kolorze temperatury otwiera kartę pokoju
+     (klawiaturą dalej przez podłogę pokoju, stąd bez tabindex). #}
+  {% for c in scene.callouts %}
+    {% set r = c.room %}{% set lv = live.rooms[r.key] %}
+    <g class="hotspot callout {{ c.side }}" data-card="{{ r.card_key }}" aria-hidden="true">
+      <polyline class="leader" points="{{ c.leader }}"/>
+      <circle class="leader-end" cx="{{ c.anchor[0] }}" cy="{{ c.anchor[1] }}" r="4"/>
+      <rect class="temp-pill {{ lv.cls }}" data-tclass="{{ r.key }}"
+            x="{{ c.pill[0] - c.w / 2 }}" y="{{ c.pill[1] - c.h / 2 }}" width="{{ c.w }}" height="{{ c.h }}" rx="12"/>
+      <text class="room-temp" x="{{ c.pill[0] }}" y="{{ c.pill[1] - 4 }}"><tspan
+            data-live="rooms.{{ r.key }}.text">{{ lv.text }}</tspan>{% if r.humidity_entity %}<tspan
+            class="room-hum" dx="8" data-live="rooms.{{ r.key }}.hum">{{ lv.hum }}</tspan>{% endif %}</text>
+      <text class="room-name" x="{{ c.pill[0] }}" y="{{ c.pill[1] + 22 }}">{{ r.label }}</text>
+    </g>
+  {% endfor %}
 
   {# Urządzenia: klimatyzatory + pompa. Większe przezroczyste koło = cel dotyku.
      Klimatyzacja kanałowa nie ma ikony jednostki — tylko nawiewy w pokojach, a

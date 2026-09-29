@@ -78,10 +78,17 @@ analizator doradcy (żaden slot badany dotąd nie okazał się warunkiem wejści
 
 ## Pulpit
 
-Izometryczny model domu z aktywnymi miejscami: pokoje z termometrami (podłoga
-zabarwiona wg temperatury albo realistyczna z temperaturą w „pigułce"), klimatyzatory
+Izometryczny model domu z aktywnymi miejscami: pokoje z termometrami, klimatyzatory
 (również kanałowe — nawiewy w pokojach) i pompa ciepła. Dotknięcie otwiera kartę
 szczegółów; wartości odświeżają się co minutę (`GET /api/live`).
+
+Od 0.11.0 temperatura (i opcjonalnie wilgotność) każdego pokoju jest na **plakietce-odnośniku
+poza obrysem domu** — dwie kolumny po bokach, linia do kropki na środku pokoju; plakietka
+w kolorze klasy temperatury, klik otwiera kartę pokoju. Nad podłogami i meblami nie ma
+tekstu. Meble wyższe niż 120 cm są rysowane w **przekroju „domku dla lalek"** (ucięte, górna
+ściana z przerywanym obrysem), żeby wysoka szafa od strony kamery nie zasłaniała pokoju;
+bryły w całości powyżej 120 cm są pomijane, a `"cut": false` wyłącza przekrój (np. stopnie
+schodów). Wilgotność jest wyłącznie informacją — nie wchodzi do sterowania.
 
 **Układ domu jest prywatny** — plik JSON w konfiguracji Home Assistant, wskazany opcją
 `house_layout_file` (domyślnie `/homeassistant/heiko_predictive/house.json`, add-on ma
@@ -89,11 +96,22 @@ do niej dostęp tylko do odczytu). To repo zawiera jedynie silnik rysowania (`ro
 wczytywanie i walidację (`layout.py`) oraz neutralny przykład
 [`example_house.json`](heiko_predictive_control/heiko_predictive_control/example_house.json)
 — wzór formatu: kondygnacje, pokoje, urządzenia, opcjonalnie meble (`boxes`), schody,
-okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`).
+okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`, z parapetem `z0`).
+
+| Pole (0.11.0) | Gdzie | Znaczenie |
+|---|---|---|
+| `humidity_entity` | pokój | czujnik wilgotności pokazywany na plakietce obok temperatury (opcjonalny) |
+| `cut` | bryła (`boxes`) | `false` = bez przekroju na 120 cm (domyślnie `true`) |
+| `z0` | otwór (`fronts`) | dolna krawędź nad podłogą — okno z parapetem (domyślnie 0 = drzwi) |
+| style brył | `boxes` | nowe: `ceramic` (biała ceramika/meble), `glass` (szkło), `metal` (regały) |
+| style otworów | `fronts` | nowe: `door` (drzwi), `garage` (brama) |
+| style ścian | `walls` | nowy: `pegboard` (ciemna tablica/pas) |
+| `floor_style` | pokój | nowe: `tile-dark`, `tile-light`, `concrete` (obok `wood`) |
 
 ## Status
 
-**0.9.2 — Doradca, etap D2: silnik propozycji i zakładka „Doradca”** (zero zapisów do pompy, decyzje tylko próbne).
+**0.11.0 — pulpit: plakietki poza obrysem, wilgotność, przekrój mebli, okna z parapetem.**
+0.10.0 — dziennik cykli CWU i grzałki AH. 0.9.2 — Doradca, etap D2: silnik propozycji i zakładka „Doradca” (zero zapisów do pompy, decyzje tylko próbne).
 0.8.x — D1: dane i katalog (telemetria, dziennik zmian parametrów, dobowe streszczenia, raport). Poprzednio 0.7.0 — Etap 3b′: pętla A obserwuje natywny mechanizm pompy** (krzywa grzewcza + „ograniczona
 nastawa” z zegarem, ustawiana na panelu): cel wody wg pompy, udział energii w szczycie vs zima,
 uczenie bezwładności z wymuszenia, alarm komfortu; zero zapisów do pompy. (0.6.0: model

@@ -42,6 +42,12 @@ def fmt_temp(value: Any) -> str:
     return "—" if v is None else f"{v:.1f}".replace(".", ",") + "°C"
 
 
+def fmt_humidity(value: Any) -> str:
+    """Wilgotność względna na plakietce: liczba całkowita z %, pusto bez danych."""
+    v = _to_float(value)
+    return "" if v is None else f"{round(v)}%"
+
+
 def fmt_price(value: Any) -> str:
     v = _to_float(value)
     return "—" if v is None else f"{v:.2f}".replace(".", ",") + " PLN/kWh"
@@ -82,7 +88,9 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
         in_zone = entity in zone_entities
         if in_zone and t is not None:
             zone_temps.append(t)
-        rooms[room.key] = {"temp": t, "text": fmt_temp(t), "cls": temp_class(t), "zone": in_zone}
+        hum = get_numeric(room.humidity_entity) if room.humidity_entity else None
+        rooms[room.key] = {"temp": t, "text": fmt_temp(t), "cls": temp_class(t), "zone": in_zone,
+                           "hum": fmt_humidity(hum)}
 
     equipment: dict[str, dict] = {}
     pump_mode = "—"

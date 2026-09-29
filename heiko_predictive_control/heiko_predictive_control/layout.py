@@ -30,7 +30,8 @@ def _room(d: dict) -> Room:
     return Room(key=d["key"], floor=d["floor"], label=d["label"], rect=_tup(d["rect"]),
                 entity=d.get("entity"), card=d.get("card"), kind=d.get("kind", "room"),
                 extra=_tup(d.get("extra", [])), outline=_tup(d["outline"]) if d.get("outline") else None,
-                floor_style=d.get("floor_style"), note=d.get("note"))
+                floor_style=d.get("floor_style"), note=d.get("note"),
+                humidity_entity=d.get("humidity_entity"))
 
 
 def _equipment(d: dict) -> Equipment:
@@ -52,12 +53,14 @@ def parse(data: dict, source: str) -> House:
         stair_opening=_tup(data["stair_opening"]) if data.get("stair_opening") else None,
         pv=_tup(data["pv"]) if data.get("pv") else None,
         boxes=tuple(Box(b["floor"], _tup(b["rect"]), float(b["h"]), float(b.get("z0", 0)),
-                        b.get("style", "neutral"), b.get("top")) for b in data.get("boxes", [])),
+                        b.get("style", "neutral"), b.get("top"), bool(b.get("cut", True)))
+                    for b in data.get("boxes", [])),
         walls=tuple(WallFeature(w["floor"], w["wall"], float(w["start"]), float(w["end"]),
                                 w["style"], float(w.get("z0", 0)), float(w.get("z1", 250)))
                     for w in data.get("walls", [])),
         fronts=tuple(FrontFeature(f["floor"], f["wall"], float(f["start"]), float(f["end"]),
-                                  float(f.get("h", 220)), f.get("style", "glass"))
+                                  float(f.get("h", 220)), f.get("style", "glass"),
+                                  float(f.get("z0", 0)))
                      for f in data.get("fronts", [])),
         stairs=tuple(Stairs(s["floor"], float(s["x"]), float(s["w"]), float(s["y_start"]),
                             float(s["y_end"]), int(s["steps"]), float(s["rise"]),

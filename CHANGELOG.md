@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.11.0 — pulpit: plakietki poza obrysem, wilgotność, przekrój mebli, okna z parapetem
+
+Zmiana wyłącznie w rysowaniu modelu domu. **Pętle sterowania bez zmian, zero zapisów do pompy** (test AST bez zmian).
+
+**Plakietki pokoi poza obrysem domu.** Temperatura nie zasłania już podłóg ani mebli: każdy pokój z czujnikiem ma
+plakietkę w kolumnie po lewej lub prawej stronie sylwetki domu (strona wg położenia pokoju na ekranie), z cienką linią
+do kropki na środku pokoju. Nakładające się plakietki w kolumnie są rozsuwane w dół. Plakietka ma kolor klasy
+temperatury, odświeża się na żywo (`data-live`, `data-tclass`) i otwiera kartę pokoju. Pokoje bez czujnika
+(schody) nie mają już podpisu. Nowe: `rooms.layout_callouts()`, `Scene.callouts`.
+
+**Wilgotność na plakietce (tylko informacja).** Opcjonalne pole pokoju `humidity_entity`; `/api/live` zwraca
+`rooms.<klucz>.hum` („55%” albo pusto). Nie wchodzi do żadnej reguły sterowania.
+
+**Przekrój mebli na 120 cm (`CUT_H`).** Bryły wyższe są rysowane ucięte, z przerywanym obrysem górnej ściany; bryły
+w całości powyżej są pomijane. `"cut": false` na bryle wyłącza przekrój (stopnie schodów z `stairs` mają go wyłączonego
+zawsze).
+
+**Otwory frontowe z parapetem.** `fronts[].z0` — dolna krawędź otworu (okno); `h` pozostaje górną krawędzią.
+
+**Nowe materiały (CSS).** Bryły: `ceramic`, `glass`, `metal`. Otwory: `door`, `garage`. Ściany: `pegboard`.
+Podłogi: `tile-dark`, `tile-light`, `concrete`.
+
+| Pole | Gdzie | Domyślnie |
+|---|---|---|
+| `humidity_entity` | `rooms[]` | brak (bez wilgotności) |
+| `cut` | `boxes[]` | `true` |
+| `z0` | `fronts[]` | `0` |
+
+Koszt: widok domu jest węższy o kolumny plakietek (na telefonie ok. 25%).
+
 ## 0.10.0 — dziennik cykli CWU i grzałki AH (A2), zero propozycji
 
 Plan A2 analizatora grzałki AH — automat tabel budowanych dotąd ręcznie z recordera dla eksperymentów A3a–A3d

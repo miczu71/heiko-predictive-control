@@ -498,3 +498,17 @@ def test_live_shows_reduced_setpoint_function_separately_from_inferred_active_st
 def test_dashboard_page_renders_both_reduced_setpoint_rows(tmp_path):
     html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
     assert "Ograniczona nastawa — funkcja (panel)" in html and "aktywna teraz (wnioskowana)" in html
+
+
+def test_humidity_on_callout_is_informational_and_optional():
+    from dataclasses import replace
+    from heiko_predictive_control.live import fmt_humidity
+    assert fmt_humidity("54.6") == "55%" and fmt_humidity(None) == "" and fmt_humidity("x") == ""
+    room = next(r for r in HOUSE.rooms if r.entity)
+    house = replace(HOUSE, rooms=tuple(replace(r, humidity_entity="sensor.hum")
+                                       if r.key == room.key else r for r in HOUSE.rooms))
+    num = lambda e: 54.6 if e == "sensor.hum" else get_numeric(e)  # noqa: E731
+    live = collect(SETTINGS, get_state, num, house)
+    assert live["rooms"][room.key]["hum"] == "55%"
+    others = [k for k in live["rooms"] if k != room.key]
+    assert all(live["rooms"][k]["hum"] == "" for k in others)

@@ -30,6 +30,10 @@ WALL_H = 250    # wysokość tylnych ścian przekroju
 
 # Poddasze: ścianka kolankowa + dach dwuspadowy, kalenica nad środkiem głębokości.
 KNEE_H = 90
+# Przekrój „domku dla lalek": meble wyższe niż CUT_H są rysowane ucięte na tej
+# wysokości (górna ściana z obrysem przekroju), bryły w całości powyżej — pomijane.
+# Inaczej wysoka szafa od strony kamery zasłania cały pokój.
+CUT_H = 120
 # Wysokość kalenicy — celowo przesadzona: przy realnym ~40° tylna połać w tym
 # rzucie jest prawie „na krawędź" i panele PV znikają w cienkim pasku.
 RIDGE_H = 720
@@ -95,6 +99,7 @@ class Room:
     outline: tuple[tuple[float, float], ...] | None = None
     floor_style: str | None = None             # np. 'wood' — realistyczna podłoga
     note: str | None = None                    # dopisek na karcie pokoju
+    humidity_entity: str | None = None         # wilgotność na plakietce (tylko informacja)
 
     @property
     def card_key(self) -> str:
@@ -136,6 +141,7 @@ class Box:
     z0: float = 0
     style: str = "neutral"
     top: str | None = None     # inny materiał blatu (np. dąb na grafitowej szafce)
+    cut: bool = True           # False = bez przekroju na CUT_H (np. stopnie schodów)
 
 
 @dataclass(frozen=True)
@@ -157,8 +163,9 @@ class FrontFeature:
     wall: str                  # 'x_max' | 'y_max'
     start: float
     end: float
-    h: float = 220
+    h: float = 220             # górna krawędź otworu nad podłogą
     style: str = "glass"
+    z0: float = 0              # dolna krawędź (parapet okna; 0 = drzwi)
 
 
 @dataclass(frozen=True)
@@ -232,6 +239,18 @@ class EquipmentShape:
 
 
 @dataclass
+class Callout:
+    """Plakietka pokoju poza obrysem domu + linia do kropki na środku pokoju."""
+    room: Room
+    side: str                           # 'left' | 'right'
+    pill: tuple[float, float]           # środek plakietki
+    anchor: tuple[float, float]         # kropka na środku pokoju
+    leader: str                         # atrybut `points` linii odnośnika
+    w: float = 180                      # wymiary plakietki (= PILL_W, PILL_H)
+    h: float = 66
+
+
+@dataclass
 class Scene:
     viewbox: str
     width: float
@@ -251,9 +270,39 @@ class Scene:
     pump: list[Face] = field(default_factory=list)
     equipment: list[EquipmentShape] = field(default_factory=list)
     floor_labels: list[tuple[str, tuple[float, float]]] = field(default_factory=list)
+    callouts: list[Callout] = field(default_factory=list)
 
 
-# ── Bryły ──────────────────────────────────────────────────────────────────
+# ── Odnośniki pokoi ────────────────────────────────────────────────────────
+
+PILL_W = 180    # plakietka odnośnika (jednostki viewBox)
+PILL_H = 66
+PILL_GAP = 8    # odstęp między plakietkami w kolumnie
+COL_GAP = 30    # odstęp kolumny od bocznego obrysu domu
+
+
+def layout_callouts(anchors: list[tuple[Room, tuple[float, float]]],
+                    left_edge: float, right_edge: float, center_x: float
+                    ) -> list[tuple[Room, str, tuple[float, float], tuple[float, float]]]:
+    """Rozkłada plakietki w dwie kolumny poza obrysem [left_edge, right_edge].
+
+    Pokój, którego kropka leży na lewo od środka domu, idzie do lewej kolumny.
+    W kolumnie plakietki stoją na wysokości swoich kropek, a nakładające się są
+    rozsuwane w dół (kolejność od góry ekranu zachowana)."""
+    out = []
+    for side, col_x in (("left", left_edge - COL_GAP - PILL_W / 2),
+                        ("right", right_edge + COL_GAP + PILL_W / 2)):
+        mine = sorted(((r, a) for r, a in anchors
+                       if (a[0] < center_x) == (side == "left")), key=lambda ra: ra[1][1])
+        min_y = float("-inf")
+        for room, anchor in mine:
+            y = max(anchor[1], min_y)
+            out.append((room, side, (col_x, y), anchor))
+            min_y = y + PILL_H + PILL_GAP
+    return out
+
+
+# ── Bryły──────────────────────────────────────────────────────────────────
 
 def box_faces(x: float, y: float, w: float, d: float, z0: float, z1: float
               ) -> dict[str, list[tuple[float, float]]]:
@@ -290,7 +339,7 @@ def stair_boxes(s: Stairs) -> list[Box]:
     for i in range(s.steps):
         y1 = s.y_start - i * depth
         out.append(Box(s.floor, (s.x, y1 - depth, s.w, depth), s.rise * (i + 1),
-                       style=s.style, top=s.top))
+                       style=s.style, top=s.top, cut=False))
     return out
 
 
@@ -411,21 +460,27 @@ def build_scene(house: House) -> Scene:
         mine = sorted((b for b in all_boxes if b.floor == lv.key), key=cmp_to_key(_painter_cmp))
         for b in mine:
             x, y, w, d = b.rect
-            faces = box_faces(x, y, w, d, lv.z + b.z0, lv.z + b.z0 + b.h)
+            top_z, cut = b.z0 + b.h, False
+            if b.cut and top_z > CUT_H:
+                if b.z0 >= CUT_H:
+                    continue
+                top_z, cut = CUT_H, True
+            faces = box_faces(x, y, w, d, lv.z + b.z0, lv.z + top_z)
             for part in ("s", "f", "t"):
-                material = (b.top or b.style) if part == "t" else b.style
-                furniture.append((faces[part], f"bx {material} {part}"))
+                material = b.style if part != "t" or cut else (b.top or b.style)
+                furniture.append((faces[part], f"bx {material} {part}" + (" cut" if cut and part == "t" else "")))
 
     # Otwory w ścianach przednich — obrys-duch, żeby nie zasłaniać wnętrza.
     fronts: list[tuple[list, str]] = []
     for ff in house.fronts:
         z = floors[ff.floor]
+        za, zb = z + ff.z0, z + ff.h
         if ff.wall == "x_max":
-            pts = [iso(W, ff.start, z), iso(W, ff.end, z), iso(W, ff.end, z + ff.h),
-                   iso(W, ff.start, z + ff.h)]
+            pts = [iso(W, ff.start, za), iso(W, ff.end, za), iso(W, ff.end, zb),
+                   iso(W, ff.start, zb)]
         else:
-            pts = [iso(ff.start, D, z), iso(ff.end, D, z), iso(ff.end, D, z + ff.h),
-                   iso(ff.start, D, z + ff.h)]
+            pts = [iso(ff.start, D, za), iso(ff.end, D, za), iso(ff.end, D, zb),
+                   iso(ff.start, D, zb)]
         fronts.append((pts, f"ghost {ff.style}"))
 
     by_key = {r.key: r for r in house.rooms}
@@ -463,6 +518,14 @@ def build_scene(house: House) -> Scene:
         every += line
     for _, xy, vents, leader in equipment:
         every += ([xy] if xy else []) + vents + (leader or [])
+
+    # Plakietki pokoi z czujnikiem — w kolumnach po bokach sylwetki domu.
+    anchors = [(r, iso(r.rect[0] + r.rect[2] / 2, r.rect[1] + r.rect[3] / 2, floors[r.floor]))
+               for r in house.rooms if r.entity]
+    callouts = layout_callouts(anchors, min(p[0] for p in every), max(p[0] for p in every),
+                               iso(W / 2, D / 2)[0])
+    for _, _, (cx, cy), _ in callouts:
+        every += [(cx - PILL_W / 2, cy - PILL_H / 2), (cx + PILL_W / 2, cy + PILL_H / 2)]
     margin = 40
     min_x = min(p[0] for p in every) - margin
     min_y = min(p[1] for p in every) - margin
@@ -492,4 +555,9 @@ def build_scene(house: House) -> Scene:
                                   shift(leader[-1]) if leader else None)
                    for eq, xy, vents, leader in equipment],
         floor_labels=[(label, shift(xy)) for label, xy in labels],
+        callouts=[Callout(r, side, shift(pill), shift(anchor),
+                          points_attr([anchor, (pill[0] + (PILL_W / 2 if side == "left"
+                                                           else -PILL_W / 2), pill[1])], dx, dy),
+                          PILL_W, PILL_H)
+                  for r, side, pill, anchor in callouts],
     )

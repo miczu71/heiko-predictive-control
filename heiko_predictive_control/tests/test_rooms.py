@@ -141,3 +141,74 @@ def test_scene_contents():
         corners = len(rs.room.plan_points())
         assert re.fullmatch(r"(-?[\d.]+,-?[\d.]+ ){%d}-?[\d.]+,-?[\d.]+" % (corners - 1),
                             rs.points), rs.room.key
+
+
+def test_callouts_outside_house_and_not_overlapping():
+    house = example()
+    scene = build_scene(house)
+    assert {c.room.key for c in scene.callouts} == {r.key for r in house.rooms if r.entity}
+    # sylwetka domu w poziomie = podłogi pokoi
+    xs = [float(p.split(",")[0]) for rs in scene.rooms for p in rs.points.split()]
+    for c in scene.callouts:
+        left, right = c.pill[0] - c.w / 2, c.pill[0] + c.w / 2
+        assert right < min(xs) or left > max(xs), c.room.key
+        assert 0 <= left and right <= scene.width, c.room.key
+        assert 0 <= c.pill[1] - c.h / 2 and c.pill[1] + c.h / 2 <= scene.height, c.room.key
+    for side in ("left", "right"):
+        ys = sorted(c.pill[1] for c in scene.callouts if c.side == side)
+        assert all(b - a >= scene.callouts[0].h for a, b in zip(ys, ys[1:])), side
+
+
+def test_callout_leader_starts_at_room_center():
+    house = example()
+    scene = build_scene(house)
+    by_key = {rs.room.key: rs for rs in scene.rooms}
+    for c in scene.callouts:
+        assert c.leader.split()[0] == f"{c.anchor[0]},{c.anchor[1]}"
+        assert c.anchor == by_key[c.room.key].label_xy
+        end_x = float(c.leader.split()[-1].split(",")[0])
+        assert end_x == c.pill[0] + (c.w / 2 if c.side == "left" else -c.w / 2)
+
+
+def test_layout_callouts_pushes_overlapping_pills_down():
+    from heiko_predictive_control.rooms import COL_GAP, PILL_GAP, PILL_H, PILL_W, layout_callouts
+    rooms = example().rooms
+    anchors = [(rooms[0], (-10.0, 100.0)), (rooms[1], (-20.0, 105.0)), (rooms[2], (50.0, 100.0))]
+    out = {r.key: (side, pill) for r, side, pill, _ in layout_callouts(anchors, -100, 100, 0)}
+    assert out[rooms[0].key] == ("left", (-100 - COL_GAP - PILL_W / 2, 100.0))
+    assert out[rooms[1].key][1][1] == 100.0 + PILL_H + PILL_GAP
+    assert out[rooms[2].key] == ("right", (100 + COL_GAP + PILL_W / 2, 100.0))
+
+
+def _scene_with(house, **changes):
+    return build_scene(house.__class__(**{**house.__dict__, **changes}))
+
+
+def test_tall_boxes_cut_at_cut_h_and_high_boxes_skipped():
+    from heiko_predictive_control.rooms import CUT_H, box_faces
+    house = example()
+    lv = house.floors["parter"]
+    tall = Box("parter", (10, 10, 50, 50), 200, style="graphite", top="oak")
+    high = Box("parter", (100, 10, 50, 50), 40, z0=150, style="oak")
+    stair = Box("parter", (200, 10, 50, 50), 30, z0=190, style="black", cut=False)
+    scene = _scene_with(house, boxes=(tall, high, stair), stairs=())
+    classes = [f.cls for f in scene.furniture]
+    # wysoka: 3 ściany, góra jako przekrój (materiał korpusu, nie blatu)
+    assert "bx graphite t cut" in classes and "bx oak t" not in classes
+    # w całości ponad przekrojem: pominięta; cut=False: w pełnej wysokości
+    assert classes.count("bx black t") == 1 and len(classes) == 6
+    raw_top = box_faces(10, 10, 50, 50, lv, lv + CUT_H)["t"]
+    ref = build_scene(house.__class__(**{**house.__dict__, "boxes": (tall,), "stairs": ()}))
+    assert len(ref.furniture) == 3 and len(raw_top) == 4
+
+
+def test_front_feature_sill():
+    from heiko_predictive_control.rooms import FrontFeature
+    house = example()
+    door = FrontFeature("parter", "y_max", 100, 180, 210, "door")
+    window = FrontFeature("parter", "y_max", 100, 180, 170, "glass", z0=100)
+    scene = _scene_with(house, fronts=(door, window))
+    ys = [[float(p.split(",")[1]) for p in f.points.split()] for f in scene.fronts]
+    # okno z parapetem jest niższe (krótsze w pionie) niż drzwi od podłogi
+    assert max(ys[1]) - min(ys[1]) < max(ys[0]) - min(ys[0])
+    assert max(ys[1]) < max(ys[0])            # dolna krawędź okna ponad podłogą
