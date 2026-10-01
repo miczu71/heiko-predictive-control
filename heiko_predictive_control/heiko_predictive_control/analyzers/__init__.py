@@ -27,7 +27,7 @@ class Snapshot:
     uniform: dict | None = None                       # skutki jednolitego przesunięcia krzywej (z planu), klucze "-1", "+1"
     time_shift: dict | None = None                    # oszczędność z samego przesuwania w czasie, zł/dobę per soczewka
     summaries: dict[str, dict[str, dict]] = field(default_factory=dict)   # doba -> temat -> dane
-    dhw_peak: dict | None = None                      # {"share": udział CWU w szczycie, "samples": liczba próbek}
+    dhw_peak: dict | None = None                      # {"share": udział CWU w szczycie z sieci, "samples", "pv_covered"}
     alerts_on: list[tuple[str, str]] = field(default_factory=list)        # (entity_id, nazwa) aktywnych czujników ostrzeżeń
 
 

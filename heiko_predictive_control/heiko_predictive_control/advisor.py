@@ -38,6 +38,7 @@ MIN_WINDOW_SAMPLES = 24           # próbek co 15 min (6 h) — poniżej nie oce
 SUMMARY_DAYS = 15
 PLAN_MAX_AGE_H = 3                # starszy plan nie służy do oceny skutków
 DHW_PEAK_DAYS = 14
+GRID_IMPORT_W = 500                # pobór z sieci od tylu W = CWU w szczycie naprawdę kosztuje taryfę szczytową
 REPLAY_DECISION_HOUR = 7          # odtworzenie zimy: „decyzja” raz na dobę o tej godzinie
 REPLAY_MIN_HOURS = 20             # godzin z pełnymi danymi w oknie 24 h
 REPLAY_SAMPLES = 12
@@ -90,20 +91,38 @@ def room_window_stats(conn, settings: dict, now: datetime, states_by_id: dict | 
             "coldest_name": _friendly(states_by_id or {}, where), "samples": len(avgs)}
 
 
-def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY, days: int = DHW_PEAK_DAYS) -> dict | None:
-    """Jaka część próbek trybu pracy z CWU (co 15 min) przypada na szczyt G12w."""
-    since = int((now - timedelta(days=days)).timestamp())
+def _series(conn, key: str, since: int) -> dict[int, float]:
     rows = conn.execute(
         "SELECT t.ts AS ts, t.value AS value FROM telemetry t JOIN telemetry_keys k ON k.id = t.key_id "
-        "WHERE k.name = 'working_mode' AND t.ts >= ? AND t.value IS NOT NULL", (since,)).fetchall()
-    total = peak = 0
-    for r in rows:
-        if int(round(r["value"])) not in summaries.DHW_CODES:
+        "WHERE k.name = ? AND t.ts >= ? AND t.value IS NOT NULL", (key, since)).fetchall()
+    return {r["ts"]: r["value"] for r in rows}
+
+
+def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY, days: int = DHW_PEAK_DAYS,
+                   grid_key: str | None = None) -> dict | None:
+    """Jaka część próbek trybu pracy z CWU (co 15 min) przypada na szczyt G12w i idzie z sieci.
+
+    Z `grid_key` (moc licznika sieci, W: + oddawanie, − pobór) próbka w szczycie liczy się tylko przy
+    poborze ≥ GRID_IMPORT_W — CWU grzane z nadwyżki PV (automatyzacja 48→58 °C, południe = szczyt 6–13)
+    albo z baterii to efekt zamierzony (`pv_covered`). Próbki bez odczytu sieci są pomijane."""
+    since = int((now - timedelta(days=days)).timestamp())
+    modes = _series(conn, "working_mode", since)
+    grid = _series(conn, grid_key, since) if grid_key else None
+    total = peak = covered = 0
+    for ts, mode in modes.items():
+        if int(round(mode)) not in summaries.DHW_CODES:
             continue
-        local = datetime.fromtimestamp(r["ts"])
+        if grid is not None and ts not in grid:
+            continue
+        local = datetime.fromtimestamp(ts)
         total += 1
-        peak += is_peak_hour(local.hour, bool(is_workday(local.date())))
-    return {"share": peak / total, "samples": total} if total else None
+        if not is_peak_hour(local.hour, bool(is_workday(local.date()))):
+            continue
+        if grid is not None and grid[ts] > -GRID_IMPORT_W:
+            covered += 1
+        else:
+            peak += 1
+    return {"share": peak / total, "samples": total, "pv_covered": covered} if total else None
 
 
 def _plan_inputs(conn, now: datetime) -> tuple[dict | None, dict | None]:
@@ -142,7 +161,8 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         avg24_c=stats.get("avg24_c"), cold24_c=stats.get("cold24_c"), coldest_name=stats.get("coldest_name"),
         curve_on=curve_on, params=params, managed=frozenset(_split(settings.get("advisor_managed_keys"))),
         model_identified=floor_learn.load_model(conn).identified, uniform=uniform, time_shift=time_shift,
-        summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday),
+        summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
+                                                                       grid_key=settings.get("grid_power_entity") or None),
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
                    if str((by_id.get(e) or {}).get("state", "")).lower() == "on"])
 

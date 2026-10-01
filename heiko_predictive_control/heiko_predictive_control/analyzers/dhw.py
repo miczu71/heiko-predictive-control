@@ -39,8 +39,10 @@ def analyze(snap: Snapshot) -> list[Draft]:
         drafts.append(Draft(
             analyzer="dhw", dedupe_key="dhw:peak_hint", lens=LENS_ECONOMY, kind=KIND_ALERT,
             param_key="dhw_setpoint", ttl_h=TTL_H, confidence=CONF_LOW,
-            reason=(f"{peak['share'] * 100:.0f}% czasu podgrzewania CWU przypada na szczyt G12w. Nastawą CWU zarządzają "
-                    "automatyzacje HA, więc doradca niczego nie zmienia — jeśli chcesz, przesuń podgrzew CWU poza szczyt "
-                    "w automatyzacji (progi 48/58°C)."),
-            evidence={"peak_share": round(peak["share"], 3), "samples": peak["samples"]}))
+            reason=(f"{peak['share'] * 100:.0f}% czasu podgrzewania CWU przypada na szczyt G12w przy poborze z sieci "
+                    "(czas pokryty przez PV lub baterię nie jest liczony). Nastawą CWU zarządzają automatyzacje HA, więc "
+                    "doradca niczego nie zmienia — jeśli chcesz, przesuń podgrzew CWU poza szczyt w automatyzacji "
+                    "(progi 48/58°C)."),
+            evidence={"peak_share": round(peak["share"], 3), "samples": peak["samples"],
+                      "pv_covered": peak.get("pv_covered", 0)}))
     return drafts

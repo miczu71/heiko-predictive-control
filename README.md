@@ -58,6 +58,7 @@ fundament, **bez żadnego zapisu do pompy**:
 | Opcja | Znaczenie |
 |---|---|
 | `comfort_min_entities` | strefy liczone do minimum komfortu; puste = wszystkie |
+| `grid_power_entity` | moc na liczniku sieci, W (+ oddawanie, − pobór; domyślnie `sensor.power_meter_active_power`). Wskazówka „CWU w szczycie” liczy próbkę w szczycie G12w tylko przy poborze z sieci ≥ 500 W — CWU z nadwyżki PV albo z baterii to efekt zamierzony (0.11.2) |
 | `advisor_lens` | wyróżniona soczewka i powiadomienia: `żaden` / `komfort` / `ekonomia` |
 | `advisor_notify_service` | usługa `notify` telefonu, na który idą powiadomienia doradcy |
 | `advisor_link_path` | ścieżka linku w powiadomieniu (otwiera add-on w aplikacji HA) |
@@ -110,7 +111,7 @@ okna/cegła/TV na ścianach (`walls`), otwory w ścianach przednich (`fronts`, z
 
 ## Status
 
-**0.11.0 — pulpit: plakietki poza obrysem, wilgotność, przekrój mebli, okna z parapetem.**
+**0.11.2 — wskazówka „CWU w szczycie” uwzględnia PV/baterię (pobór z sieci).** 0.11.0 — pulpit: plakietki poza obrysem, wilgotność, przekrój mebli, okna z parapetem.
 0.10.0 — dziennik cykli CWU i grzałki AH. 0.9.2 — Doradca, etap D2: silnik propozycji i zakładka „Doradca” (zero zapisów do pompy, decyzje tylko próbne).
 0.8.x — D1: dane i katalog (telemetria, dziennik zmian parametrów, dobowe streszczenia, raport). Poprzednio 0.7.0 — Etap 3b′: pętla A obserwuje natywny mechanizm pompy** (krzywa grzewcza + „ograniczona
 nastawa” z zegarem, ustawiana na panelu): cel wody wg pompy, udział energii w szczycie vs zima,

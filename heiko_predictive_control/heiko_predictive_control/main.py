@@ -66,6 +66,7 @@ def _options_from_env() -> dict:
         "tariff_price_entity": _env("TARIFF_PRICE_ENTITY"),
         "pump_energy_entity": _env("PUMP_ENERGY_ENTITY"),
         "ah_energy_entity": _env("AH_ENERGY_ENTITY"),
+        "grid_power_entity": _env("GRID_POWER_ENTITY", "sensor.power_meter_active_power"),
         "heiko_setpoint_entity": _env("HEIKO_SETPOINT_ENTITY"),
         "heiko_curve_switch_entity": _env("HEIKO_CURVE_SWITCH_ENTITY"),
         "heiko_curve_ambient_entities": _env("HEIKO_CURVE_AMBIENT_ENTITIES"),

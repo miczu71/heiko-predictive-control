@@ -295,3 +295,9 @@ def test_db_migrate_drops_anti_legionella_and_repoints_backup_heater_in_settings
     dbm.migrate(c)
     assert dbm.get_setting(c, "advisor_managed_keys") == "dhw_setpoint,anti_leg_program"
     c.close()
+
+
+def test_extra_entities_include_grid_power_for_the_dhw_peak_advisor():
+    out = telemetry.extra_entities({"outdoor_temp_entity": "sensor.out",
+                                    "grid_power_entity": "sensor.power_meter_active_power"})
+    assert out == ["sensor.out", "sensor.power_meter_active_power"]

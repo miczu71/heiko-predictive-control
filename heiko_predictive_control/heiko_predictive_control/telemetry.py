@@ -29,11 +29,13 @@ def _entities(raw) -> list[str]:
 
 
 def extra_entities(settings: dict) -> list[str]:
-    """Encje spoza integracji logowane razem z pompą: pokoje stref dziennych, temp. zewn., licznik energii."""
+    """Encje spoza integracji logowane razem z pompą: pokoje stref dziennych, temp. zewn., licznik energii,
+    moc na liczniku sieci (doradca CWU: szczyt liczy się tylko przy poborze z sieci)."""
     out: list[str] = []
     for eid in (_entities(settings.get("day_zone_temp_entities"))
                 + _entities(settings.get("outdoor_temp_entity"))
-                + _entities(settings.get("pump_energy_entity"))):
+                + _entities(settings.get("pump_energy_entity"))
+                + _entities(settings.get("grid_power_entity"))):
         if eid not in out:
             out.append(eid)
     return out

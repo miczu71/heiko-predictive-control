@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.2 — wskazówka „CWU w szczycie” tylko przy poborze z sieci
+
+Doradca wysłał 01.10 wskazówkę, że duża część podgrzewania CWU przypada na szczyt G12w. Liczył jednak samą porę
+(dni robocze 6–13, 15–22), a automatyzacja HA podnosi nastawę CWU 48→58 °C właśnie przy nadwyżce PV — w południe,
+czyli w oknie szczytu. Wskazówka była więc fałszywie dodatnia: CWU z PV to efekt zamierzony.
+
+- Nowa opcja `grid_power_entity` (domyślnie `sensor.power_meter_active_power`; + oddawanie, − pobór), logowana
+  w telemetrii co 15 min razem z resztą.
+- `advisor.dhw_peak_share(..., grid_key=)`: próbka CWU w szczycie liczy się tylko przy poborze z sieci
+  ≥ `GRID_IMPORT_W` (500 W); pokryta przez PV/baterię trafia do `pv_covered` (w `evidence` propozycji). Próbki bez
+  odczytu sieci są pomijane — historia sprzed 0.11.2 go nie ma, więc wskazówka milczy, dopóki nie zbierze się
+  ≥ 20 nowych próbek CWU. Obecna propozycja `dhw:peak_hint` wygaśnie przy najbliższym przebiegu doradcy.
+- Tekst wskazówki mówi wprost o poborze z sieci. Zero zapisów do pompy, pętle sterowania bez zmian.
+- +3 testy — 385 zielonych.
+
 ## 0.11.1 — poprawka: wilgotność nan/inf nie wywala pulpitu
 
 `live.fmt_humidity` robił `round()` na wartości `nan`/`inf` (np. czujnik ESPHome/szablon po błędzie odczytu), co

@@ -176,13 +176,36 @@ def test_dhw_peak_share_counts_dhw_samples_in_g12w_peak(conn):
     for hour, mode in ((7, 1), (8, 1), (13, 1), (14, 1), (9, 2)):    # 1 = CWU; 2 = grzanie (pomijane)
         telemetry_rows_at(conn, day.replace(hour=hour), mode)
     out = advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0))
-    assert out == {"share": 0.5, "samples": 4}
+    assert out == {"share": 0.5, "samples": 4, "pv_covered": 0}
 
 
-def telemetry_rows_at(conn, when, mode):
-    conn.execute("INSERT OR IGNORE INTO telemetry_keys (name) VALUES ('working_mode')")
-    key = conn.execute("SELECT id FROM telemetry_keys WHERE name = 'working_mode'").fetchone()["id"]
-    conn.execute("INSERT OR REPLACE INTO telemetry VALUES (?,?,?)", (int(when.timestamp()) // 60 * 60, key, mode))
+GRID = "sensor.power_meter_active_power"
+
+
+def test_dhw_peak_share_skips_peak_samples_covered_by_pv(conn):
+    day = datetime(2026, 1, 14, 6, 0)                          # środa
+    telemetry_rows_at(conn, day.replace(hour=11), 1, GRID, 2500)    # szczyt, oddawanie do sieci → PV, nie liczy
+    telemetry_rows_at(conn, day.replace(hour=12), 1, GRID, -200)    # szczyt, mały pobór (< próg) → nie liczy
+    telemetry_rows_at(conn, day.replace(hour=17), 1, GRID, -1800)   # szczyt, pobór z sieci → liczy
+    telemetry_rows_at(conn, day.replace(hour=14), 1, GRID, -1800)   # poza szczytem
+    telemetry_rows_at(conn, day.replace(hour=8), 1)                  # brak odczytu sieci → pominięta
+    out = advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), grid_key=GRID)
+    assert out == {"share": 0.25, "samples": 4, "pv_covered": 2}
+
+
+def test_dhw_peak_share_without_grid_readings_is_none(conn):
+    telemetry_rows_at(conn, datetime(2026, 1, 14, 8, 0), 1)
+    assert advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), grid_key=GRID) is None
+
+
+def telemetry_rows_at(conn, when, mode, grid_key=None, grid_w=None):
+    ts = int(when.timestamp()) // 60 * 60
+    for name, value in (("working_mode", mode), (grid_key, grid_w)):
+        if name is None:
+            continue
+        conn.execute("INSERT OR IGNORE INTO telemetry_keys (name) VALUES (?)", (name,))
+        key = conn.execute("SELECT id FROM telemetry_keys WHERE name = ?", (name,)).fetchone()["id"]
+        conn.execute("INSERT OR REPLACE INTO telemetry VALUES (?,?,?)", (ts, key, value))
     conn.commit()
 
 
