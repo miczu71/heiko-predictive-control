@@ -31,28 +31,41 @@ def min_room_entities(settings: dict, zones: list[str] | None = None) -> list[st
     return chosen or zones
 
 
-def comfort_alarm(conn, settings: dict, now: datetime, notify=ha_client.notify) -> str | None:
-    """Zwraca "alarm" (wysłano/oznaczono nowy epizod), "koniec" albo None."""
-    room_min = float(settings.get("heiko_room_min_c", 18.5))
+def room_min(settings: dict) -> float:
+    return float(settings.get("heiko_room_min_c", 18.5))
+
+
+def recent_rows(conn, now: datetime):
     since = (now - timedelta(minutes=ALARM_MINUTES + 10)).isoformat()
-    rows = conn.execute(
+    return conn.execute(
         "SELECT ts, min_room_c, min_room_name, reduced_active FROM cycles "
         "WHERE loop = 'heiko' AND ts >= ? ORDER BY id", (since,)).fetchall()
+
+
+def sustained_cold(rows, minimum: float) -> bool:
+    """Najzimniejszy pokój poniżej minimum we wszystkich cyklach z ≥ 30 min (alarm i auto-przerwanie testu)."""
+    if len(rows) < 3 or any(r["min_room_c"] is None or r["min_room_c"] >= minimum for r in rows):
+        return False
+    span = (datetime.fromisoformat(rows[-1]["ts"]) - datetime.fromisoformat(rows[0]["ts"])).total_seconds() / 60
+    return span >= ALARM_MINUTES - 1
+
+
+def comfort_alarm(conn, settings: dict, now: datetime, notify=ha_client.notify) -> str | None:
+    """Zwraca "alarm" (wysłano/oznaczono nowy epizod), "koniec" albo None."""
+    minimum = room_min(settings)
+    rows = recent_rows(conn, now)
     state = dbm.get_setting(conn, _STATE_KEY) or {"active": False}
     if not rows:
         return None
     last = rows[-1]
     if state.get("active"):
-        if last["min_room_c"] is not None and last["min_room_c"] >= room_min + RECOVERY_MARGIN_C:
+        if last["min_room_c"] is not None and last["min_room_c"] >= minimum + RECOVERY_MARGIN_C:
             dbm.set_setting(conn, _STATE_KEY, {"active": False, "ended": now.isoformat(timespec="minutes")})
             return "koniec"
         return None
-    if len(rows) < 3 or any(r["min_room_c"] is None or r["min_room_c"] >= room_min for r in rows):
+    if not sustained_cold(rows, minimum):
         return None
-    span = (datetime.fromisoformat(rows[-1]["ts"]) - datetime.fromisoformat(rows[0]["ts"])).total_seconds() / 60
-    if span < ALARM_MINUTES - 1:
-        return None
-    msg = f"{last['min_room_name'] or 'Pokój'} ma {last['min_room_c']:.1f}°C (minimum {room_min:.1f}°C) od ponad {ALARM_MINUTES} min."
+    msg = f"{last['min_room_name'] or 'Pokój'} ma {last['min_room_c']:.1f}°C (minimum {minimum:.1f}°C) od ponad {ALARM_MINUTES} min."
     if last["reduced_active"]:
         msg += " Ograniczona nastawa jest aktywna — rozważ jej wyłączenie na panelu pompy (menu 5.1)."
     dbm.set_setting(conn, _STATE_KEY, {"active": True, "since": rows[0]["ts"]})

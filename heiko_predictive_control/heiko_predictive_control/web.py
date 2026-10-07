@@ -10,7 +10,8 @@ from typing import Callable, Optional
 
 from flask import Flask, jsonify, render_template, request
 
-from . import __version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, floor_learn, ha_client, layout, live, rooms, telemetry
+from . import (__version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, experiments, floor_learn, ha_client,
+               layout, live, rooms, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
 
@@ -27,6 +28,7 @@ def create_app(db_path: str,
                get_states: Callable[[], list[dict] | None] = ha_client.get_all_states,
                compute_report: Callable = analysis.compute_report,
                replay_winter: Callable = advisor.replay_winter,
+               is_workday: Callable[[date], bool] = lambda d: d.weekday() < 5,
                ) -> Flask:
     app = Flask(__name__)
     app.jinja_env.filters["temp"] = live.fmt_temp
@@ -132,6 +134,10 @@ def create_app(db_path: str,
     @app.get("/advisor")
     def page_advisor():
         return render_template("advisor.html", base=base(), active="advisor", settings=get_settings())
+
+    @app.get("/tests")
+    def page_tests():
+        return render_template("tests.html", base=base(), active="tests")
 
     @app.get("/options")
     def page_options():
@@ -354,6 +360,41 @@ def create_app(db_path: str,
         finally:
             conn.close()
         return jsonify({"replay": replay, "running": replay_job["running"], "error": replay_job["error"]})
+
+    # ── Doradca D3a: testy uruchamiane przez usera (zapisy wyłącznie w experiments.py) ──
+
+    def tests_overview(conn) -> dict:
+        return experiments.overview(conn, get_settings(), datetime.now(), get_state, get_numeric, is_workday)
+
+    @app.get("/api/tests")
+    def api_tests():
+        conn = db_conn()
+        try:
+            return jsonify(tests_overview(conn))
+        finally:
+            conn.close()
+
+    @app.post("/api/tests/<kind>/start")
+    def api_test_start(kind: str):
+        """Start = zgoda na cały harmonogram; pierwszy krok od razu (ten sam wykonawca co zadanie co 5 min)."""
+        settings, now = get_settings(), datetime.now()
+        conn = db_conn()
+        try:
+            result = experiments.start(conn, settings, kind, now, get_state, get_numeric, is_workday)
+            if result["ok"]:
+                experiments.tick(conn, settings, now, get_numeric)
+            return jsonify({**result, **tests_overview(conn)}), (200 if result["ok"] else 409)
+        finally:
+            conn.close()
+
+    @app.post("/api/tests/abort")
+    def api_test_abort():
+        conn = db_conn()
+        try:
+            result = experiments.abort(conn, get_settings(), datetime.now())
+            return jsonify({**result, **tests_overview(conn)}), (200 if result["ok"] else 409)
+        finally:
+            conn.close()
 
     @app.get("/api/settings")
     def api_get_settings():

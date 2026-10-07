@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Testy{% endblock %}
+{% block content %}
+<section class="stats advisor tests">
+  <h2>Testy</h2>
+  <p class="sub">Start = zgoda na cały harmonogram poniżej. Potem add-on sam wykonuje kroki (co 5 min sprawdza postęp
+    i zabezpieczenia). Możesz przerwać w każdej chwili. Zapis wyłącznie przesunięcia krzywej, ±4, krok ≤ 1.</p>
+  <p class="sub" id="tests-meta" role="status">ładowanie…</p>
+  <div id="tests-active"></div>
+  <div id="tests-kinds" class="lens-grid"></div>
+  <h2>Historia testów</h2>
+  <div id="tests-history" class="history-table">ładowanie…</div>
+  <h2>Dziennik zapisów do pompy</h2>
+  <div id="tests-writes" class="history-table">ładowanie…</div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/tests.js?v={{ version }}"></script>
+{% endblock %}

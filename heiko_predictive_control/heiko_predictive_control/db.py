@@ -123,6 +123,34 @@ CREATE TABLE IF NOT EXISTS proposals (
     notified_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status, analyzer, dedupe_key);
+
+-- Doradca D3a (0.12.0): testy uruchamiane przez usera (experiments.py). Wiersz powstaje przy Starcie; harmonogram
+-- zamrożony w JSON [{at, value}], `step` = indeks następnego kroku (wartość oczekiwana = krok `step − 1`); potwierdzenia
+-- zapisów są tylko w `pump_writes`.
+CREATE TABLE IF NOT EXISTS tests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,            -- w_toku | zakończony | przerwany
+    started TEXT NOT NULL,
+    ended TEXT,
+    schedule TEXT NOT NULL,
+    step INTEGER NOT NULL DEFAULT 0,
+    baseline REAL NOT NULL,          -- wartość wyjściowa (powrót przy końcu i przerwaniu)
+    result TEXT,
+    abort_reason TEXT
+);
+
+-- Dziennik zapisów add-onu do pompy. `confirmed_at` = czas odczytu zgodnej wartości z ramki albo „brak potwierdzenia”.
+CREATE TABLE IF NOT EXISTS pump_writes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    test_id INTEGER,
+    entity_id TEXT NOT NULL,
+    old REAL,
+    new REAL NOT NULL,
+    ok INTEGER NOT NULL,             -- HA przyjęło wywołanie usługi
+    confirmed_at TEXT
+);
 """
 
 
@@ -163,6 +191,7 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("water_setpoint_c", "REAL"),     # aktualny cel wody wg pompy (krzywa + przesunięcie + ograniczenie)
     ("curve_on", "INTEGER"),          # krzywa grzewcza włączona (0/1/NULL)
     ("reduced_active", "INTEGER"),    # wnioskowane: cel wody poniżej krzywej (0/1/NULL = nie wiadomo)
+    ("curve_shift_c", "REAL"),        # 0.12.0 — przesunięcie krzywej (HC Parallel); skoki = wymuszenie do uczenia
 )
 
 

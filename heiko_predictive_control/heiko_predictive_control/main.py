@@ -3,7 +3,8 @@
 Pętla A (Heiko) jest nadal WYŁĄCZNIE obserwacją (od 0.6.0 plan blokowy na modelu
 podłogówki) — `cycle.run_heiko_cycle` nigdy nie woła `ha_client.call_service`. Od 0.8.0 (Doradca, D1)
 dochodzi telemetria pompy, dziennik zmian parametrów i dobowe streszczenia — wyłącznie odczyt; od 0.9.0 doradca
-(`advisor.run`, D2) liczy propozycje do własnej bazy — też bez zapisu do pompy. Pętla B (AC poddasza, od 0.4.0) zapisuje do
+(`advisor.run`, D2) liczy propozycje do własnej bazy — też bez zapisu do pompy. Od 0.12.0 (D3a) jedynym zapisem do pompy są
+kroki testów uruchomionych przez usera (`experiments.tick`, tylko przesunięcie krzywej). Pętla B (AC poddasza, od 0.4.0) zapisuje do
 klimatyzatora w `cycle.run_attic_cycle`, tylko przy `attic_enabled`. Obie pętle
 mają osobne zadania harmonogramu (A: `cycle_interval_min`, B: `attic_cycle_interval_min`)."""
 from __future__ import annotations
@@ -14,7 +15,8 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import __version__, advisor, comfort, cycle, dhw_cycles, floor_learn, ha_client, kpi, layout, summaries, telemetry
+from . import (__version__, advisor, comfort, cycle, dhw_cycles, experiments, floor_learn, ha_client, kpi, layout,
+               summaries, telemetry)
 from . import attic as attic_mod
 from . import db as dbm
 from .publisher import MQTTPublisher
@@ -283,6 +285,30 @@ def main() -> None:
         finally:
             c.close()
 
+    def run_tests() -> None:
+        """Wykonawca testów D3a: kroki harmonogramu i zabezpieczenia uruchomionego testu."""
+        c = dbm.get_conn(db_path)
+        try:
+            info = experiments.tick(c, dbm.get_all_settings(c), datetime.now())
+            if info:
+                logger.info("Test: %s", info)
+        except Exception:
+            logger.exception("Krok testu nieudany")
+        finally:
+            c.close()
+
+    def recover_tests() -> None:
+        """Test „w toku” sprzed restartu add-onu nie jest wznawiany — powrót do wartości wyjściowej."""
+        c = dbm.get_conn(db_path)
+        try:
+            info = experiments.recover_on_start(c, dbm.get_all_settings(c), datetime.now())
+            if info:
+                logger.warning("Test sprzed restartu: %s", info)
+        except Exception:
+            logger.exception("Powrót testu po restarcie nieudany")
+        finally:
+            c.close()
+
     def run_attic() -> None:
         c = dbm.get_conn(db_path)
         try:
@@ -331,6 +357,9 @@ def main() -> None:
     scheduler.add_job(run_advisor, "interval", hours=1, next_run_time=datetime.now() + timedelta(seconds=120),
                        max_instances=1, coalesce=True)
     scheduler.add_job(run_advisor, "cron", hour=0, minute=30, max_instances=1, coalesce=True)   # po streszczeniach dobowych
+    scheduler.add_job(recover_tests, "date", run_date=datetime.now() + timedelta(seconds=15))
+    scheduler.add_job(run_tests, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=30),
+                       max_instances=1, coalesce=True)
     scheduler.add_job(refit_model, "cron", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(bootstrap_model, "date", run_date=datetime.now() + timedelta(seconds=20))
     scheduler.add_job(peak_baseline, "date", run_date=datetime.now() + timedelta(seconds=45))
@@ -341,7 +370,7 @@ def main() -> None:
     logger.info("Układ domu: %s (%d pomieszczeń)", house.source, len(house.rooms))
 
     app = create_app(db_path=db_path, get_settings=get_settings,
-                      set_setting=set_setting, house=house, house_warnings=house_warnings)
+                      set_setting=set_setting, house=house, house_warnings=house_warnings, is_workday=is_workday)
     logger.info("Web UI nasłuchuje na :8101 (ingress)")
     app.run(host="0.0.0.0", port=8101, debug=False, use_reloader=False)
 

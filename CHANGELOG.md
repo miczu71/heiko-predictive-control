@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.0 — Doradca D3a: silnik testów uruchamianych przez użytkownika (zakładka „Testy”)
+
+Pierwszy kod z zapisem do pompy, ale **żaden zapis nie nastąpi sam**: test startuje tylko przyciskiem w nowej zakładce
+„Testy” (dwa kliknięcia = zgoda na cały, z góry pokazany harmonogram) i tylko przy włączonym „Sterowanie aktywne (Heiko)”
+w Opcjach (domyślnie wyłączone).
+
+- `experiments.py` — jedyny moduł z zapisem do pompy: wyłącznie `number.set_value` na przesunięciu krzywej
+  (`…heating_curve_parallel_shift`, sprawdzane przy zapisie), zakres ±4, krok ≤ 1, jeden test naraz.
+- Typy testów: „Test zapisu” (+1 na 10 min i powrót, przy wyłączonej krzywej) i „Bezwładność −1” (okna 6–12 i 15–21
+  przez 3 doby robocze, przy włączonej krzywej).
+- Zabezpieczenia: potwierdzenie zapisu z ramki pompy w 10 min (inaczej przerwanie i powrót), ręczna zmiana przesunięcia
+  przerywa test bez nadpisywania, najzimniejszy pokój poniżej minimum > 30 min przerywa i przywraca, restart add-onu
+  w trakcie testu przywraca wartość wyjściową. Powiadomienia przez `advisor_notify_service`.
+- Dziennik zapisów do pompy (`pump_writes`) i historia testów (`tests`) w bazie i w zakładce.
+- Kolumna `curve_shift_c` w cyklach; `floor_learn.excitation()` liczy skoki przesunięcia jako wymuszenie.
+- Test AST: wywołanie usługi dozwolone tylko w `experiments._write` (oprócz pętli B AC).
+- Nawigacja na telefonie zawija się do dwóch wierszy (6 zakładek).
+- +21 testów — 406 zielonych.
+
 ## 0.11.2 — wskazówka „CWU w szczycie” tylko przy poborze z sieci
 
 Doradca wysłał 01.10 wskazówkę, że duża część podgrzewania CWU przypada na szczyt G12w. Liczył jednak samą porę

@@ -513,3 +513,50 @@ def test_humidity_on_callout_is_informational_and_optional():
     assert live["rooms"][room.key]["hum"] == "55%"
     others = [k for k in live["rooms"] if k != room.key]
     assert all(live["rooms"][k]["hum"] == "" for k in others)
+
+
+# ── Doradca D3a: zakładka „Testy” (zapis tylko przez experiments._write → ha_client.call_service) ────────
+
+def _tests_client(tmp_path, monkeypatch, settings=None):
+    from heiko_predictive_control import ha_client
+    calls = []
+    pump = {"shift": 0.0}
+
+    def fake_call(domain, service, data):
+        calls.append((domain, service, data))
+        pump["shift"] = data.get("value", pump["shift"])
+        return True
+    monkeypatch.setattr(ha_client, "call_service", fake_call)
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    conn.close()
+    numeric = lambda e: pump["shift"] if e == "number.heiko_heat_pump_heating_curve_parallel_shift" else get_numeric(e)
+    app = create_app(db_path, lambda: {**SETTINGS, "heiko_curve_shift_entity": "number.heiko_heat_pump_heating_curve_parallel_shift", **(settings or {})},
+                     lambda k, v: None, get_state=get_state, get_numeric=numeric, house=HOUSE)
+    return app.test_client(), calls
+
+
+def test_tests_page_and_nav(tmp_path, monkeypatch):
+    client, _ = _tests_client(tmp_path, monkeypatch)
+    html = client.get("/tests").get_data(as_text=True)
+    assert "Dziennik zapisów do pompy" in html and "static/tests.js?v=" in html and 'href="/tests" class="active"' in html
+
+
+def test_tests_api_blocked_without_master_switch(tmp_path, monkeypatch):
+    client, calls = _tests_client(tmp_path, monkeypatch)
+    data = client.get("/api/tests").get_json()
+    assert data["enabled"] is False and all("wyłączony" in k["blocked"] for k in data["kinds"])
+    resp = client.post("/api/tests/zapis/start")
+    assert resp.status_code == 409 and calls == []
+
+
+def test_tests_start_writes_first_step_and_abort_restores(tmp_path, monkeypatch):
+    client, calls = _tests_client(tmp_path, monkeypatch, {"heiko_enabled": True})
+    started = client.post("/api/tests/zapis/start").get_json()
+    assert started["ok"] and started["active"]["expected"] == 1.0
+    assert calls == [("number", "set_value", {"entity_id": "number.heiko_heat_pump_heating_curve_parallel_shift", "value": 1.0})]
+    aborted = client.post("/api/tests/abort").get_json()
+    assert aborted["ok"] and aborted["active"] is None and calls[-1][2]["value"] == 0.0
+    assert aborted["history"][0]["abort_reason"] == "przerwany przez użytkownika"
+    assert client.post("/api/tests/abort").status_code == 409

@@ -179,13 +179,15 @@ def test_identified_model_is_not_overwritten_by_data_without_excitation():
 
 
 def test_excitation_counts_transitions_and_mean_drop():
-    rows = [{"reduced_active": v, "water_setpoint_c": 21.0 if v else 24.0, "base_curve_c": 24.0}
+    rows = [{"reduced_active": v, "water_setpoint_c": 21.0 if v else 24.0, "base_curve_c": 24.0, "curve_shift_c": None}
             for v in [0, 0, 1, 1, 0, 1, None, 1, 0]]
     exc = fl.excitation(rows)
     assert exc["transitions"] == 4 and exc["mean_drop_c"] == 3.0 and exc["sufficient"] is False
-    many = [{"reduced_active": i % 2, "water_setpoint_c": 21.0, "base_curve_c": 24.0} for i in range(20)]
+    many = [{"reduced_active": i % 2, "water_setpoint_c": 21.0, "base_curve_c": 24.0, "curve_shift_c": 0.0}
+            for i in range(20)]
     assert fl.excitation(many)["sufficient"] is True
-    small_drop = [{"reduced_active": i % 2, "water_setpoint_c": 23.5, "base_curve_c": 24.0} for i in range(20)]
+    small_drop = [{"reduced_active": i % 2, "water_setpoint_c": 23.5, "base_curve_c": 24.0, "curve_shift_c": 0.0}
+                  for i in range(20)]
     assert fl.excitation(small_drop)["sufficient"] is False           # spadek < 1°C
 
 

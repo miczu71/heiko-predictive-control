@@ -1,13 +1,14 @@
 """Twarda gwarancja: żaden moduł pętli A (obserwacji) nie ma ścieżki zapisu do urządzeń.
 Analiza AST (nie tekstu): liczy się faktyczne użycie `call_service`, nie wzmianka w docstringu.
-Jedyne miejsce z zapisem poza `ha_client` to pętla B (klimatyzacja poddasza)."""
+Miejsca z zapisem poza `ha_client`: pętla B (klimatyzacja poddasza) i — świadomie od D3a (0.12.0) — wykonawca testów
+`experiments._write` (tylko `number.set_value` na przesunięciu krzywej)."""
 import ast
 import inspect
 
 import pytest
 
-from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, dhw_cycles, floor_learn, floor_model,
-                                       floor_plan, kpi, live, publisher, summaries, telemetry, web)
+from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, dhw_cycles, experiments, floor_learn,
+                                       floor_model, floor_plan, kpi, live, publisher, summaries, telemetry, web)
 from heiko_predictive_control.analyzers import anomalies, curve, dhw
 import heiko_predictive_control.analyzers as analyzers_pkg
 
@@ -43,6 +44,17 @@ def test_cycle_module_writes_only_in_attic_loop():
     tree = ast.parse(inspect.getsource(cycle))
     assert _uses(tree, WRITE_NAMES, frozenset({"run_attic_cycle"})) == []
     assert _uses(ast.parse(inspect.getsource(cycle.run_heiko_cycle)), WRITE_NAMES | {"notify"}) == []
+
+
+def test_experiments_write_only_in_one_function_with_allowlist():
+    """D3a: jedyne wywołanie usługi w wykonawcy testów to `_write`; allowlista = przesunięcie krzywej przez number.set_value
+    (encja sprawdzana w `_write` — inna encja w Opcjach daje wyjątek, patrz test_experiments)."""
+    tree = ast.parse(inspect.getsource(experiments))
+    assert _uses(tree, WRITE_NAMES, frozenset({"_write"})) == []
+    assert _uses(ast.parse(inspect.getsource(experiments._write)), WRITE_NAMES) != []
+    assert experiments.ALLOWED_ENTITY_SUFFIX == "heating_curve_parallel_shift"
+    assert experiments.ALLOWED_SERVICE == ("number", "set_value")
+    assert (experiments.SHIFT_MIN, experiments.SHIFT_MAX, experiments.MAX_STEP) == (-4, 4, 1)
 
 
 def test_comfort_alarm_only_notifies_the_user():

@@ -49,6 +49,11 @@ def mode_flags(state_text) -> tuple[bool, bool]:
     return heating, dhw
 
 
+def curve_shift_entity(settings: dict) -> str:
+    """Encja przesunięcia krzywej — ta sama dla zapisu w cyklach (`curve_shift_c`) i dla wykonawcy testów."""
+    return settings.get("heiko_curve_shift_entity") or _DEFAULT_CURVE_SHIFT
+
+
 def infer_reduced(water_target_c: float | None, curve_c: float | None, shift_c: float | None,
                   curve_on: bool | None) -> bool | None:
     """Czy działa natywna „ograniczona nastawa”? Zegar 5.3 nie jest czytelny z HA, więc
@@ -174,7 +179,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         water_target = None     # w trybie CWU ta encja pokazuje cel CWU (np. 48°C), nie cel ogrzewania
     curve_raw = str((get_state(settings.get("heiko_curve_switch_entity", "")) or {}).get("state", "")).lower()
     curve_on = {"on": True, "off": False}.get(curve_raw)
-    shift = get_numeric(settings.get("heiko_curve_shift_entity") or _DEFAULT_CURVE_SHIFT)
+    shift = get_numeric(curve_shift_entity(settings))
 
     result = {
         "ts": now.isoformat(), "loop": "heiko",
@@ -184,6 +189,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         "write_enabled": int(bool(settings.get("heiko_enabled"))),
         "water_temp_c": water_temp, "heating_active": int(heating_now), "dhw_active": int(dhw_now),
         "water_setpoint_c": water_target, "curve_on": None if curve_on is None else int(curve_on),
+        "curve_shift_c": shift,
         "min_room_c": None if min_room is None else min_room[0],
         "min_room_name": None if min_room is None else min_room[1],
     }

@@ -164,23 +164,26 @@ def cycle_segments(rows, gap_min: tuple[float, float] = (10.0, 20.0)) -> list[fm
     return segments
 
 
-EXCITATION_MIN_TRANSITIONS = 6      # przejść ograniczenie włączone/wyłączone (≈ 3 dni robocze)
-EXCITATION_MIN_DROP_C = 1.0         # średni spadek celu wody w oknach ograniczenia
+EXCITATION_MIN_TRANSITIONS = 6      # przejść ograniczenie/przesunięcie (≈ 3 dni robocze)
+EXCITATION_MIN_DROP_C = 1.0         # średni spadek celu wody w oknach wymuszenia
 
 
 def excitation(rows) -> dict:
-    """Ocena wymuszenia z natywnej ograniczonej nastawy: liczba przejść
-    włączone↔wyłączone i średni spadek celu wody względem krzywej."""
+    """Ocena wymuszenia przy włączonej krzywej: liczba przejść natywnej ograniczonej nastawy
+    lub przesunięcia krzywej (skoki testu „Bezwładność”) i średni spadek celu wody względem krzywej.
+    Brak `curve_shift_c` (wiersze sprzed 0.12.0) = przesunięcie 0."""
     transitions, prev, drops = 0, None, []
     for r in rows:
         state = r["reduced_active"]
         if state is None:
             prev = None
             continue
-        if prev is not None and state != prev:
+        shift = r["curve_shift_c"] or 0.0
+        key = (state, shift)
+        if prev is not None and key != prev:
             transitions += 1
-        prev = state
-        if state and r["water_setpoint_c"] is not None and r["base_curve_c"] is not None:
+        prev = key
+        if (state or shift < 0) and r["water_setpoint_c"] is not None and r["base_curve_c"] is not None:
             drops.append(r["base_curve_c"] - r["water_setpoint_c"])
     mean_drop = sum(drops) / len(drops) if drops else 0.0
     return {"transitions": transitions, "mean_drop_c": round(mean_drop, 2),
@@ -197,7 +200,7 @@ def refit_from_cycles(conn, settings: dict, now: datetime, days: int = 14,
     cutoff = (now - timedelta(days=days)).isoformat()
     rows = conn.execute(
         "SELECT ts, indoor_temp_c, outdoor_temp_c, heat_kw, water_temp_c, base_curve_c, "
-        "reduced_active, water_setpoint_c "
+        "reduced_active, water_setpoint_c, curve_shift_c "
         "FROM cycles WHERE loop = 'heiko' AND ts >= ? ORDER BY id", (cutoff,)).fetchall()
     exc = excitation(rows)
     info["rows"] = len(rows)

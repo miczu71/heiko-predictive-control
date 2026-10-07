@@ -110,7 +110,7 @@ body {
 @media (max-width: 520px) {
   .nav { row-gap: 6px; }
   .nav-brand { flex: 1 1 auto; }
-  .nav-links { order: 3; flex-basis: 100%; flex-wrap: nowrap; }
+  .nav-links { order: 3; flex-basis: 100%; }                       /* 6 zakładek nie mieści się w 1 wierszu na 390 px */
 }
 .main { padding: 20px 0 48px; max-width: 1100px; margin: 0 auto; }
 
@@ -367,3 +367,23 @@ img { max-width: 100%; }
 .room-picks { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0; }
 .room-pick { display: flex; align-items: center; gap: 6px; }
 .advisor .history-table th, .advisor .history-table td { text-align: left; }
+
+/* Testy (D3a) */
+.tests .actions button { background: var(--accent); color: #fff; border: 1px solid var(--accent); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.tests .actions button:disabled { background: transparent; color: var(--muted); border-color: var(--line); cursor: not-allowed; }
+.tests .actions button[data-armed] { background: #c9821e; border-color: #c9821e; }
+.tests .actions button.danger { background: #b3372f; border-color: #b3372f; }
+.tests .actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tests .blocked { font-size: 13px; color: var(--muted); }
+.tests .test-kind { border-top: none; }
+.tests .test-kind h3 { margin: 6px 0 4px; }
+.tests details { margin: 6px 0; font-size: 13px; }
+.tests summary { cursor: pointer; color: var(--accent); }
+.test-active { border: 1px solid #c9821e; border-radius: 12px; padding: 10px 14px; margin: 0 0 16px; background: var(--card-bg); font-size: 14px; }
+.test-active header { display: flex; gap: 8px; align-items: center; }
+.steps { list-style: none; margin: 6px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; font-variant-numeric: tabular-nums; }
+.step { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.step time { color: var(--muted); }
+.step.done { opacity: .55; }
+.step.next { font-weight: 600; }
+.step.next time { color: var(--text); }
