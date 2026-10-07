@@ -114,6 +114,16 @@ def test_write_test_runs_to_completion(conn):
     assert pump.shift == 0.0 and _test(conn)["status"] == ex.DONE and "zakończony" in pump.notes[-1]
 
 
+def test_optimistic_state_right_after_write_is_not_a_confirmation(conn):
+    pump = Pump()                                          # stan HA pokazuje nową wartość od razu (jak integracja)
+    _start(conn, pump)
+    _tick(conn, pump, T0)
+    assert _tick(conn, pump, T0 + timedelta(minutes=1))["waiting"] == "potwierdzenie zapisu"
+    assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] is None
+    assert "next" in _tick(conn, pump, T0 + timedelta(minutes=2))
+    assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == "2026-10-07T10:02:00"
+
+
 def test_unconfirmed_write_aborts_and_restores(conn):
     pump = Pump(confirm=False)
     _start(conn, pump)

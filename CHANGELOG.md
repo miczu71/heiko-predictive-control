@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.1 — potwierdzenie zapisu dopiero z ramki pompy
+
+Integracja `heiko_heatpump` po `number.set_value` od razu pokazuje nową wartość (stan optymistyczny), a odczyt z ramki
+pompy (`Curve_Parallel`, odpytanie co 60 s) zastępuje ją dopiero później. Krok testu wypadający < 1 min po zapisie
+uznałby więc za potwierdzenie wartość, której pompa jeszcze nie odesłała.
+
+- Zapis liczy się jako potwierdzony dopiero, gdy od niego minęło ≥ 2 min (`FRAME_DELAY_MIN`) i stan nadal się zgadza.
+  Limit 10 min na potwierdzenie bez zmian.
+- +1 test — 407 zielonych.
+
 ## 0.12.0 — Doradca D3a: silnik testów uruchamianych przez użytkownika (zakładka „Testy”)
 
 Pierwszy kod z zapisem do pompy, ale **żaden zapis nie nastąpi sam**: test startuje tylko przyciskiem w nowej zakładce

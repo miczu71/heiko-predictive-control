@@ -22,6 +22,9 @@ ALLOWED_ENTITY_SUFFIX = "heating_curve_parallel_shift"      # zapis tylko na enc
 ALLOWED_SERVICE = ("number", "set_value")
 SHIFT_MIN, SHIFT_MAX, MAX_STEP = -4, 4, 1
 CONFIRM_MIN = 10
+# Integracja heiko_heatpump po `set_value` od razu pokazuje nową wartość (optymistycznie), a odczyt z ramki pompy
+# (`Curve_Parallel`, odpytanie co 60 s) zastępuje ją dopiero później — wcześniejsza zgodność nic nie potwierdza.
+FRAME_DELAY_MIN = 2
 NO_CONFIRMATION = "brak potwierdzenia"
 SUPERSEDED = "zastąpiony"                  # niepotwierdzony zapis, po którym przyszedł następny (np. powrót po przerwaniu)
 RUNNING, DONE, ABORTED = "w_toku", "zakończony", "przerwany"
@@ -241,9 +244,10 @@ def recover_on_start(conn, settings: dict, now: datetime, writer=None, notify=No
 def _confirm_writes(conn, settings: dict, current: float | None, now: datetime, notify) -> None:
     """Odczyt kontrolny niepotwierdzonych zapisów (jedyny zegar potwierdzenia — także dla powrotów po przerwaniu)."""
     deadline = _iso(now - timedelta(minutes=CONFIRM_MIN))
+    after_frame = _iso(now - timedelta(minutes=FRAME_DELAY_MIN))
     for w in conn.execute("SELECT w.*, t.status AS test_status FROM pump_writes w LEFT JOIN tests t ON t.id = w.test_id "
                           "WHERE w.ok = 1 AND w.confirmed_at IS NULL").fetchall():
-        if current is not None and current == w["new"]:
+        if current is not None and current == w["new"] and w["ts"] <= after_frame:
             conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE id = ?", (_iso(now), w["id"]))
         elif w["ts"] < deadline:
             conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE id = ?", (NO_CONFIRMATION, w["id"]))
