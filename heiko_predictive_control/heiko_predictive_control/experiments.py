@@ -151,6 +151,17 @@ def _as_dict(conn, row) -> dict:
     return d
 
 
+def _passed(conn, kind: str) -> dict | None:
+    """Ostatni zakończony test danego typu, jeśli spełnił swoją miarę wyniku (karta w UI: odznaka, na koniec listy)."""
+    for row in conn.execute("SELECT ended, result FROM tests WHERE kind = ? AND status = ? ORDER BY id DESC",
+                            (kind, DONE)):
+        r = json.loads(row["result"] or "{}")
+        ok = (r.get("refit") or {}).get("identified") if kind == "bezwladnosc" else 0 < r.get("confirmed", 0) == r.get("writes")
+        if ok:
+            return {"ended": row["ended"], "confirmed": r["confirmed"], "writes": r["writes"]}
+    return None
+
+
 def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_workday) -> dict:
     """Dane zakładki „Testy”: typy testów z podglądem harmonogramu i blokadą, test w toku, historia, dziennik zapisów."""
     shift, curve_on = _read(settings, get_state, get_numeric)
@@ -159,7 +170,8 @@ def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_wor
     for kind in KINDS.values():
         schedule, blocked = _plan(kind, settings, now, shift, curve_on, running, is_workday)
         kinds.append({"key": kind.key, "title": kind.title, "description": kind.description, "measure": kind.measure,
-                      "schedule": schedule, "blocked": blocked})
+                      "schedule": schedule, "blocked": blocked, "passed": _passed(conn, kind.key)})
+    kinds.sort(key=lambda k: k["passed"] is not None)          # wykonane na koniec (sortowanie stabilne)
     history = conn.execute("SELECT * FROM tests ORDER BY id DESC LIMIT 20").fetchall()
     writes = conn.execute("SELECT * FROM pump_writes ORDER BY id DESC LIMIT 30").fetchall()
     return {"enabled": bool(settings.get("heiko_enabled")), "shift": shift, "curve_on": curve_on,

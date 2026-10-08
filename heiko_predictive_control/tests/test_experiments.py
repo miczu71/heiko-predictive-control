@@ -208,6 +208,21 @@ def test_overview_lists_kinds_with_blocks(conn):
     assert data["active"] is None and data["shift"] == 0.0 and data["curve_on"] is False
 
 
+def test_overview_marks_passed_kind_and_moves_it_last(conn):
+    pump = Pump()
+    _start(conn, pump)
+    _tick(conn, pump, T0)
+    ex.abort(conn, SETTINGS, T0 + timedelta(minutes=5), writer=pump.writer, notify=pump.notify)
+    data = ex.overview(conn, SETTINGS, T0, pump.get_state, pump.get_numeric, workday)
+    assert [k["passed"] for k in data["kinds"]] == [None, None]                    # przerwany ≠ wykonany
+    _start(conn, pump, now=T0 + timedelta(minutes=20))
+    for m in (20, 30, 35):
+        _tick(conn, pump, T0 + timedelta(minutes=m))
+    data = ex.overview(conn, SETTINGS, T0, pump.get_state, pump.get_numeric, workday)
+    assert [k["key"] for k in data["kinds"]] == ["bezwladnosc", "zapis"]
+    assert data["kinds"][1]["passed"] == {"ended": "2026-10-07T10:35:00", "confirmed": 2, "writes": 2}
+
+
 def test_excitation_counts_curve_shift_steps():
     rows = [{"reduced_active": 0, "curve_shift_c": s, "water_setpoint_c": 24.0 + s, "base_curve_c": 24.0}
             for s in [0, -1, -1, 0, -1, 0, -1, 0]]

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.2 — zakładka Testy: wykonane testy oznaczone
+
+Karta typu testu, którego ostatni zakończony przebieg spełnił miarę wyniku (test zapisu: wszystkie zapisy potwierdzone;
+bezwładność: model zidentyfikowany), dostaje odznakę „wykonany <data> · zapisy n/n potwierdzone”, ma opis i harmonogram
+zwinięte w „Szczegóły”, przycisk „Powtórz” zamiast „Start” i trafia na koniec listy. Przerwany test nie liczy się jako
+wykonany.
+
+- +1 test — 408 zielonych.
+
 ## 0.12.1 — potwierdzenie zapisu dopiero z ramki pompy
 
 Integracja `heiko_heatpump` po `number.set_value` od razu pokazuje nową wartość (stan optymistyczny), a odczyt z ramki

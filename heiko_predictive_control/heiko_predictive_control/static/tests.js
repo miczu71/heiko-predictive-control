@@ -31,16 +31,21 @@ function renderActive(t) {
 }
 
 function renderKinds() {
-  put("tests-kinds", data.kinds.map(k => `<div class="lens-col"><article class="proposal test-kind" data-kind="${esc(k.key)}">
-    <h3>${esc(k.title)}</h3>
-    <p>${esc(k.description)}</p>
+  put("tests-kinds", data.kinds.map(k => {
+    const p = k.passed, label = p ? "Powtórz" : "Start";
+    const body = `<p>${esc(k.description)}</p>
     <p class="sub">Wynik: ${esc(k.measure)}</p>
-    ${k.schedule.length ? `<details${k.schedule.length <= 4 ? " open" : ""}><summary>Harmonogram (${k.schedule.length} kroków)</summary>${stepsList(k.schedule)}</details>` : ""}
-    <details><summary>Kiedy test się przerwie</summary><ul class="effects">${data.abort_conditions.map(c => `<li>${esc(c)}</li>`).join("")}</ul></details>
+    ${k.schedule.length ? `<details${!p && k.schedule.length <= 4 ? " open" : ""}><summary>Harmonogram (${k.schedule.length} kroków)</summary>${stepsList(k.schedule)}</details>` : ""}
+    <details><summary>Kiedy test się przerwie</summary><ul class="effects">${data.abort_conditions.map(c => `<li>${esc(c)}</li>`).join("")}</ul></details>`;
+    return `<div class="lens-col"><article class="proposal test-kind${p ? " passed" : ""}" data-kind="${esc(k.key)}">
+    <h3>${esc(k.title)}</h3>
+    ${p ? `<p><span class="badge ok">wykonany ${when(p.ended)} · zapisy ${p.confirmed}/${p.writes} potwierdzone</span></p>
+    <details><summary>Szczegóły</summary>${body}</details>` : body}
     <div class="actions">${k.blocked
-      ? `<button type="button" disabled>Start</button><span class="blocked">${esc(k.blocked)}</span>`
-      : `<button type="button" data-start="${esc(k.key)}">Start</button><span class="decision-status" role="status"></span>`}
-    </div></article></div>`).join(""));
+      ? `<button type="button" disabled>${label}</button><span class="blocked">${esc(k.blocked)}</span>`
+      : `<button type="button" data-start="${esc(k.key)}" data-label="${label}">${label}</button><span class="decision-status" role="status"></span>`}
+    </div></article></div>`;
+  }).join(""));
 }
 
 function renderHistory() {
@@ -97,7 +102,7 @@ document.addEventListener("click", async ev => {
       start.dataset.armed = "1";
       start.textContent = `Potwierdź start (${kind.schedule.length} kroków)`;
       status.textContent = "Kliknij ponownie w ciągu 8 s.";
-      setTimeout(() => { if (start.isConnected) { delete start.dataset.armed; start.textContent = "Start"; status.textContent = ""; } }, 8000);
+      setTimeout(() => { if (start.isConnected) { delete start.dataset.armed; start.textContent = start.dataset.label; status.textContent = ""; } }, 8000);
       return;
     }
     start.disabled = true;
