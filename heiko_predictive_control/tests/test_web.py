@@ -560,3 +560,22 @@ def test_tests_start_writes_first_step_and_abort_restores(tmp_path, monkeypatch)
     assert aborted["ok"] and aborted["active"] is None and calls[-1][2]["value"] == 0.0
     assert aborted["history"][0]["abort_reason"] == "przerwany przez użytkownika"
     assert client.post("/api/tests/abort").status_code == 409
+
+
+def test_dhw_cycles_api_returns_model_and_ah_effect_with_reasons(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    row = {"v": 2, "start": "2026-10-12T02:00:00+00:00", "duration_min": 25.0, "ah_tick_min": 19.0, "ah_kwh": 0.3,
+           "ah_pln": 0.2, "ah_min": 6.0, "outdoor_c": 10.0, "ah_rate_c_min": 0.85, "ah_total_kw": 5.4,
+           "ah_seg_min": 6.0, "ah_water_mid_c": 45.0}
+    conn.execute("INSERT INTO dhw_cycles (start, end, data) VALUES (?, ?, ?)",
+                 (row["start"], "2026-10-12T02:25:00+00:00", json.dumps(row)))
+    conn.commit()
+    conn.close()
+    app = create_app(db_path, lambda: dict(SETTINGS), lambda k, v: None, get_state=get_state,
+                     get_numeric=get_numeric, house=HOUSE)
+    data = app.test_client().get("/api/dhw_cycles?days=3650").get_json()
+    assert data["model"]["ok"] is False and "za mało" in data["model"]["reason"]      # 1 cykl ≪ 8 odcinków
+    assert data["ah_effect"]["cycles_with_ah"] == 1 and data["ah_effect"]["evaluated"] == 0
+    assert data["ah_effect"]["skipped"][0]["reason"].startswith("za mało")

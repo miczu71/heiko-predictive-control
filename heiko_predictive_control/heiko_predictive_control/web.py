@@ -7,11 +7,12 @@ import threading
 import time
 from datetime import date, datetime
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request
 
-from . import (__version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, experiments, floor_learn, ha_client,
-               layout, live, rooms, telemetry)
+from . import (__version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, dhw_model, experiments, floor_learn,
+               ha_client, layout, live, rooms, tariff, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
 
@@ -274,14 +275,18 @@ def create_app(db_path: str,
 
     @app.get("/api/dhw_cycles")
     def api_dhw_cycles():
-        """Dziennik cykli CWU i grzałki AH (A2) — tylko odczyt. `?days=` (domyślnie 60)."""
+        """Dziennik cykli CWU i grzałki AH (A2) + model grzania i koszt AH (M2) — tylko odczyt. `?days=` (domyślnie 60)."""
         days = min(int(request.args.get("days", 60)), 365)
         conn = db_conn()
         try:
             cycles = dhw_cycles.load_cycles(conn, days)
         finally:
             conn.close()
-        return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles)})
+        tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
+        model = dhw_model.fit_model(cycles)
+        ah = dhw_model.summarize(
+            cycles, model, lambda t: tariff.price_for(tariff.is_peak_hour(t.hour, is_workday(t.date()))), tz)
+        return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles), "model": model, "ah_effect": ah})
 
     @app.get("/api/changes")
     def api_changes():

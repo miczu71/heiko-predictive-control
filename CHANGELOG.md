@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.0 — model grzania CWU i koszt grzałki AH (tylko odczyt)
+
+Cel: policzyć z własnych danych, ile kosztuje grzałka AH w cyklu CWU i ile czasu oszczędza, zależnie od temperatury
+zewnętrznej i wody — pod decyzję o opóźnieniu startu źródła dodatkowego (slot 52).
+
+- **Dziennik cykli (v2):** każdy cykl dostaje energię całkowitą, temperaturę końcową oraz tempo grzania (°C/min)
+  i średnią moc (kW) osobno dla odcinka samej sprężarki (od 5. minuty do wejścia AH) i odcinka z AH. Rekordy sprzed
+  zmiany są przeliczane z recordera przy najbliższym backfillu (do 7 dni wstecz).
+- **Model:** regresja tempa i mocy sprężarki od temperatury zewnętrznej i wody z odcinków wszystkich cykli (min. 8).
+  Dla cyklu z AH kontrfaktyka „ta sama zmiana temperatury samą sprężarką” daje dodatkowe kWh i zł oraz zaoszczędzone
+  minuty; za mało danych albo warunki poza zakresem uczenia (±3 °C) dają wynik z powodem, nie zgadywanie.
+- **Raport:** sekcja „Model grzania CWU i koszt grzałki AH” — współczynniki, wykres tempa sprężarki wg temperatury
+  zewnętrznej (cykle z AH w osobnym kolorze), suma kosztu AH i cena za zaoszczędzoną minutę. `/api/dhw_cycles` zwraca
+  dodatkowo `model` i `ah_effect`.
+- Zero zapisów do pompy. +10 testów (418 zielonych).
+
 ## 0.12.2 — zakładka Testy: wykonane testy oznaczone
 
 Karta typu testu, którego ostatni zakończony przebieg spełnił miarę wyniku (test zapisu: wszystkie zapisy potwierdzone;

@@ -67,9 +67,58 @@ function renderDhwCycles(payload) {
         cfgSwitch(c.cfg_49), esc(c.cfg_50), esc(c.cfg_52)])));
 }
 
+// Rozrzut: tempo grzania samej sprężarki wg temperatury zewnętrznej; kolor = czy w tym cyklu weszła AH.
+const when = iso => new Date(iso).toLocaleString("pl-PL");
+
+function svgScatter(cycles) {
+  const pts = cycles.filter(c => c.hp_rate_c_min != null && c.outdoor_c != null);
+  if (pts.length < 2) return "";
+  const W = 600, H = 200, L = 40, R = 8, T = 10, B = 24;
+  const xs = pts.map(c => c.outdoor_c), ys = pts.map(c => c.hp_rate_c_min);
+  const xlo = Math.floor(Math.min(...xs)) - 1, xhi = Math.ceil(Math.max(...xs)) + 1;
+  const yhi = Math.max(0.2, Math.ceil(Math.max(...ys) / 0.2) * 0.2), ylo = Math.min(0, Math.floor(Math.min(...ys) / 0.2) * 0.2);
+  const x = v => L + ((v - xlo) * (W - L - R)) / (xhi - xlo);
+  const y = v => T + ((yhi - v) * (H - T - B)) / (yhi - ylo);
+  const xstep = xhi - xlo > 20 ? 5 : 2;
+  let grid = "";
+  for (let v = ylo; v <= yhi + 1e-9; v += 0.2) grid += `<line class="pc-grid" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="pc-tick" x="${L - 4}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${v.toFixed(1)}</text>`;
+  for (let v = Math.ceil(xlo / xstep) * xstep; v <= xhi; v += xstep) grid += `<text class="pc-tick" x="${x(v).toFixed(1)}" y="${H - 6}" text-anchor="middle">${v}°</text>`;
+  const dots = pts.map(c => `<circle class="sc-dot${c.ah_tick_min != null ? " sc-ah" : ""}" cx="${x(c.outdoor_c).toFixed(1)}" cy="${y(c.hp_rate_c_min).toFixed(1)}" r="5">` +
+    `<title>${esc(when(c.start))} · zewn. ${c.outdoor_c}°C · woda ${fmt(c.hp_water_mid_c)}°C · ${c.hp_rate_c_min} °C/min</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Tempo grzania sprężarki wg temperatury zewnętrznej">${grid}${dots}</svg>` +
+    `<figcaption><span class="sc-title">Tempo grzania samej sprężarki (°C/min) wg temperatury zewnętrznej (°C)</span>` +
+    `<span><i class="sc-keydot"></i>cykl bez AH</span><span><i class="sc-keydot sc-ah"></i>cykl z AH</span></figcaption>`;
+}
+
+function renderDhwModel(payload) {
+  const m = payload.model || {}, a = payload.ah_effect || {};
+  const coef = (name, fit) => [name, ...fit.coef.map(c => c.toFixed(3)), fit.r2.toFixed(2)];
+  put("dhw-model", m.ok
+    ? `<p class="sub">Model z ${m.n} odcinków sprężarki. Zakres uczenia: temp. zewn. ${m.ranges.outdoor[0]}…${m.ranges.outdoor[1]} °C, ` +
+      `woda ${m.ranges.water[0]}…${m.ranges.water[1]} °C; poza nim (±3 °C) model nie wycenia AH.</p>` +
+      table(["Wielkość", "Wyraz wolny", "na 1 °C zewn.", "na 1 °C wody", "R²"],
+        [coef("Tempo grzania, °C/min", m.rate), coef("Moc sprężarki, kW", m.kw)])
+    : `<p class="sub">Model jeszcze niegotowy: ${esc(m.reason || "brak danych")}. Odcinki zbierają się z kolejnych cykli CWU.</p>`);
+  put("dhw-model-chart", svgScatter(payload.cycles || []));
+  if (!a.cycles_with_ah) {
+    put("dhw-ah-effect", `<p class="sub">W oknie nie było cyklu z grzałką AH — przy opóźnieniu startu źródła dodatkowego 30 min to normalne.</p>`);
+    return;
+  }
+  const rows = (a.rows || []).map(r => [when(r.start), r.extra_kwh, r.extra_pln, r.saved_min, r.price_pln_kwh, ""]);
+  const skipped = (a.skipped || []).map(s => [when(s.start), null, null, null, null, s.reason]);
+  put("dhw-ah-effect",
+    `<p class="sub">Cykli z AH: ${a.cycles_with_ah}, wycenionych: ${a.evaluated}. Grzałka dołożyła ${a.extra_kwh} kWh (${a.extra_pln} zł) ` +
+    `i skróciła grzanie o ${a.saved_min} min` +
+    `${a.pln_per_saved_min === null ? "" : ` — ${a.pln_per_saved_min} zł za zaoszczędzoną minutę`}.</p>` +
+    table(["Wejście AH", "Dodatkowe kWh", "Dodatkowe zł", "Zaoszczędzone min", "Cena zł/kWh", "Uwagi"], [...rows, ...skipped]));
+}
+
 async function loadDhwCycles() {
-  try { renderDhwCycles(await HPC.getJSON("/api/dhw_cycles")); }
-  catch (e) { put("dhw-groups", "Błąd wczytywania cykli CWU."); }
+  try {
+    const payload = await HPC.getJSON("/api/dhw_cycles");
+    renderDhwCycles(payload);
+    renderDhwModel(payload);
+  } catch (e) { put("dhw-groups", "Błąd wczytywania cykli CWU."); }
 }
 
 async function loadReport(refresh) {

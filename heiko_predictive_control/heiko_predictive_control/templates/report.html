@@ -10,6 +10,15 @@
   <div id="dhw-groups" class="history-table">ładowanie…</div>
   <div id="dhw-cycles" class="history-table"></div>
 
+  <h2>Model grzania CWU i koszt grzałki AH — tylko odczyt</h2>
+  <p class="sub">Model uczy się z odcinków, na których grzeje sama sprężarka (od 5. minuty cyklu do wejścia AH):
+    tempo grzania wody i moc zależnie od temperatury zewnętrznej i wody. Dla cykli z AH liczy, ile ta sama zmiana
+    temperatury kosztowałaby samą sprężarką. W zł za kWh ciepła grzałka (COP 1) nie wygra z pompą — liczy się cena
+    skrócenia cyklu. Czujnik wody jest na pompie, nie w zasobniku, więc tempo służy do porównań między cyklami.</p>
+  <div id="dhw-model" class="history-table model-table">ładowanie…</div>
+  <figure class="plan-chart" id="dhw-model-chart"></figure>
+  <div id="dhw-ah-effect" class="history-table model-table"></div>
+
   <h2>Raport doradcy (D1) — tylko odczyt</h2>
   <p class="sub" id="report-meta">ładowanie…</p>
   <p><button type="button" id="report-refresh">Przelicz raport (kilka minut)</button></p>

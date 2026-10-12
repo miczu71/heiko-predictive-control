@@ -304,6 +304,12 @@ body {
 .pc-key.pc-other { border-top: 2px dashed var(--accent); opacity: .55; }
 .pc-band { fill: var(--accent-light); opacity: .8; }
 .pc-peak { fill: var(--peak); opacity: .1; }
+.model-table td, .model-table th { font-variant-numeric: tabular-nums; }
+.sc-dot { fill: var(--accent); opacity: .75; }
+.sc-dot.sc-ah { fill: var(--peak); opacity: .9; }
+.plan-chart figcaption .sc-title { white-space: normal; flex-basis: 100%; }
+.sc-keydot { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; background: var(--accent); }
+.sc-keydot.sc-ah { background: var(--peak); }
 .pc-grid { stroke: var(--line); stroke-width: 1; }
 .pc-tick { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .fold { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
