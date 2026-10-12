@@ -95,6 +95,13 @@ def test_ah_effect_returns_counterfactual_line_from_trace():
     assert eff["counterfactual"][1][1] == pytest.approx(42.5 + delta_c, abs=0.01)
 
 
+def test_counterfactual_is_dropped_when_trace_has_no_point_near_the_tick():
+    """Przebieg obcięty (cykl > 120 min) albo z dziurą przy wejściu AH: stara wartość nie może udawać temperatury w tej chwili."""
+    m = dm.fit_model(GRID)
+    eff = dm.ah_effect(ah_cycle(trace=[[0, 40.0], [5, 43.0]]), m, price, TZ)
+    assert eff["ok"] and eff["counterfactual"] is None
+
+
 def test_ah_effect_without_trace_has_no_counterfactual_line():
     eff = dm.ah_effect(ah_cycle(), dm.fit_model(GRID), price, TZ)
     assert eff["ok"] and eff["counterfactual"] is None

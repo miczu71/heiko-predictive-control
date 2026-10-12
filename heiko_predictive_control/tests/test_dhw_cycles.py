@@ -210,6 +210,16 @@ def test_cycle_record_has_minute_trace_and_v3():
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
 
+def test_group_period_uses_time_order_across_dst_offsets():
+    def cyc(start):
+        return {"start": start, "duration_min": 25.0, "ah_tick_min": None, "ah_kwh": None, "ah_pln": None,
+                "cfg_49": "off", "cfg_50": "off", "cfg_52": "30"}
+
+    # 2026-10-25 02:30+02:00 (= 00:30 UTC) jest wcześniej niż 02:10+01:00 (= 01:10 UTC), choć tekstowo większe.
+    g = dc.group_by_config([cyc("2026-10-25T02:10:00+01:00"), cyc("2026-10-25T02:30:00+02:00")])[0]
+    assert g["first"] == "2026-10-25T02:30:00+02:00" and g["last"] == "2026-10-25T02:10:00+01:00"
+
+
 def test_trace_is_capped_and_skips_missing_water():
     mode = series((z(0), "0"), (z(9, 0), "1"), (z(12, 0), "0"))          # 180 min
     s = {"mode": mode, "water": [], "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}

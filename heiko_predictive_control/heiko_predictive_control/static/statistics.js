@@ -68,10 +68,13 @@ async function renderTables() {
   } catch (e) { $("heiko-history").textContent = "Błąd wczytywania tabel."; }
 }
 
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;                                        // szybkie przełączanie zakresu: liczy się tylko ostatnie żądanie
   document.querySelectorAll(".range-switch button").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.hours) === hours)));
   try {
     const [h, a] = await Promise.all([HPC.getJSON(`/api/stats/heiko?hours=${hours}`), HPC.getJSON(`/api/stats/attic?hours=${hours}`)]);
+    if (seq !== loadSeq) return;
     renderHeiko(h);
     renderAttic(a);
   } catch (e) { $("chart-comfort").textContent = "Błąd wczytywania statystyk."; }

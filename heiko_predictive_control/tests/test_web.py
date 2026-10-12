@@ -589,3 +589,18 @@ def test_shared_ui_assets_are_loaded_and_served_immutable(client):
         resp = client.get(f"/static/{asset}")
         assert resp.status_code == 200
         assert "immutable" in resp.headers["Cache-Control"]
+
+
+def test_dhw_cycles_api_sends_trace_only_for_newest_cycles(tmp_path):
+    import json as _json
+    from datetime import datetime, timedelta, timezone
+    client, db_path = _proposal_client(tmp_path)
+    conn = dbm.get_conn(db_path)
+    for i in range(32):
+        st = (datetime.now(timezone.utc) - timedelta(hours=i + 1)).isoformat()
+        conn.execute("INSERT INTO dhw_cycles (start, end, data) VALUES (?, ?, ?)",
+                     (st, st, _json.dumps({"start": st, "trace": [[0, 40.0]], "duration_min": 25, "ah_tick_min": None, "ah_kwh": None, "ah_pln": None})))
+    conn.commit()
+    cycles = client.get("/api/dhw_cycles").get_json()["cycles"]
+    assert len(cycles) == 32
+    assert all("trace" in c for c in cycles[:30]) and all("trace" not in c for c in cycles[30:])

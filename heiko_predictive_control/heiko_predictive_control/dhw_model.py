@@ -14,6 +14,7 @@ MIN_FIT_SEGMENTS = 8        # 3 współczynniki na model; mniej odcinków = prze
 RANGE_MARGIN_C = 3.0        # tolerancja ekstrapolacji poza zakres temperatur z uczenia
 MIN_RATE_C_MIN = 0.05       # poniżej tego model nie przewiduje realnego grzania sprężarką
 MIN_COMPRESSOR_KW = 0.3     # niższa średnia moc na odcinku = sprężarka nie pracowała
+TRACE_GAP_MIN = 2.0          # punkt przebiegu starszy niż tyle minut od wejścia AH nie wyznacza temperatury startu linii
 MIN_SAVED_MIN = 0.5         # krótsza oszczędność czasu — cena za minutę byłaby szumem
 
 _HP_KEYS = ("hp_rate_c_min", "hp_kw", "hp_water_mid_c", "outdoor_c")
@@ -91,7 +92,7 @@ def _counterfactual(cycle: dict, delta_c: float, minutes_without: float) -> list
     """Odcinek „sama sprężarka” do wykresu: od minuty wejścia AH, z temperatury w tej minucie (z przebiegu),
     o ten sam przyrost `delta_c`, w czasie wyliczonym z modelu. Brak przebiegu (zapis sprzed v3) → None."""
     tick = cycle["ah_tick_min"]
-    before = [p for p in cycle.get("trace") or [] if p[0] <= tick]
+    before = [p for p in cycle.get("trace") or [] if tick - TRACE_GAP_MIN <= p[0] <= tick]
     if not before:
         return None
     t0 = before[-1][1]

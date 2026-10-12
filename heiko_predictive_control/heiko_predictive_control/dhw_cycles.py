@@ -281,9 +281,9 @@ def group_by_config(cycles: list[dict]) -> list[dict]:
             "cycles": len(long_enough), "cycles_with_ah": len(with_ah),
             "median_ah_tick_min": median_tick, "kwh": round(kwh, 3), "pln": round(pln, 2),
             "small_sample": len(long_enough) < 5,
-            "first": min(r["start"] for r in rows), "last": max(r["start"] for r in rows),
+            "first": min((r["start"] for r in rows), key=_parse_ts), "last": max((r["start"] for r in rows), key=_parse_ts),
         })
-    out.sort(key=lambda g: g["first"])
+    out.sort(key=lambda g: _parse_ts(g["first"]))
     return out
 
 

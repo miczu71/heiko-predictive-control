@@ -18,6 +18,8 @@ from . import db as dbm
 
 logger = logging.getLogger(__name__)
 
+TRACE_CYCLES = 30                      # tyle najnowszych cykli CWU dostaje przebieg w /api/dhw_cycles (tyle rysuje UI)
+
 
 def create_app(db_path: str,
                get_settings: Callable[[], dict],
@@ -306,6 +308,8 @@ def create_app(db_path: str,
         model = dhw_model.fit_model(cycles)
         ah = dhw_model.summarize(
             cycles, model, lambda t: tariff.price_for(tariff.is_peak_hour(t.hour, is_workday(t.date()))), tz)
+        for c in cycles[TRACE_CYCLES:]:                       # UI rysuje przebieg tylko 30 najnowszych — reszta to zbędny ładunek
+            c.pop("trace", None)
         return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles), "model": model, "ah_effect": ah})
 
     @app.get("/api/changes")
