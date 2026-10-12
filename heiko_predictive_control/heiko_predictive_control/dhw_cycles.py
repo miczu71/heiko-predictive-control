@@ -28,6 +28,14 @@ CLOCK_TOLERANCE_S = 60
 TARGET_LOOKBACK_MIN = 5            # zmiana celu tuż przed startem = „zmiana celu” (np. kąpiel 58°C)
 BACKFILL_DAYS = 7                  # zasięg recordera HA
 
+# M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
+# najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
+DATA_VERSION = 2                   # rekordy bez `v` (A2) nie mają pól odcinków — backfill je przelicza
+HP_SKIP_MIN = 5.0
+MIN_HP_SEG_MIN = 5.0
+MIN_AH_SEG_MIN = 3.0
+AH_TICK_MARGIN_MIN = 1.0           # licznik AH tyka ~minutę po wejściu grzałki
+
 # Klucze katalogu (catalog.py) dla slotów decydujących o polityce AH; dziennik zmian (param_changes)
 # działa dopiero od A1 (26.09) — dla wcześniejszych chwil config_at zwraca None (uczciwe „?”, bez zgadywania).
 CONFIG_SLOTS: tuple[tuple[str, str], ...] = (("49", "backup_dhw_enabled"), ("50", "backup_heater"),
@@ -72,6 +80,23 @@ def _first_tick(times: list[datetime], values: list[float | None], start: dateti
         if v is not None and v > base:
             return t
     return None
+
+
+def _segment(water_times: list[datetime], water_values: list[float | None],
+             energy_times: list[datetime], energy_values: list[float | None],
+             start: datetime, end: datetime, min_minutes: float) -> dict | None:
+    """Tempo grzania wody (°C/min), średnia moc z licznika energii (kW) i średnia temperatura wody
+    na odcinku [start, end]. Za krótki odcinek albo brak temperatury → None."""
+    minutes = _minutes(start, end)
+    if minutes < min_minutes:
+        return None
+    w_a, w_b = _value_at(water_times, water_values, start), _value_at(water_times, water_values, end)
+    if w_a is None or w_b is None:
+        return None
+    kwh = _delta(energy_times, energy_values, start, end)
+    return {"rate": round((w_b - w_a) / minutes, 3),
+            "kw": None if kwh is None else round(kwh / (minutes / 60.0), 2),
+            "mid": round((w_a + w_b) / 2.0, 1), "minutes": round(minutes, 1)}
 
 
 def _classify(start: datetime, target_times: list[datetime], target_values: list[float | None],
@@ -130,6 +155,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
     target_times, target_values = _points(series.get("target", []))
     ah_times, ah_values = _points(series.get("ah", []))
     energy_times, energy_values = _points(series.get("energy_c", []))
+    total_times, total_values = _points(series.get("energy_total", []))
     outdoor_times, outdoor_values = _points(series.get("outdoor", []))
     if not mode_times:
         return []
@@ -163,8 +189,21 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
         ah_min = _delta(ah_times, ah_values, start, end)
         cost = _cost(energy_times, energy_values, start, end + timedelta(minutes=2),
                      tz, is_workday, peak_price, offpeak_price)
+        hp_end = end if first_tick is None else first_tick - timedelta(minutes=AH_TICK_MARGIN_MIN)
+        hp = _segment(water_times, water_values, total_times, total_values,
+                      start + timedelta(minutes=HP_SKIP_MIN), hp_end, MIN_HP_SEG_MIN)
+        ah_seg = None if first_tick is None else _segment(
+            water_times, water_values, total_times, total_values, first_tick, end, MIN_AH_SEG_MIN)
+        kwh_total = _delta(total_times, total_values, start, end + timedelta(minutes=2))
         cycles.append({
+            "v": DATA_VERSION,
             "start": start.isoformat(), "end": end.isoformat(), "complete": complete,
+            "water_end_c": _value_at(water_times, water_values, end),
+            "kwh_total": None if kwh_total is None else round(kwh_total, 3),
+            "hp_rate_c_min": hp and hp["rate"], "hp_kw": hp and hp["kw"],
+            "hp_water_mid_c": hp and hp["mid"], "hp_seg_min": hp and hp["minutes"],
+            "ah_rate_c_min": ah_seg and ah_seg["rate"], "ah_total_kw": ah_seg and ah_seg["kw"],
+            "ah_seg_min": ah_seg and ah_seg["minutes"],
             "duration_min": duration_min, "type": _classify(start, target_times, target_values, tz),
             "target_c": target, "water_start_c": water_start, "water_min19_c": water_min19,
             "deficit_c": deficit,
@@ -238,6 +277,7 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
     roles = {"mode": tel.get("working_mode"), "water": tel.get("water_temperature"),
              "target": params.get("dhw_setpoint"), "ah": tel.get("ah_working_time"),
              "energy_c": settings.get("ah_energy_entity") or None,
+             "energy_total": settings.get("pump_energy_entity") or None,
              "outdoor": tel.get("ambient_air_temperature")}
     entities = [e for e in roles.values() if e]
     if not entities:
@@ -266,10 +306,12 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
 
 
 def missing_days(conn, now: datetime, back_days: int = BACKFILL_DAYS) -> list[date]:
-    """Ostatnie pełne doby (bez dzisiejszej) bez zapisanych cykli — od najstarszej. Osobna od
-    `summaries.missing_days` (tabela własna), więc backfill nie zależy od streszczeń dobowych."""
+    """Ostatnie pełne doby (bez dzisiejszej) bez zapisanych cykli w bieżącej wersji rekordu
+    (`DATA_VERSION`) — od najstarszej. Osobna od `summaries.missing_days` (tabela własna), więc
+    backfill nie zależy od streszczeń dobowych; rekordy sprzed M1 są przeliczane."""
     have = {r["d"] for r in conn.execute(
-        "SELECT DISTINCT substr(start, 1, 10) AS d FROM dhw_cycles")}
+        "SELECT substr(start, 1, 10) AS d FROM dhw_cycles GROUP BY d "
+        "HAVING MIN(COALESCE(json_extract(data, '$.v'), 1)) >= ?", (DATA_VERSION,))}
     today = now.date()
     days = [today - timedelta(days=i) for i in range(1, back_days + 1)]
     return [d for d in sorted(days) if d.isoformat() not in have]

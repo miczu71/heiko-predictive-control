@@ -142,4 +142,42 @@ def test_missing_days(conn):
     conn.execute("INSERT INTO dhw_cycles (start, end, data) VALUES (?, ?, ?)",
                  ("2026-09-21T09:00:00+00:00", "2026-09-21T09:25:00+00:00", "{}"))
     conn.commit()
+    assert date(2026, 9, 21) in dc.missing_days(conn, now, back_days=3)     # rekord sprzed M1 (bez `v`) — do przeliczenia
+    conn.execute("UPDATE dhw_cycles SET data = ?", ('{"v": %d}' % dc.DATA_VERSION,))
+    conn.commit()
     assert date(2026, 9, 21) not in dc.missing_days(conn, now, back_days=3)
+
+
+def test_segments_split_compressor_and_ah_like_cycle_of_12_oct():
+    """Wzorzec z cyklu 12.10 04:00: sprężarka ~0,66 °C/min i ~1,9 kW, po wejściu AH ~0,85 °C/min i ~5,4 kW."""
+    d = dict(d=12, month=10)
+    mode = series((z(0, **d), "0"), (z(4, **d), "1"), (z(4, 25, **d), "0"))
+    water = series((z(4, **d), "42.0"), (z(4, 5, **d), "33.7"), (z(4, 18, **d), "42.3"),
+                   (z(4, 19, **d), "42.9"), (z(4, 25, **d), "48.0"))
+    target = series((z(0, **d), "58"))
+    ah = series((z(0, **d), "61.0"), (z(4, 19, **d), "62.0"))
+    total = series((z(4, **d), "100.00"), (z(4, 5, **d), "100.20"), (z(4, 18, **d), "100.61"),
+                   (z(4, 19, **d), "100.64"), (z(4, 25, **d), "101.18"))
+    outdoor = series((z(0, **d), "10.8"))
+    s = {"mode": mode, "water": water, "target": target, "ah": ah, "energy_total": total, "outdoor": outdoor}
+    c = dc.extract_cycles(s, z(0, **d), z(23, 59, **d), TZ)[0]
+    assert c["v"] == dc.DATA_VERSION
+    assert c["ah_tick_min"] == 19.0
+    assert c["hp_seg_min"] == 13.0 and c["hp_rate_c_min"] == pytest.approx(0.662, abs=0.001)
+    assert c["hp_kw"] == pytest.approx(1.89, abs=0.01) and c["hp_water_mid_c"] == 38.0
+    assert c["ah_seg_min"] == 6.0 and c["ah_rate_c_min"] == pytest.approx(0.85)
+    assert c["ah_total_kw"] == pytest.approx(5.4) and c["kwh_total"] == pytest.approx(1.18)
+    assert c["water_end_c"] == 48.0 and c["outdoor_c"] == 10.8
+
+
+def test_segment_of_cycle_without_ah_runs_to_the_end_and_short_ones_are_skipped():
+    mode = series((z(0), "0"), (z(9, 0), "1"), (z(9, 30), "0"), (z(11, 0), "1"), (z(11, 8), "0"))
+    water = series((z(9, 5), "34.0"), (z(9, 30), "46.0"), (z(11, 5), "36.0"), (z(11, 8), "37.0"))
+    total = series((z(9, 5), "10.00"), (z(9, 30), "10.80"))
+    s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0")),
+         "energy_total": total}
+    long_c, short_c = dc.extract_cycles(s, z(0), z(23, 59), TZ)
+    assert long_c["hp_seg_min"] == 25.0 and long_c["hp_rate_c_min"] == pytest.approx(0.48)
+    assert long_c["hp_kw"] == pytest.approx(1.92)
+    assert long_c["ah_rate_c_min"] is None and long_c["ah_total_kw"] is None and long_c["ah_seg_min"] is None
+    assert short_c["duration_min"] == 8.0 and short_c["hp_rate_c_min"] is None   # po 5 min pominięcia zostają 3 < 5
