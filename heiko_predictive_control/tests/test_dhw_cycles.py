@@ -166,6 +166,7 @@ def test_segments_split_compressor_and_ah_like_cycle_of_12_oct():
     assert c["hp_seg_min"] == 13.0 and c["hp_rate_c_min"] == pytest.approx(0.662, abs=0.001)
     assert c["hp_kw"] == pytest.approx(1.89, abs=0.01) and c["hp_water_mid_c"] == 38.0
     assert c["ah_seg_min"] == 6.0 and c["ah_rate_c_min"] == pytest.approx(0.85)
+    assert c["ah_water_mid_c"] == pytest.approx(45.5, abs=0.05)         # (42,9 + 48,0)/2 zaokrąglone do 0,1
     assert c["ah_total_kw"] == pytest.approx(5.4) and c["kwh_total"] == pytest.approx(1.18)
     assert c["water_end_c"] == 48.0 and c["outdoor_c"] == 10.8
 

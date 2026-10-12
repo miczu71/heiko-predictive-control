@@ -203,7 +203,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
             "hp_rate_c_min": hp and hp["rate"], "hp_kw": hp and hp["kw"],
             "hp_water_mid_c": hp and hp["mid"], "hp_seg_min": hp and hp["minutes"],
             "ah_rate_c_min": ah_seg and ah_seg["rate"], "ah_total_kw": ah_seg and ah_seg["kw"],
-            "ah_seg_min": ah_seg and ah_seg["minutes"],
+            "ah_water_mid_c": ah_seg and ah_seg["mid"], "ah_seg_min": ah_seg and ah_seg["minutes"],
             "duration_min": duration_min, "type": _classify(start, target_times, target_values, tz),
             "target_c": target, "water_start_c": water_start, "water_min19_c": water_min19,
             "deficit_c": deficit,
