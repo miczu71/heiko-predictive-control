@@ -130,3 +130,5 @@ stan przełączników). Wzorzec add-onu spójny z innymi add-onami tego domu
 pip install -r heiko_predictive_control/requirements.txt pytest pyyaml
 cd heiko_predictive_control && pytest
 ```
+
+Nazwa i logo HEIKO są znakami towarowymi ich właściciela; ten add-on nie jest powiązany z producentem ani przez niego wspierany.
