@@ -4,7 +4,7 @@ const num = (v, d = 2) => (v === null || v === undefined) ? "—" : Number(v).to
 const signed = (v, d = 2) => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${num(v, d)}`;
 const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
-const KIND = { zmiana: "Zmiana", eksperyment: "Eksperyment", "cofnięcie": "Cofnięcie", alert: "Alert" };
+const KIND = { zmiana: "Zmiana", test: "Propozycja testu", eksperyment: "Eksperyment (dawny)", "cofnięcie": "Cofnięcie", alert: "Alert" };
 const LENSES = [["komfort", "Komfort"], ["ekonomia", "Oszczędność"], ["obie", "Alerty i wskazówki"]];
 const EFFECTS = [
   ["cost_day_delta_pln", "koszt energii (po wycenie ciepła zabranego z domu)", v => `${signed(v)} zł/dobę`],
@@ -21,17 +21,18 @@ function card(p) {
   const effects = EFFECTS.filter(([k]) => p.effects && p.effects[k] !== undefined && p.effects[k] !== null)
     .map(([k, label, fmt]) => `<li>${esc(label)}: ${esc(fmt(p.effects[k]))}</li>`).join("");
   const evidence = Object.entries(p.evidence || {}).map(([k, v]) => `<li>${esc(k)}: ${esc(typeof v === "number" ? num(v) : v)}</li>`).join("");
-  const alert = p.kind === "alert";
+  const alert = p.kind === "alert", isTest = p.kind === "test";
   return `<article class="proposal" data-id="${p.id}">
     <header><span class="badge kind-${esc(p.kind)}">${esc(KIND[p.kind] || p.kind)}</span>
-      <span class="badge conf-${esc(p.confidence)}">pewność: ${esc(p.confidence)}</span>
+      ${isTest ? "" : `<span class="badge conf-${esc(p.confidence)}">pewność: ${esc(p.confidence)}</span>`}
       <span class="sub">jeszcze ${p.remaining_h === null ? "—" : num(p.remaining_h, 1)} h</span></header>
     ${change}
     <p>${esc(p.reason)}</p>
     ${effects ? `<ul class="effects">${effects}</ul>` : ""}
     ${evidence ? `<details><summary>Dowody</summary><ul>${evidence}</ul></details>` : ""}
     <div class="actions">
-      <button type="button" data-decision="zatwierdzona">${alert ? "Przyjmij do wiadomości" : "Zatwierdź (próbnie)"}</button>
+      ${isTest ? `<a class="button" href="${HPC.base}/tests#${esc((p.evidence || {}).test_kind || "")}">Przejdź do testu</a>`
+        : `<button type="button" data-decision="zatwierdzona">${alert ? "Przyjmij do wiadomości" : "Zatwierdź (próbnie)"}</button>`}
       <button type="button" class="secondary" data-decision="odrzucona">Odrzuć</button>
       <span class="decision-status" role="status"></span>
     </div></article>`;

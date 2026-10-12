@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS proposals (
     analyzer TEXT NOT NULL,          -- curve | dhw | anomaly
     dedupe_key TEXT NOT NULL,
     lens TEXT NOT NULL,              -- komfort | ekonomia | obie
-    kind TEXT NOT NULL,              -- zmiana | eksperyment | cofnięcie | alert
+    kind TEXT NOT NULL,              -- zmiana | test | alert (| eksperyment, cofnięcie — dawne, tylko w historii)
     param_key TEXT,                  -- klucz katalogu (catalog.py) albo NULL
     from_value REAL,
     to_value REAL,                   -- NULL = sam tekst (alert / parametr prowadzony przez automatyzację)
@@ -209,6 +209,8 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO settings (key, value) VALUES ('summary_schema', '3') "
                      "ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     _migrate_catalog_0_9_3(conn)
+    # 0.14.0: „eksperyment” Doradcy zastąpiła propozycja testu — oczekujące stare znikają, historia zostaje.
+    conn.execute("UPDATE proposals SET status = 'wygasła' WHERE kind = 'eksperyment' AND status = 'oczekuje'")
     conn.commit()
 
 

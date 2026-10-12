@@ -21,18 +21,26 @@ def snap(**kw) -> Snapshot:
 
 # ── krzywa ───────────────────────────────────────────────────────────────────
 
-def test_curve_slack_proposes_experiment_down_with_effects_and_low_confidence():
+def test_curve_slack_with_unidentified_model_proposes_inertia_test_not_a_change():
     (d,) = curve.analyze(snap())
-    assert (d.kind, d.lens, d.param_key, d.from_value, d.to_value) == ("eksperyment", "ekonomia", "curve_shift", 0.0, -1.0)
-    assert d.confidence == "niska" and d.ttl_h == 6
-    assert d.effects["cost_day_delta_pln"] == -0.4 and d.effects["time_shift_pln_day"] == 0.3
-    assert d.evidence["avg24_c"] == 21.2 and "Pokój 1" in d.reason
+    assert (d.kind, d.lens, d.analyzer) == ("test", "ekonomia", "curve")
+    assert (d.param_key, d.from_value, d.to_value) == (None, None, None)          # test niczego nie zapisuje na stałe
+    assert d.evidence["test_kind"] == "bezwladnosc" and d.evidence["avg24_c"] == 21.2
+    assert d.ttl_h == 6 and "Pokój 1" in d.reason and "zakładce Testy" in d.reason
     assert d.evidence["cooling_after_c"] == curve.FALLBACK_COOLING_C          # UNIFORM w teście nie ma end_temp_delta_c
 
 
-def test_curve_identified_model_raises_confidence():
+def test_curve_slack_with_identified_model_proposes_plain_change_down():
     (d,) = curve.analyze(snap(model_identified=True))
-    assert d.confidence == "średnia"
+    assert (d.kind, d.lens, d.param_key, d.from_value, d.to_value) == ("zmiana", "ekonomia", "curve_shift", 0.0, -1.0)
+    assert d.confidence == "średnia" and d.effects["cost_day_delta_pln"] == -0.4 and d.effects["time_shift_pln_day"] == 0.3
+
+
+def test_curve_is_silent_while_a_test_is_running():
+    """W trakcie testu przesunięcie krzywej jest sterowane przez test — jego chwilowa wartość nie może rodzić propozycji."""
+    assert curve.analyze(snap(test_running=True)) == []
+    assert curve.analyze(snap(test_running=True, model_identified=True)) == []
+    assert curve.analyze(snap(test_running=True, avg24_c=20.2, cold24_c=19.8)) == []          # także „+1”
 
 
 @pytest.mark.parametrize("kw", [
@@ -48,7 +56,7 @@ def test_curve_down_needs_room_margin_after_predicted_cooling():
     """Zapas nad minimum liczy się PO ostygnięciu domu wg planera: 19,5 − 0,65 = 18,85 < 19,0 → brak; 19,7 → jest."""
     uniform = {**UNIFORM, "-1": {**UNIFORM["-1"], "end_temp_delta_c": -0.65}}
     assert curve.analyze(snap(cold24_c=19.5, uniform=uniform)) == []
-    (d,) = curve.analyze(snap(cold24_c=19.7, uniform=uniform))
+    (d,) = curve.analyze(snap(cold24_c=19.7, uniform=uniform, model_identified=True))
     assert d.to_value == -1.0 and d.evidence["cooling_after_c"] == 0.65 and "po przewidywanym ostygnięciu" in d.reason
 
 
@@ -58,10 +66,10 @@ def test_curve_never_proposes_down_when_the_result_would_immediately_call_for_up
     checked = 0
     for avg in [20.0 + 0.1 * i for i in range(0, 30)]:
         for cold in [18.0 + 0.1 * i for i in range(0, 30)]:
-            if not any(d.to_value == -1.0 for d in curve.analyze(snap(avg24_c=avg, cold24_c=cold, uniform=uniform))):
+            if not any(d.to_value == -1.0 for d in curve.analyze(snap(avg24_c=avg, cold24_c=cold, uniform=uniform, model_identified=True))):
                 continue                                                        # interesują nas tylko propozycje „−1”
             checked += 1
-            after = curve.analyze(snap(avg24_c=avg - 0.38, cold24_c=cold - 0.65, uniform=uniform, params={"curve_shift": -1.0}))
+            after = curve.analyze(snap(avg24_c=avg - 0.38, cold24_c=cold - 0.65, uniform=uniform, params={"curve_shift": -1.0}, model_identified=True))
             assert not any(d.to_value == 0.0 for d in after), (avg, cold)       # nie proponuje powrotu w górę
             assert not any(d.kind == "zmiana" and d.lens == "komfort" for d in after), (avg, cold)
     assert checked > 20                                                         # siatka faktycznie trafia w obszar „−1”

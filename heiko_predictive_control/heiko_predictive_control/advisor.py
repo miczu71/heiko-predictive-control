@@ -21,7 +21,7 @@ from . import catalog, comfort, cycle, floor_learn, ha_client, summaries
 from . import db as dbm
 from . import floor_plan as fp
 from .analysis import percentile
-from .analyzers import KIND_ALERT, KIND_EXPERIMENT, Draft, Snapshot, anomalies, curve, dhw
+from .analyzers import KIND_ALERT, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw
 from .kpi import outdoor_class
 from .profiles import HeikoProfiles
 from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour
@@ -32,7 +32,6 @@ ANALYZERS: tuple[Callable[[Snapshot], list[Draft]], ...] = (curve.analyze, dhw.a
 STATUS_PENDING, STATUS_APPROVED, STATUS_REJECTED = "oczekuje", "zatwierdzona", "odrzucona"
 STATUS_EXPIRED, STATUS_SUPERSEDED = "wygasła", "zastąpiona"
 LENS_OFF = "żaden"
-EXPERIMENT_ACTIVE_H = 48          # zatwierdzony eksperyment „trwa” tyle godzin (decyzja 7: ±1 na 24–48 h)
 WINDOW_H = 24                     # okno statystyk komfortu dla analizatora krzywej
 MIN_WINDOW_SAMPLES = 24           # próbek co 15 min (6 h) — poniżej nie oceniamy komfortu
 SUMMARY_DAYS = 15
@@ -161,6 +160,7 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         avg24_c=stats.get("avg24_c"), cold24_c=stats.get("cold24_c"), coldest_name=stats.get("coldest_name"),
         curve_on=curve_on, params=params, managed=frozenset(_split(settings.get("advisor_managed_keys"))),
         model_identified=floor_learn.load_model(conn).identified, uniform=uniform, time_shift=time_shift,
+        test_running=conn.execute("SELECT 1 FROM tests WHERE status = 'w_toku' LIMIT 1").fetchone() is not None,
         summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
                                                                        grid_key=settings.get("grid_power_entity") or None),
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
@@ -187,12 +187,6 @@ def run_analyzers(snap: Snapshot) -> list[Draft]:
 
 # ── propozycje w bazie ───────────────────────────────────────────────────────
 
-def _active_experiment(conn, now: datetime) -> bool:
-    since = _iso(now - timedelta(hours=EXPERIMENT_ACTIVE_H))
-    return conn.execute("SELECT 1 FROM proposals WHERE kind = ? AND status = ? AND decided_at >= ? LIMIT 1",
-                        (KIND_EXPERIMENT, STATUS_APPROVED, since)).fetchone() is not None
-
-
 def expire_old(conn, now: datetime) -> int:
     n = conn.execute("UPDATE proposals SET status = ?, updated = ? WHERE status = ? AND expires < ?",
                      (STATUS_EXPIRED, _iso(now), STATUS_PENDING, _iso(now))).rowcount
@@ -207,7 +201,6 @@ def sync(conn, drafts: list[Draft], now: datetime) -> list[int]:
                for r in conn.execute("SELECT * FROM proposals WHERE status = ?", (STATUS_PENDING,))}
     seen: set[tuple[str, str]] = set()
     new_ids: list[int] = []
-    experiment_running = _active_experiment(conn, now)
     for d in drafts:
         key = (d.analyzer, d.dedupe_key)
         seen.add(key)
@@ -221,8 +214,6 @@ def sync(conn, drafts: list[Draft], now: datetime) -> list[int]:
             continue
         if cur is not None:
             conn.execute("UPDATE proposals SET status = ?, updated = ? WHERE id = ?", (STATUS_SUPERSEDED, ts, cur["id"]))
-        if d.kind == KIND_EXPERIMENT and experiment_running:
-            continue                                        # decyzja 7: jeden aktywny eksperyment naraz
         cursor = conn.execute(
             "INSERT INTO proposals (created, updated, analyzer, dedupe_key, lens, kind, param_key, from_value, to_value, "
             "reason, evidence, effects, confidence, expires, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -240,9 +231,10 @@ def _title_and_text(row) -> tuple[str, str]:
     label = catalog.BY_KEY[row["param_key"]].label if row["param_key"] in catalog.BY_KEY else None
     if row["kind"] == KIND_ALERT:
         return "Heiko Doradca: alert", row["reason"][:300]
+    if row["kind"] == KIND_TEST:
+        return "Heiko Doradca: proponowany test", row["reason"][:300]
     if label and row["to_value"] is not None:
-        kind = " (eksperyment)" if row["kind"] == KIND_EXPERIMENT else ""
-        return "Heiko Doradca: nowa propozycja", f"{label}: z {row['from_value']:g} na {row['to_value']:g}{kind}. {row['reason']}"[:300]
+        return "Heiko Doradca: nowa propozycja", f"{label}: z {row['from_value']:g} na {row['to_value']:g}. {row['reason']}"[:300]
     return "Heiko Doradca: nowa propozycja", row["reason"][:300]
 
 
@@ -308,6 +300,8 @@ def decide(conn, proposal_id: int, decision: str, now: datetime,
         return {"ok": False, "error": "nie ma takiej propozycji"}
     if row["status"] != STATUS_PENDING:
         return {"ok": False, "error": f"propozycja ma już status „{row['status']}”"}
+    if decision == STATUS_APPROVED and row["kind"] == KIND_TEST:
+        return {"ok": False, "error": "to propozycja testu — uruchom go przyciskiem Start w zakładce Testy (tu możesz ją tylko odrzucić)"}
     if row["expires"] < _iso(now):
         conn.execute("UPDATE proposals SET status = ?, updated = ? WHERE id = ?", (STATUS_EXPIRED, _iso(now), proposal_id))
         conn.commit()
@@ -427,7 +421,8 @@ def replay_winter(settings: dict, now: datetime, model, get_statistics=ha_client
         avg24, cold24 = mean(r[0] for r in window), percentile(sorted(r[1] for r in window), 0.05)
         uniform = _replay_effects(settings, model, amb, wat, t0, hourly, tz, avg24, window[-1][2])
         snap = Snapshot(now=t0, target_c=target, room_min_c=room_min, avg24_c=avg24, cold24_c=cold24, curve_on=True,
-                        params={curve.KEY: 0.0}, model_identified=model.identified, uniform=uniform)
+                        params={curve.KEY: 0.0}, uniform=uniform,
+                        model_identified=True)                      # odtworzenie liczy skutek zmiany −1, nie propozycję testu
         for d in curve.analyze(snap):
             side = "down" if d.to_value < d.from_value else "up"
             cls = by_class.setdefault(outdoor_class(out_mean), {"days": 0, "down": 0, "up": 0})

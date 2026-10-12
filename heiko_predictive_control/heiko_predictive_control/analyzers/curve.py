@@ -2,10 +2,12 @@
 
 Reguła zapasu komfortu na statystykach z 24 h (nie na chwilowej temperaturze, która skacze w ciągu doby):
   • zapas (średnia stref ≥ cel + margines, a najzimniejszy wybrany pokój z zapasem nad minimum PO przewidywanym
-    ostygnięciu domu) → EKSPERYMENT −1 (soczewka Oszczędność) — ocena skutków z planera, pewność niska, dopóki
-    model nie ma zidentyfikowanej bezwładności;
+    ostygnięciu domu) → dopóki model nie ma zidentyfikowanej bezwładności: PROPOZYCJA TESTU „Bezwładność −1”
+    (uruchamia go user w zakładce Testy; analizator sam niczego nie zmienia), potem zwykła zmiana −1 (soczewka
+    Oszczędność) z oceną skutków z planera;
   • za zimno (średnia poniżej celu albo najzimniejszy pokój blisko minimum) → zmiana +1 (soczewka Komfort).
-Działa tylko przy włączonej krzywej — bez niej przesunięcie nie ma efektu.
+Działa tylko przy włączonej krzywej — bez niej przesunięcie nie ma efektu. W trakcie testu milczy (przesunięcie
+steruje wtedy test, więc jego chwilowa wartość nie jest sygnałem).
 
 Przesuwanie grzania w czasie (taryfa) nie mieści się w „1 zatwierdzenie = 1 zmiana”, więc pokazujemy je
 tylko informacyjnie (`time_shift_pln_day`); pakiety zmian dopiero w D5."""
@@ -14,7 +16,7 @@ from __future__ import annotations
 from .. import catalog
 from .. import floor_plan as fp
 from ..floor_model import cop
-from . import (CONF_LOW, CONF_MEDIUM, KIND_CHANGE, KIND_EXPERIMENT, LENS_COMFORT, LENS_ECONOMY,
+from . import (CONF_LOW, CONF_MEDIUM, KIND_CHANGE, KIND_TEST, LENS_COMFORT, LENS_ECONOMY,
                Draft, Snapshot)
 
 KEY = "curve_shift"
@@ -67,7 +69,7 @@ def _effects(snap: Snapshot, delta_key: str, lens: str) -> dict:
 
 
 def analyze(snap: Snapshot) -> list[Draft]:
-    if snap.curve_on is not True:
+    if snap.curve_on is not True or snap.test_running:
         return []
     cur = snap.params.get(KEY)
     if cur is None or snap.avg24_c is None or snap.cold24_c is None:
@@ -83,15 +85,23 @@ def analyze(snap: Snapshot) -> list[Draft]:
     if snap.avg24_c >= snap.target_c + DOWN_AVG_MARGIN_C and snap.cold24_c - cooling >= snap.room_min_c + DOWN_MIN_MARGIN_C:
         to = cur - 1
         if catalog.check_class_a(KEY, cur, to)[0]:
-            drafts.append(Draft(
-                analyzer="curve", dedupe_key=f"curve:{KEY}", lens=LENS_ECONOMY, kind=KIND_EXPERIMENT,
-                param_key=KEY, from_value=cur, to_value=to, ttl_h=TTL_H,
-                confidence=CONF_MEDIUM if snap.model_identified else CONF_LOW,
-                reason=(f"Dom ma zapas komfortu: średnia stref z 24 h to {snap.avg24_c:.1f}°C (cel {snap.target_c:.1f}°C), "
-                        f"a {room} ma w 5. percentylu {snap.cold24_c:.1f}°C (po przewidywanym ostygnięciu o {cooling:.1f}°C "
-                        f"nadal powyżej minimum {snap.room_min_c:.1f}°C). Eksperyment na 24–48 h: przesunięcie krzywej z {cur:g} na {to:g}. Skutków nie da się jeszcze "
-                        "przewidzieć pewnie — zatwierdzony eksperyment da doradcy pomiar reakcji domu."),
-                evidence=evidence, effects=_effects(snap, "-1", LENS_ECONOMY)))
+            slack = (f"Dom ma zapas komfortu: średnia stref z 24 h to {snap.avg24_c:.1f}°C (cel {snap.target_c:.1f}°C), "
+                     f"a {room} ma w 5. percentylu {snap.cold24_c:.1f}°C (po przewidywanym ostygnięciu o {cooling:.1f}°C "
+                     f"nadal powyżej minimum {snap.room_min_c:.1f}°C).")
+            if snap.model_identified:
+                drafts.append(Draft(
+                    analyzer="curve", dedupe_key=f"curve:{KEY}", lens=LENS_ECONOMY, kind=KIND_CHANGE,
+                    param_key=KEY, from_value=cur, to_value=to, ttl_h=TTL_H, confidence=CONF_MEDIUM,
+                    reason=f"{slack} Obniżenie przesunięcia krzywej z {cur:g} na {to:g}.",
+                    evidence=evidence, effects=_effects(snap, "-1", LENS_ECONOMY)))
+            else:
+                drafts.append(Draft(
+                    analyzer="curve", dedupe_key=f"curve:{KEY}", lens=LENS_ECONOMY, kind=KIND_TEST, ttl_h=TTL_H,
+                    confidence=CONF_LOW, evidence={**evidence, "test_kind": "bezwladnosc"},
+                    reason=(f"{slack} Zanim obniżymy krzywą na stałe, add-on musi poznać bezwładność domu (jak szybko stygnie "
+                            "i się nagrzewa). Proponuję test „Bezwładność −1”: przez kilka dób roboczych obniża krzywą o 1°C "
+                            "na kilka godzin, potem ją przywraca. Uruchamiasz go w zakładce Testy; add-on pilnuje komfortu "
+                            "i przerwie test, gdy któryś pokój będzie za zimny.")))
     elif snap.avg24_c <= snap.target_c - UP_AVG_MARGIN_C or snap.cold24_c < snap.room_min_c + UP_MIN_MARGIN_C:
         to = cur + 1
         if catalog.check_class_a(KEY, cur, to)[0]:

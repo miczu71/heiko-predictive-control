@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 LENS_COMFORT, LENS_ECONOMY, LENS_BOTH = "komfort", "ekonomia", "obie"
-KIND_CHANGE, KIND_EXPERIMENT, KIND_ALERT = "zmiana", "eksperyment", "alert"
+KIND_CHANGE, KIND_TEST, KIND_ALERT = "zmiana", "test", "alert"
 CONF_LOW, CONF_MEDIUM, CONF_HIGH = "niska", "średnia", "wysoka"
 
 
@@ -24,6 +24,7 @@ class Snapshot:
     params: dict[str, float] = field(default_factory=dict)      # bieżące wartości liczbowych parametrów katalogu
     managed: frozenset[str] = frozenset()             # parametry prowadzone przez automatyzacje HA
     model_identified: bool = False
+    test_running: bool = False                        # trwa test (experiments) — przesunięcie krzywej steruje wtedy test, nie user
     uniform: dict | None = None                       # skutki jednolitego przesunięcia krzywej (z planu), klucze "-1", "+1"
     time_shift: dict | None = None                    # oszczędność z samego przesuwania w czasie, zł/dobę per soczewka
     summaries: dict[str, dict[str, dict]] = field(default_factory=dict)   # doba -> temat -> dane

@@ -365,9 +365,12 @@ img { max-width: 100%; }
 .proposal .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .proposal .actions button { padding: 6px 12px; }
 .proposal .actions .secondary { background: transparent; color: inherit; border: 1px solid var(--line); }
+.proposal .actions a.button { background: var(--accent); color: #fff; border-radius: 8px; padding: 6px 12px; text-decoration: none; font-size: 14px; }
+.proposal .actions a.button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.test-kind.is-linked { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
 .decision-status { font-size: 13px; color: var(--muted); }
 .badge { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; }
-.badge.kind-eksperyment { border-color: #c9821e; }
+.badge.kind-eksperyment, .badge.kind-test { border-color: #c9821e; }
 .badge.kind-alert { border-color: #b3372f; }
 .badge.ok { border-color: #3f8a4f; }
 .badge.conf-niska { color: #b3372f; }

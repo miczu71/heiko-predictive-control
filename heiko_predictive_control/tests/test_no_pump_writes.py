@@ -108,7 +108,7 @@ def test_decision_endpoint_never_calls_a_service(monkeypatch):
     conn = dbm.get_conn(":memory:")
     dbm.migrate(conn)
     now = datetime(2026, 1, 14, 7, 0)
-    (pid,) = advisor.sync(conn, [Draft(analyzer="curve", dedupe_key="curve:curve_shift", lens="ekonomia", kind="eksperyment",
+    (pid,) = advisor.sync(conn, [Draft(analyzer="curve", dedupe_key="curve:curve_shift", lens="ekonomia", kind="zmiana",
                                        reason="x", confidence="niska", ttl_h=6, param_key="curve_shift",
                                        from_value=0.0, to_value=-1.0)], now)
     assert advisor.decide(conn, pid, "zatwierdzona", now + timedelta(minutes=1))["ok"]

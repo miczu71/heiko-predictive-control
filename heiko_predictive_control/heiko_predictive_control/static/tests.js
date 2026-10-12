@@ -23,7 +23,7 @@ function renderActive(t) {
   const kind = data.kinds.find(k => k.key === t.kind);
   const waiting = t.pending_since ? ` · czekam na potwierdzenie z pompy (zapis ${when(t.pending_since)}, limit ${data.confirm_min} min)` : "";
   put("tests-active", `<article class="test-active" aria-live="polite">
-    <header><span class="badge kind-eksperyment">w toku</span><strong>${esc(kind ? kind.title : t.kind)}</strong></header>
+    <header><span class="badge kind-test">w toku</span><strong>${esc(kind ? kind.title : t.kind)}</strong></header>
     <p class="sub">Start ${when(t.started)} · wartość wyjściowa ${shift(t.baseline)} · teraz zlecone ${shift(t.expected)}${waiting}</p>
     ${stepsList(t.schedule, t.step)}
     <div class="actions"><button type="button" class="danger" data-abort>Przerwij i przywróć ${shift(t.baseline)}</button>
@@ -77,8 +77,17 @@ function render(d) {
   renderHistory();
 }
 
+// Link z Doradcy (tests#bezwladnosc): po pierwszym wyrenderowaniu przewiń do karty testu i podświetl ją.
+let hashHandled = false;
+function focusLinkedTest() {
+  if (hashHandled) return;
+  hashHandled = true;
+  const card = location.hash.length > 1 && document.querySelector(`.test-kind[data-kind="${CSS.escape(location.hash.slice(1))}"]`);
+  if (card) { card.classList.add("is-linked"); card.scrollIntoView({ block: "center" }); }
+}
+
 async function load() {
-  try { render(await HPC.getJSON("/api/tests")); } catch (e) { put("tests-meta", "Błąd wczytywania testów."); }
+  try { render(await HPC.getJSON("/api/tests")); focusLinkedTest(); } catch (e) { put("tests-meta", "Błąd wczytywania testów."); }
 }
 
 async function post(path, statusEl) {

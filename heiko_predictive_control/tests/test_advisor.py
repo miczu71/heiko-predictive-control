@@ -22,7 +22,7 @@ def conn():
     return c
 
 
-def draft(to=-1.0, key="curve:curve_shift", analyzer="curve", kind="eksperyment", lens="ekonomia", param="curve_shift",
+def draft(to=-1.0, key="curve:curve_shift", analyzer="curve", kind="zmiana", lens="ekonomia", param="curve_shift",
           frm=0.0, ttl=6, reason="powód"):
     return Draft(analyzer=analyzer, dedupe_key=key, lens=lens, kind=kind, reason=reason, confidence="niska", ttl_h=ttl,
                  param_key=param, from_value=frm, to_value=to, evidence={"a": 1}, effects={"cost_day_delta_pln": -0.4})
@@ -70,18 +70,11 @@ def test_expire_old_marks_pending_past_ttl(conn):
     assert rows(conn)[0]["status"] == "wygasła"
 
 
-def test_only_one_active_experiment_at_a_time(conn):
-    (pid,) = advisor.sync(conn, [draft()], NOW)
-    assert advisor.decide(conn, pid, "zatwierdzona", NOW)["ok"]
-    assert advisor.sync(conn, [draft()], NOW + timedelta(hours=1)) == []                    # eksperyment trwa (48 h)
-    assert len(advisor.sync(conn, [draft()], NOW + timedelta(hours=49))) == 1                 # po 48 h wolno kolejny
-
-
 def test_managed_parameter_becomes_text_only_alert():
     d = advisor.apply_managed(draft(param="dhw_setpoint", to=50.0, kind="zmiana", frm=48.0), frozenset({"dhw_setpoint"}))
     assert d.kind == "alert" and d.to_value is None and "automatyzacja" in d.reason
     keep = advisor.apply_managed(draft(), frozenset({"dhw_setpoint"}))
-    assert keep.to_value == -1.0 and keep.kind == "eksperyment"
+    assert keep.to_value == -1.0 and keep.kind == "zmiana"
 
 
 # ── decyzje (tryb próbny) ────────────────────────────────────────────────────
@@ -115,7 +108,7 @@ def test_rejecting_skips_revalidation(conn):
 
 
 def test_revalidator_checks_fresh_analysis_and_current_parameter_value(conn):
-    telemetry_rows(conn, NOW, room_temps=(21.6, 21.7, 21.5))
+    telemetry_rows(conn, NOW, room_temps=(19.4, 19.4, 19.4))                                # za zimno → zmiana +1 (bez modelu)
     states = _states(shift="0")
     fresh = advisor.build_snapshot(conn, SETTINGS, NOW, states)
     (d,) = [x for x in advisor.run_analyzers(fresh) if x.analyzer == "curve"]
@@ -209,12 +202,48 @@ def telemetry_rows_at(conn, when, mode, grid_key=None, grid_w=None):
     conn.commit()
 
 
-def test_run_creates_curve_experiment_and_alert_from_live_snapshot(conn):
+def test_run_creates_inertia_test_proposal_and_alert_from_live_snapshot(conn):
     telemetry_rows(conn, NOW, room_temps=(21.6, 21.7, 21.5))
     settings = {**SETTINGS, "advisor_anomaly_entities": "binary_sensor.eev"}
     info = advisor.run(conn, settings, NOW, _states(alert="on"), notify=lambda *a, **k: True)
     assert info["new"] == 2 and info["notified"] == 0                                        # soczewka „żaden” = cisza
-    assert {(r["analyzer"], r["kind"]) for r in rows(conn)} == {("curve", "eksperyment"), ("anomaly", "alert")}
+    assert {(r["analyzer"], r["kind"]) for r in rows(conn)} == {("curve", "test"), ("anomaly", "alert")}
+
+
+def test_run_makes_no_curve_proposal_while_a_test_is_running(conn):
+    telemetry_rows(conn, NOW, room_temps=(21.6, 21.7, 21.5))
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline) VALUES ('bezwladnosc', 'w_toku', ?, '[]', 0)",
+                 (NOW.isoformat(),))
+    conn.commit()
+    advisor.run(conn, SETTINGS, NOW, _states(), notify=lambda *a, **k: True)
+    assert [r for r in rows(conn) if r["analyzer"] == "curve"] == []
+
+
+def test_test_proposal_cannot_be_approved_only_rejected(conn):
+    (pid,) = advisor.sync(conn, [draft(kind="test", param=None, to=None, frm=None)], NOW)
+    res = advisor.decide(conn, pid, "zatwierdzona", NOW)
+    assert not res["ok"] and "zakładce Testy" in res["error"]
+    assert rows(conn)[0]["status"] == "oczekuje"                                              # nic się nie stało
+    assert advisor.decide(conn, pid, "odrzucona", NOW)["ok"]
+
+
+def test_test_proposal_notification_names_it_a_proposed_test(conn):
+    advisor.sync(conn, [draft(kind="test", param=None, to=None, frm=None, reason="Zrób test.")], NOW)
+    sent = []
+    advisor.notify_new(conn, {"advisor_lens": "ekonomia", "advisor_notify_service": "notify.kacper"}, NOW,
+                       notify=lambda service, title, text, data=None: sent.append((title, text)) or True)
+    assert sent == [("Heiko Doradca: proponowany test", "Zrób test.")]
+
+
+def test_migrate_expires_pending_legacy_experiments_but_keeps_history(conn):
+    for status in ("oczekuje", "zatwierdzona"):
+        conn.execute("INSERT INTO proposals (created, updated, analyzer, dedupe_key, lens, kind, reason, evidence, effects, "
+                     "confidence, expires, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (NOW.isoformat(), NOW.isoformat(), "curve", f"k{status}", "ekonomia", "eksperyment", "x", "{}", "{}",
+                      "niska", (NOW + timedelta(hours=6)).isoformat(), status))
+    conn.commit()
+    dbm.migrate(conn)
+    assert [(r["kind"], r["status"]) for r in rows(conn)] == [("eksperyment", "wygasła"), ("eksperyment", "zatwierdzona")]
 
 
 # ── powiadomienia ────────────────────────────────────────────────────────────
