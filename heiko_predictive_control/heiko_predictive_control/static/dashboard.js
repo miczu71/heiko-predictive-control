@@ -208,7 +208,7 @@ function renderModel(data) {
     <dt>Moc grzania e</dt><dd>${num(m.e, 2)} kW/K</dd>
     <dt>Błąd prognozy 6 h (dopasowanie)</dt><dd>${m.rmse_c == null ? "—" : num(m.rmse_c) + " °C"} <small>(bez modelu: ${num(m.persist_c)})</small></dd>
     <dt>Błąd 1 kroku na żywo (24 h)</dt><dd>${data.live_rmse_c == null ? "—" : num(data.live_rmse_c, 3) + " °C"} <small>(${data.live_samples} prób)</small></dd>
-    <dt>Bezwładność domu (c, τ)</dt><dd>${m.identified ? "zidentyfikowana z wymuszenia" : "niezidentyfikowana"}</dd>
+    <dt>${HPC.term("bezwladnosc", "Bezwładność domu")} (c, τ)</dt><dd>${m.identified ? "zidentyfikowana z wymuszenia" : "niezidentyfikowana"}</dd>
     ${refit && refit.excitation ? `<dt>Wymuszenie (14 dni)</dt><dd>${refit.excitation.transitions} przejść, śr. spadek ${num(refit.excitation.mean_drop_c, 1)} °C${refit.excitation.sufficient ? "" : " <small>(za mało)</small>"}</dd>` : ""}
     <dt>Bootstrap z zimy</dt><dd>${bootTxt}</dd>
     <dt>Ostatnie dobowe dopasowanie</dt><dd>${refitTxt}</dd>

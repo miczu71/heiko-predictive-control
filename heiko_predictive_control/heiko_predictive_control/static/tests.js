@@ -1,4 +1,4 @@
-// Doradca D3a — testy uruchamiane przez usera. Start wymaga drugiego kliknięcia (potwierdzenie harmonogramu).
+// Testy uruchamiane przez usera. Start wymaga drugiego kliknięcia (potwierdzenie harmonogramu).
 const esc = s => String(s ?? "—").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 const shift = v => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toLocaleString("pl-PL")}°C`;
@@ -49,27 +49,24 @@ function renderKinds() {
 }
 
 function renderHistory() {
-  put("tests-history", data.history.length ? `<table><thead><tr>${["Start", "Test", "Status", "Koniec", "Przyczyna / wynik"]
-    .map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>` + data.history.map(t => {
+  put("tests-history", HPC.collapsibleTable(["Start", "Test", "Status", "Koniec", "Przyczyna / wynik"], data.history.map(t => {
       const kind = data.kinds.find(k => k.key === t.kind);
       const r = t.result;
       const outcome = t.abort_reason || (r ? `zapisy ${r.confirmed}/${r.writes} potwierdzone` +
         (r.max_confirm_min !== null ? `, maks. ${r.max_confirm_min} min` : "") +
         (r.excitation ? `; przejścia ${r.excitation.transitions}, spadek ${r.excitation.mean_drop_c}°C` : "") +
         (r.refit ? `; model: ${r.refit.reason}` : "") : "—");
-      return `<tr><td>${when(t.started)}</td><td>${esc(kind ? kind.title : t.kind)}</td><td>${esc(STATUS[t.status] || t.status)}</td>` +
-        `<td>${when(t.ended)}</td><td>${esc(outcome)}</td></tr>`;
-    }).join("") + "</tbody></table>" : "Żaden test jeszcze nie był uruchomiony.");
-  put("tests-writes", data.writes.length ? `<table><thead><tr>${["Czas", "Test", "Zmiana", "HA przyjęło", "Potwierdzenie z pompy"]
-    .map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>` + data.writes.map(w => `<tr><td>${when(w.ts)}</td>` +
-      `<td>${w.test_id ? `#${w.test_id}` : "—"}</td><td>${shift(w.old)} → ${shift(w.new)}</td><td>${w.ok ? "tak" : "nie"}</td>` +
-      `<td>${w.confirmed_at === null ? "czekam…" : w.confirmed_at.includes("T") ? when(w.confirmed_at) : esc(w.confirmed_at)}</td></tr>`).join("") +
-    "</tbody></table>" : "Add-on jeszcze nic nie zapisał do pompy.");
+      return [when(t.started), kind ? kind.title : t.kind, STATUS[t.status] || t.status, when(t.ended), outcome];
+    }), { empty: "Żaden test jeszcze nie był uruchomiony." }));
+  put("tests-writes", HPC.collapsibleTable(["Czas", "Test", "Zmiana", "HA przyjęło", "Potwierdzenie z pompy"],
+    data.writes.map(w => [when(w.ts), w.test_id ? `#${w.test_id}` : "—", `${shift(w.old)} → ${shift(w.new)}`, w.ok ? "tak" : "nie",
+      w.confirmed_at === null ? "czekam…" : w.confirmed_at.includes("T") ? when(w.confirmed_at) : w.confirmed_at]),
+    { empty: "Add-on jeszcze nic nie zapisał do pompy." }));
 }
 
 function render(d) {
   data = d;
-  put("tests-meta", `Przesunięcie krzywej teraz: <strong>${shift(d.shift)}</strong> · krzywa grzewcza: ` +
+  put("tests-meta", `${HPC.term("przesuniecie", "Przesunięcie krzywej")} teraz: <strong>${shift(d.shift)}</strong> · ${HPC.term("krzywa", "krzywa grzewcza")}: ` +
     `${d.curve_on === null ? "nieznana" : d.curve_on ? "włączona" : "wyłączona"} · zapis do pompy: ` +
     `${d.enabled ? "dozwolony" : "wyłączony w Opcjach"}`);
   renderActive(d.active);
