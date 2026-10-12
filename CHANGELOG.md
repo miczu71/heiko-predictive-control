@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.14.0 — czytelniejszy interfejs: wykresy, podzakładki, język dla laika
+
+Cel: add-on ma być zrozumiały bez znajomości kodów etapów i skrótów. Zero nowych zapisów do pompy.
+
+- **Statystyki:** przełącznik zakresu 24 h / 7 dni / 30 dni (domyślnie 7 dni, zapamiętany w przeglądarce), 4 wykresy
+  (komfort i pogoda, energia i koszt wg taryfy, czy model trafia, poddasze) i wniosek liczony z danych nad każdym.
+  Agregacja godzinowa po stronie serwera, wykresy rysuje dołączony uPlot (MIT, bez CDN).
+- **Raport w 4 podzakładkach:** Ciepła woda, Ogrzewanie, Energia, Pompa (adres z `#cwu` itd.). Tabele zwijają się do
+  5 wierszy, dobowe zestawienia mają wykresy słupkowe. Grupy konfiguracji grzałki mają okres od–do, a slot 50 w jednej
+  formie (wcześniej ta sama konfiguracja wychodziła jako dwie grupy).
+- **Model CWU dla laika:** werdykt jednym zdaniem, wybór cyklu i wykres przebiegu wody minuta po minucie z odcinkiem
+  grzałki AH i przerywaną linią „sama sprężarka”. Regresja i tabele są w „Szczegółach dla dociekliwych”. Dziennik
+  cykli v3 zapisuje przebieg (backfill przelicza ostatnie 7 dni; starsze cykle są oznaczone „sprzed zapisu przebiegów”).
+- **Doradca:** zamiast osobnego „Eksperymentu” proponuje test „Bezwładność −1” z przyciskiem „Przejdź do testu”.
+  Dowody po polsku, historia zwijana.
+- **Język:** bez kodów etapów (D1/A2/M3), słowniczek z dymkami (CWU, AH, COP, krzywa, R², slot…), zwijane historie
+  na stronach Testy i Doradca. Poprawka komunikatów modelu CWU z 0.13.0 (bdd3160) wchodzi w tym wydaniu.
+- Poprawki: dymki słowniczka nie poszerzają strony na telefonie; `/api/dhw_cycles` wysyła przebieg tylko dla 30
+  najnowszych cykli; okres grupy liczony po czasie, nie po tekście.
+
 ## 0.13.0 — model grzania CWU i koszt grzałki AH (tylko odczyt)
 
 Cel: policzyć z własnych danych, ile kosztuje grzałka AH w cyklu CWU i ile czasu oszczędza, zależnie od temperatury
