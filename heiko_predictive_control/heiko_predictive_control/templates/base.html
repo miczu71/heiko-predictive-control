@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Pulpit{% endblock %} — Heiko Predictive Control</title>
+<link rel="stylesheet" href="{{ base }}/static/uplot.min.css?v={{ version }}">
 <link rel="stylesheet" href="{{ base }}/static/app.css?v={{ version }}">
 <meta name="theme-color" content="#faf9f7">
 </head>
@@ -25,6 +26,9 @@
 </main>
 <script>window.APP_BASE = {{ base|tojson }};</script>
 <script src="{{ base }}/static/app.js?v={{ version }}"></script>
+<script src="{{ base }}/static/uplot.min.js?v={{ version }}"></script>
+<script src="{{ base }}/static/glossary.js?v={{ version }}"></script>
+<script src="{{ base }}/static/ui.js?v={{ version }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

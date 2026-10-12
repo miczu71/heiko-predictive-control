@@ -1,0 +1,22 @@
+// Słowniczek pojęć — jedno miejsce; HPC.term("klucz") pokazuje termin z dymkiem objaśnienia.
+const GLOSSARY = {
+  cwu: ["CWU", "Ciepła woda użytkowa — woda z kranu i prysznica, podgrzewana w zasobniku."],
+  ah: ["AH", "Grzałka elektryczna w pompie. Włącza się jako pomoc, gdy sprężarka sama grzeje zbyt wolno. Zamienia 1 kWh prądu na 1 kWh ciepła."],
+  cop: ["COP", "Ile kWh ciepła pompa daje z 1 kWh prądu. COP 3 = z 1 kWh prądu 3 kWh ciepła. Im więcej, tym taniej."],
+  krzywa: ["krzywa grzewcza", "Reguła, według której pompa dobiera temperaturę wody w podłogówce do pogody: im zimniej na dworze, tym cieplejsza woda."],
+  przesuniecie: ["przesunięcie krzywej", "Korekta całej krzywej o kilka stopni. −1 = woda w podłogówce o 1 °C chłodniejsza, czyli taniej, ale w domu trochę chłodniej."],
+  sprezarka: ["sprężarka", "Główny silnik pompy ciepła. Pobiera najmniej prądu na 1 kWh ciepła."],
+  slot: ["slot", "Numer parametru w menu sterownika pompy (np. slot 52). Tak oznacza je instrukcja producenta."],
+  slot52: ["opóźnienie grzałki (slot 52)", "Po ilu minutach grzania wody grzałka AH może się włączyć. Dłużej = rzadziej się włącza."],
+  slot50: ["priorytet grzałki (slot 50)", "Ustawienie sterownika: czy przy CWU pierwszeństwo ma grzałka AH („Niższe”), czy sprężarka („Wyższe”)."],
+  slot49: ["grzałka przy CWU (slot 49)", "Włącznik: czy grzałka AH w ogóle może pomagać przy grzaniu ciepłej wody."],
+  r2: ["R²", "Jak dobrze model pasuje do pomiarów, od 0 do 1. Powyżej 0,8 = dobrze, poniżej 0,5 = słabo, wynik tylko orientacyjny."],
+  model: ["model", "Uproszczony opis domu i pompy, którego add-on uczy się z pomiarów. Służy do przewidywania temperatury i kosztu."],
+  blad_modelu: ["błąd modelu", "O ile stopni model pomylił się w przewidywaniu temperatury w domu. Mniej niż 0,5 °C = model wiarygodny."],
+  taryfa: ["taryfa", "Cena prądu zależna od godziny. Tania taryfa = noc i część dnia, szczyt = drogie godziny."],
+  szczyt: ["szczyt", "Godziny z najdroższym prądem. Im mniej prądu pompa bierze w szczycie, tym taniej."],
+  bezwladnosc: ["bezwładność domu", "Jak wolno dom stygnie i się nagrzewa. Im większa, tym dłużej można obniżać temperaturę bez odczuwalnej różnicy."],
+  doradca: ["Doradca", "Część add-onu, która sama analizuje dane i proponuje zmiany. Niczego nie zmienia bez Twojej zgody."],
+  stopniodni: ["stopniodni", "Miara mrozu: suma różnic między 20 °C a temperaturą na dworze w ciągu doby. Im więcej, tym więcej ogrzewania."],
+  deficyt: ["deficyt", "O ile stopni woda (czujnik na pompie) była chłodniejsza od celu w 19. minucie grzania. Duży deficyt = grzanie idzie wolno."],
+};

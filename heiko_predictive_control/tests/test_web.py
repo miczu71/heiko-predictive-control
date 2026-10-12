@@ -579,3 +579,12 @@ def test_dhw_cycles_api_returns_model_and_ah_effect_with_reasons(tmp_path):
     assert data["model"]["ok"] is False and "za mało" in data["model"]["reason"]      # 1 cykl ≪ 8 odcinków
     assert data["ah_effect"]["cycles_with_ah"] == 1 and data["ah_effect"]["evaluated"] == 0
     assert data["ah_effect"]["skipped"][0]["reason"].startswith("za mało")
+
+
+def test_shared_ui_assets_are_loaded_and_served_immutable(client):
+    html = client.get("/statistics").get_data(as_text=True)
+    for asset in ("uplot.min.css", "uplot.min.js", "glossary.js", "ui.js"):
+        assert f"/static/{asset}?v=" in html
+        resp = client.get(f"/static/{asset}")
+        assert resp.status_code == 200
+        assert "immutable" in resp.headers["Cache-Control"]
