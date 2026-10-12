@@ -240,12 +240,20 @@ def _parse_ts(value) -> datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
+# Slot 50 bywał zapisany jako alias switch (ON = „Niższe”, OFF = „Wyższe”) albo jako select z tymi etykietami.
+_SLOT50_LABELS = {"on": "Niższe dla grzałki wewnętrznej AH", "off": "Wyższe dla grzałki wewnętrznej AH"}
+
+
+def normalize_slot50(value: str | None) -> str | None:
+    return _SLOT50_LABELS.get(value, value)
+
+
 def group_by_config(cycles: list[dict]) -> list[dict]:
-    """Statystyki (n cykli ≥19 min, n z AH, mediana minuty ticka, suma kWh/PLN) per konfiguracja
-    49/50/52 w chwili startu. Konfiguracja z jakimkolwiek None trafia do własnej grupy „?”."""
+    """Statystyki (n cykli ≥19 min, n z AH, mediana minuty ticka, suma kWh/PLN, okres first–last) per
+    konfiguracja 49/50/52 w chwili startu. Konfiguracja z jakimkolwiek None trafia do własnej grupy „?”."""
     groups: dict[tuple, list[dict]] = {}
     for c in cycles:
-        key = (c.get("cfg_49"), c.get("cfg_50"), c.get("cfg_52"))
+        key = (c.get("cfg_49"), normalize_slot50(c.get("cfg_50")), c.get("cfg_52"))
         groups.setdefault(key, []).append(c)
     out = []
     for (c49, c50, c52), rows in groups.items():
@@ -260,9 +268,9 @@ def group_by_config(cycles: list[dict]) -> list[dict]:
             "cycles": len(long_enough), "cycles_with_ah": len(with_ah),
             "median_ah_tick_min": median_tick, "kwh": round(kwh, 3), "pln": round(pln, 2),
             "small_sample": len(long_enough) < 5,
+            "first": min(r["start"] for r in rows), "last": max(r["start"] for r in rows),
         })
-    out.sort(key=lambda g: min((c["start"] for c in cycles if (c.get("cfg_49"), c.get("cfg_50"), c.get("cfg_52"))
-                                == (g["cfg_49"], g["cfg_50"], g["cfg_52"])), default=""))
+    out.sort(key=lambda g: g["first"])
     return out
 
 
@@ -321,4 +329,7 @@ def load_cycles(conn, days: int = 60) -> list[dict]:
     """Cykle zapisanych ostatnich `days` dni, najnowsze pierwsze."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = conn.execute("SELECT data FROM dhw_cycles WHERE start >= ? ORDER BY start DESC", (since,)).fetchall()
-    return [json.loads(r["data"]) for r in rows]
+    cycles = [json.loads(r["data"]) for r in rows]
+    for c in cycles:
+        c["cfg_50"] = normalize_slot50(c.get("cfg_50"))
+    return cycles

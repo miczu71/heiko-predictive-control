@@ -407,9 +407,9 @@ img { max-width: 100%; }
   content: attr(data-tip); position: absolute; left: 0; top: 100%; z-index: 20; margin-top: 6px;
   width: max-content; max-width: min(280px, 80vw); padding: 8px 10px; border-radius: 8px; white-space: normal;
   background: var(--text); color: var(--bg); font-size: 12px; font-weight: 400; line-height: 1.4; text-align: left;
-  opacity: 0; pointer-events: none; transition: opacity .12s;
+  display: none; pointer-events: none;
 }
-.term:hover::after, .term:focus::after { opacity: 1; }
+.term:hover::after, .term:focus::after { display: block; }
 .insight { margin: 6px 0 8px; padding: 8px 12px; background: var(--accent-light); border-radius: 8px; font-size: 14px; }
 .ctable { overflow-x: auto; }
 .ctable table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -437,3 +437,17 @@ img { max-width: 100%; }
 .chart-block .how { color: var(--muted); font-size: 12px; margin: 2px 0 0; max-width: 70ch; }
 .stats-page details.fold { margin-top: 20px; }
 .chart-block.wide { grid-column: 1 / -1; }
+
+/* ── Raport: podzakładki i wykresy słupkowe (0.14.0) ─────────────── */
+.subtabs { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 8px 0 16px; width: fit-content; max-width: 100%; }
+.subtabs button { background: transparent; color: var(--muted); border: 0; padding: 8px 16px; font: inherit; font-size: 14px; cursor: pointer; }
+.subtabs button[aria-selected=true] { background: var(--accent); color: #fff; }
+.subtabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.subpane[hidden] { display: none; }
+.bar-fill { fill: var(--accent); }
+.bar-fill-2 { fill: var(--accent-light); stroke: var(--accent); stroke-width: 1; }
+.bar-fill-3 { fill: var(--muted); opacity: .45; }
+.bar-label { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.bar-key-1 { background: var(--accent); }
+.bar-key-2 { background: var(--accent-light); border: 1px solid var(--accent); }
+.bar-key-3 { background: var(--muted); opacity: .45; }

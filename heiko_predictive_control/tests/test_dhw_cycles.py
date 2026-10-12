@@ -109,11 +109,28 @@ def test_group_by_config_counts_and_small_sample():
               cyc("2026-09-20T00:00:00+00:00", "on", None),
               cyc("2026-09-21T00:00:00+00:00", "off", None)]
     groups = dc.group_by_config(cycles)
-    on_group = next(g for g in groups if g["cfg_50"] == "on")
-    off_group = next(g for g in groups if g["cfg_50"] == "off")
+    on_group = next(g for g in groups if g["cfg_50"].startswith("Niższe"))
+    off_group = next(g for g in groups if g["cfg_50"].startswith("Wyższe"))
     assert on_group["cycles"] == 2 and on_group["cycles_with_ah"] == 1 and on_group["median_ah_tick_min"] == 19.0
     assert on_group["small_sample"] is True                       # n = 2 < 5
     assert off_group["cycles"] == 1 and off_group["cycles_with_ah"] == 0
+
+
+def test_group_by_config_merges_switch_and_select_forms_of_slot_50():
+    def cyc(start, cfg50):
+        return {"start": start, "duration_min": 25.0, "ah_tick_min": None, "ah_kwh": None, "ah_pln": None,
+                "cfg_49": "off", "cfg_50": cfg50, "cfg_52": "30"}
+
+    cycles = [cyc("2026-09-19T00:00:00+00:00", "off"),
+              cyc("2026-10-07T00:00:00+00:00", "Wyższe dla grzałki wewnętrznej AH"),
+              cyc("2026-10-08T00:00:00+00:00", "on"),
+              cyc("2026-10-09T00:00:00+00:00", None)]
+    groups = dc.group_by_config(cycles)
+    by50 = {g["cfg_50"]: g for g in groups}
+    assert set(by50) == {"Wyższe dla grzałki wewnętrznej AH", "Niższe dla grzałki wewnętrznej AH", None}
+    assert by50["Wyższe dla grzałki wewnętrznej AH"]["cycles"] == 2     # „off” i select to jedna konfiguracja
+    assert by50["Wyższe dla grzałki wewnętrznej AH"]["first"] == "2026-09-19T00:00:00+00:00"
+    assert by50["Wyższe dla grzałki wewnętrznej AH"]["last"] == "2026-10-07T00:00:00+00:00"
 
 
 def test_store_cycles_persists_complete_cycles_only_and_is_idempotent(conn):

@@ -298,7 +298,8 @@ def _advisor_client(tmp_path, settings=None, states=None, compute=None):
 def test_report_page_and_nav(tmp_path):
     client, _ = _advisor_client(tmp_path)
     html = client.get("/report").get_data(as_text=True)
-    assert "Raport doradcy" in html and 'href="/report"' in html
+    assert 'href="/report"' in html
+    assert all(f'data-tab="{t}"' in html for t in ("cwu", "ogrzewanie", "energia", "pompa"))
 
 
 def test_catalog_api_marks_automation_managed(tmp_path):

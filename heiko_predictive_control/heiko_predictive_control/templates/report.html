@@ -2,59 +2,76 @@
 {% block title %}Raport{% endblock %}
 {% block content %}
 <section class="stats report">
-  <h2>Cykle CWU i grzałka AH (A2) — tylko odczyt</h2>
-  <p class="sub">Warunek wejścia AH przy danym cyklu jest nieznany (sloty 49 i 50 badane i obalone, plan
-    `docs/PLAN_heiko_backup_sources_ah.md`) — tabela zbiera surowe cykle pod decyzję A4. Dane letnie, próby małe;
-    „konfiguracja” to sloty 49/50/52 w chwili startu cyklu, „?” = sprzed dziennika zmian (od 26.09).
-    Koszt AH liczony z fazy C licznika pompy (opcja w Opcjach), nie z minut × moc nominalna.</p>
-  <div id="dhw-groups" class="history-table">ładowanie…</div>
-  <div id="dhw-cycles" class="history-table"></div>
-
-  <h2>Model grzania CWU i koszt grzałki AH — tylko odczyt</h2>
-  <p class="sub">Model uczy się z odcinków, na których grzeje sama sprężarka (od 5. minuty cyklu do wejścia AH):
-    tempo grzania wody i moc zależnie od temperatury zewnętrznej i wody. Dla cykli z AH liczy, ile ta sama zmiana
-    temperatury kosztowałaby samą sprężarką. W zł za kWh ciepła grzałka (COP 1) nie wygra z pompą — liczy się cena
-    skrócenia cyklu. Czujnik wody jest na pompie, nie w zasobniku, więc tempo służy do porównań między cyklami.</p>
-  <div id="dhw-model" class="history-table model-table">ładowanie…</div>
-  <figure class="plan-chart" id="dhw-model-chart"></figure>
-  <div id="dhw-ah-effect" class="history-table model-table"></div>
-
-  <h2>Raport doradcy (D1) — tylko odczyt</h2>
+  <h2>Raport</h2>
   <p class="sub" id="report-meta">ładowanie…</p>
   <p><button type="button" id="report-refresh">Przelicz raport (kilka minut)</button></p>
 
-  <h2>Zbierane dane i zmiany parametrów pompy</h2>
-  <div id="changes-summary" class="history-table">ładowanie…</div>
-  <div id="changes-list" class="history-table"></div>
+  <div class="subtabs" role="tablist">
+    <button type="button" role="tab" data-tab="cwu">Ciepła woda</button>
+    <button type="button" role="tab" data-tab="ogrzewanie">Ogrzewanie</button>
+    <button type="button" role="tab" data-tab="energia">Energia</button>
+    <button type="button" role="tab" data-tab="pompa">Pompa</button>
+  </div>
 
-  <h2>Wnioski i luki w danych</h2>
-  <div id="report-ideas">—</div>
+  <div class="subpane" data-pane="cwu">
+    <h3>Grzałka AH przy ciepłej wodzie</h3>
+    <p class="sub">Tylko odczyt. „Konfiguracja” to ustawienia slotów 49, 50 i 52 w chwili startu cyklu; „?” = sprzed
+      dziennika zmian (od 26.09). Koszt grzałki liczony z licznika energii pompy, nie z minut × moc nominalna.</p>
+    <div id="dhw-groups" class="history-table">ładowanie…</div>
+    <div id="dhw-cycles" class="history-table"></div>
 
-  <h2>Odtworzenie zimy — co zaproponowałby analizator krzywej (D2)</h2>
-  <p><button type="button" id="replay-refresh">Przelicz odtworzenie (kilka minut)</button></p>
-  <div id="replay-meta" class="sub">ładowanie…</div>
-  <div id="replay-summary" class="history-table"></div>
-  <div id="replay-class" class="history-table"></div>
-  <div id="replay-samples" class="history-table"></div>
+    <h3>Model grzania ciepłej wody i koszt grzałki</h3>
+    <p class="sub">Model uczy się z odcinków, na których grzeje sama sprężarka (od 5. minuty cyklu do wejścia grzałki):
+      tempo grzania wody i moc zależnie od temperatury zewnętrznej i wody. Dla cykli z grzałką liczy, ile ta sama zmiana
+      temperatury kosztowałaby samą sprężarką. W zł za kWh ciepła grzałka nie wygra z pompą — liczy się cena skrócenia
+      cyklu. Czujnik wody jest na pompie, nie w zasobniku, więc tempo służy do porównań między cyklami.</p>
+    <div id="dhw-model" class="history-table model-table">ładowanie…</div>
+    <figure class="plan-chart" id="dhw-model-chart"></figure>
+    <div id="dhw-ah-effect" class="history-table model-table"></div>
+  </div>
 
-  <h2>Komfort — pokoje strefy dziennej (sezon grzewczy)</h2>
-  <div id="report-comfort" class="history-table">—</div>
+  <div class="subpane" data-pane="ogrzewanie" hidden>
+    <h3>Komfort w strefie dziennej (sezon grzewczy)</h3>
+    <div id="report-comfort" class="history-table">—</div>
 
-  <h2>Energia pompy i udział szczytu</h2>
-  <div id="report-energy" class="history-table">—</div>
-  <div id="report-peak-class" class="history-table"></div>
+    <h3>Praca pompy wg temperatury zewnętrznej</h3>
+    <figure class="plan-chart" id="chart-hours"></figure>
+    <div id="report-hours" class="history-table">—</div>
 
-  <h2>Praca pompy wg temperatury zewnętrznej (dobowe liczniki godzin)</h2>
-  <div id="report-hours" class="history-table">—</div>
+    <h3>Sprawność (<span id="t-cop"></span>) wg temperatury zewnętrznej</h3>
+    <figure class="plan-chart" id="chart-cop"></figure>
+    <div id="report-cop" class="history-table">—</div>
 
-  <h2>COP wg temperatury zewnętrznej (od uruchomienia integracji)</h2>
-  <div id="report-cop" class="history-table">—</div>
+    <h3>Odtworzenie zimy — co zaproponowałby Doradca</h3>
+    <p><button type="button" id="replay-refresh">Przelicz odtworzenie (kilka minut)</button></p>
+    <div id="replay-meta" class="sub">ładowanie…</div>
+    <div id="replay-summary" class="history-table"></div>
+    <div id="replay-class" class="history-table"></div>
+    <div id="replay-samples" class="history-table"></div>
 
-  <h2>Własne dane add-onu (średnie na dobę)</h2>
-  <div id="report-own" class="history-table">—</div>
+    <h3>Wnioski i luki w danych</h3>
+    <div id="report-ideas">—</div>
+  </div>
 
-  <h2>Katalog parametrów pompy</h2>
-  <div id="catalog" class="history-table">ładowanie…</div>
+  <div class="subpane" data-pane="energia" hidden>
+    <h3>Zużycie energii i udział szczytu</h3>
+    <div id="report-peak-note"></div>
+    <figure class="plan-chart" id="chart-peak"></figure>
+    <div id="report-peak-class" class="history-table"></div>
+    <div id="report-energy" class="history-table">—</div>
+
+    <h3>Własne dane add-onu (średnie na dobę)</h3>
+    <div id="report-own" class="history-table">—</div>
+  </div>
+
+  <div class="subpane" data-pane="pompa" hidden>
+    <h3>Zmiany parametrów pompy</h3>
+    <div id="changes-summary" class="history-table">ładowanie…</div>
+    <div id="changes-list" class="history-table"></div>
+
+    <h3>Katalog parametrów pompy</h3>
+    <div id="catalog" class="history-table">ładowanie…</div>
+  </div>
 </section>
 {% endblock %}
 {% block scripts %}
