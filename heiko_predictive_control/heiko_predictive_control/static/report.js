@@ -107,9 +107,10 @@ function renderDhwModel(payload) {
   const rows = (a.rows || []).map(r => [when(r.start), r.extra_kwh, r.extra_pln, r.saved_min, r.price_pln_kwh, ""]);
   const skipped = (a.skipped || []).map(s => [when(s.start), null, null, null, null, s.reason]);
   put("dhw-ah-effect",
-    `<p class="sub">Cykli z AH: ${a.cycles_with_ah}, wycenionych: ${a.evaluated}. Grzałka dołożyła ${a.extra_kwh} kWh (${a.extra_pln} zł) ` +
-    `i skróciła grzanie o ${a.saved_min} min` +
-    `${a.pln_per_saved_min === null ? "" : ` — ${a.pln_per_saved_min} zł za zaoszczędzoną minutę`}.</p>` +
+    `<p class="sub">Cykli z AH: ${a.cycles_with_ah}, wycenionych: ${a.evaluated}. ` +
+    (!a.evaluated ? "Żadnego cyklu nie da się jeszcze wycenić — powody w kolumnie „Uwagi”."
+      : `Grzałka dołożyła ${a.extra_kwh} kWh (${a.extra_pln} zł) i skróciła grzanie o ${a.saved_min} min` +
+        `${a.pln_per_saved_min === null ? "" : ` — ${a.pln_per_saved_min} zł za zaoszczędzoną minutę`}.`) + `</p>` +
     table(["Wejście AH", "Dodatkowe kWh", "Dodatkowe zł", "Zaoszczędzone min", "Cena zł/kWh", "Uwagi"], [...rows, ...skipped]));
 }
 

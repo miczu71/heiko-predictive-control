@@ -65,6 +65,7 @@ def test_ah_effect_reports_reason_instead_of_guessing():
     assert dm.ah_effect(ah_cycle(), dm.fit_model(GRID[:3]), price, TZ)["reason"].startswith("za mało")
     assert dm.ah_effect(ah_cycle(ah_tick_min=None), m, price, TZ)["reason"] == "brak odcinka z AH"
     assert dm.ah_effect(ah_cycle(outdoor_c=-12.0), m, price, TZ)["reason"] == "warunki poza zakresem uczenia modelu"
+    assert "niezmierzony" in dm.ah_effect(ah_cycle(ah_seg_min=None), m, price, TZ)["reason"]     # np. zapis sprzed 0.13.0
     assert "brak przyrostu" in dm.ah_effect(ah_cycle(ah_rate_c_min=-0.1), m, price, TZ)["reason"]
 
 

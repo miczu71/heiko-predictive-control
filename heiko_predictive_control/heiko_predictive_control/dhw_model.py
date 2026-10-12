@@ -92,8 +92,10 @@ def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], t
     AH dołożyła, `saved_min` = o ile krócej trwało grzanie. Cena z godziny wejścia AH (`price_fn(lokalny czas)`)."""
     if not model.get("ok"):
         return {"ok": False, "reason": model.get("reason", "brak modelu")}
-    if cycle.get("ah_tick_min") is None or any(cycle.get(k) is None for k in _AH_KEYS):
+    if cycle.get("ah_tick_min") is None:
         return {"ok": False, "reason": "brak odcinka z AH"}
+    if any(cycle.get(k) is None for k in _AH_KEYS):
+        return {"ok": False, "reason": "odcinek z AH niezmierzony (zapis sprzed 0.13.0 albo krótszy niż 3 min)"}
     delta_c = cycle["ah_rate_c_min"] * cycle["ah_seg_min"]
     if delta_c <= 0:
         return {"ok": False, "reason": "brak przyrostu temperatury na odcinku z AH"}
