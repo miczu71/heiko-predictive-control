@@ -12,7 +12,7 @@ HPC.term = (key, label) => {
   return `<abbr class="term" tabindex="0" data-tip="${esc(t[1])}">${esc(label || t[0])}</abbr>`;
 };
 
-HPC.insight = text => `<p class="insight"><strong>Co z tego wynika:</strong> ${esc(text)}</p>`;
+HPC.insight = (text, label = "Co z tego wynika:") => `<p class="insight">${label ? `<strong>${esc(label)}</strong> ` : ""}${esc(text)}</p>`;
 
 // Tabela z najnowszymi `show` wierszami i przyciskiem „Pokaż wszystkie (N)”. Wiersze podaj od najnowszego.
 // Nagłówki i komórki: tekst (escapowany) albo html("…").
@@ -40,17 +40,25 @@ const WAW = { timeZone: "Europe/Warsaw", hour12: false };
 const fmtDay = new Intl.DateTimeFormat("pl-PL", { ...WAW, day: "2-digit", month: "2-digit" });
 const fmtHour = new Intl.DateTimeFormat("pl-PL", { ...WAW, hour: "2-digit", minute: "2-digit" });
 const fmtFull = new Intl.DateTimeFormat("pl-PL", { ...WAW, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-// Oś czasu: dla zakresów powyżej 2 dób sama data (DD.MM), krócej — godzina (HH:MM).
+// Oś czasu: do 2 dób sama godzina (HH:MM); dłużej przy kroku co najmniej doba sama data (DD.MM), a przy krótszym kroku
+// data tylko o północy, w pozostałych punktach godzina.
 const timeTicks = (u, splits) => {
-  const long = (splits[splits.length - 1] - splits[0]) > 2 * 86400;
-  return splits.map(v => (long ? fmtDay : fmtHour).format(new Date(v * 1000)));
+  const span = splits[splits.length - 1] - splits[0], step = splits.length > 1 ? splits[1] - splits[0] : span;
+  return splits.map(v => {
+    const d = new Date(v * 1000), hour = fmtHour.format(d);
+    if (span <= 2 * 86400) return hour;
+    return (step >= 86400 || hour === "00:00") ? fmtDay.format(d) : hour;
+  });
 };
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const charts = [];
 
-// opts: { title, unit, unit2, series: [{ label, color: "--accent", kind: "line"|"bars"|"step", dash, y2, fill }], data: [xs(sek), ...ys], height }
+// opts: { unit, unit2, series: [{ label, color: "--accent", kind: "line"|"bars"|"step", dash, width, y2, fill, shown }], data: [xs(sek), ...ys], height, yRange, empty }
+// `shown` = tablica wartości do legendy zamiast wartości serii (słupki układane jedna na drugiej).
 // Zwraca uchwyt; null, gdy brak danych (wtedy w kontenerze pojawia się wyjaśnienie).
+const byEl = new Map();
 HPC.chart = (el, opts) => {
+  if (byEl.has(el)) byEl.get(el).destroy();                // nowy wykres w tym samym miejscu zastępuje stary
   if (typeof uPlot === "undefined" || !opts.data || !opts.data[0] || opts.data[0].length < 2) {
     el.innerHTML = `<p class="sub">${esc(opts.empty || "Za mało danych na wykres — zbierają się z kolejnych godzin.")}</p>`;
     return null;
@@ -59,14 +67,15 @@ HPC.chart = (el, opts) => {
     el.innerHTML = "";
     const text = cssVar("--muted"), grid = cssVar("--line");
     const hasY2 = opts.series.some(s => s.y2);
-    const series = [{ label: "Czas", value: (u, v) => v == null ? "—" : fmtFull.format(new Date(v * 1000)) }, ...opts.series.map(s => {
+    const series = [{ label: "Moment", value: (u, v) => v == null ? "—" : fmtFull.format(new Date(v * 1000)) }, ...opts.series.map(s => {
       const color = cssVar(s.color || "--accent");
-      const out = { label: s.label, stroke: color, width: s.kind === "bars" ? 0 : 2, scale: s.y2 ? "y2" : "y",
+      const out = { label: s.label, stroke: color, width: s.kind === "bars" ? 0 : (s.width || 2), scale: s.y2 ? "y2" : "y",
         spanGaps: false, points: { show: false } };
       if (s.dash) out.dash = s.dash;
       if (s.kind === "bars") { out.fill = color + "cc"; out.paths = uPlot.paths.bars({ size: [0.8, 40] }); }
       else if (s.kind === "step") out.paths = uPlot.paths.stepped({ align: 1 });
       if (s.fill) out.fill = color + "22";
+      if (s.shown) out.value = (u, v, si, i) => (i == null || s.shown[i] == null) ? "—" : String(Math.round(s.shown[i] * 100) / 100);
       return out;
     })];
     const axis = (scale, label, side) => ({ scale, side, label, labelSize: 14, stroke: text, size: 46,
@@ -81,9 +90,11 @@ HPC.chart = (el, opts) => {
     }, opts.data, el);
     return plot;
   };
-  const handle = { plot: build(), rebuild() { this.plot.destroy(); this.plot = build(); } };
-  charts.push(handle);
-  new ResizeObserver(() => handle.plot.setSize({ width: el.clientWidth, height: opts.height || 220 })).observe(el);
+  const observer = new ResizeObserver(() => handle.plot.setSize({ width: el.clientWidth, height: opts.height || 220 }));
+  const handle = { plot: build(), rebuild() { this.plot.destroy(); this.plot = build(); },
+    destroy() { observer.disconnect(); this.plot.destroy(); charts.splice(charts.indexOf(this), 1); byEl.delete(el); } };
+  charts.push(handle); byEl.set(el, handle);
+  observer.observe(el);
   return handle;
 };
 // Motyw jasny/ciemny zmienia kolory zmiennych CSS — wykresy trzeba zbudować od nowa.

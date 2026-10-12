@@ -1,12 +1,62 @@
 {% extends "base.html" %}
 {% block title %}Statystyki{% endblock %}
 {% block content %}
-<section class="stats">
-  <h2>Heiko — historia (ostatnie cykle)</h2>
-  <div id="heiko-history" class="history-table" data-loop="heiko">ładowanie…</div>
+<section class="stats stats-page">
+  <div class="page-head">
+    <h2>Statystyki</h2>
+    <div class="range-switch" role="group" aria-label="Zakres czasu">
+      <button type="button" data-hours="24" aria-pressed="false">24 godz.</button>
+      <button type="button" data-hours="168" aria-pressed="true">7 dni</button>
+      <button type="button" data-hours="720" aria-pressed="false">30 dni</button>
+    </div>
+  </div>
 
-  <h2>AC poddasze — historia (ostatnie cykle)</h2>
-  <div id="attic-history" class="history-table" data-loop="attic">ładowanie…</div>
+  <h3>Dom i ogrzewanie</h3>
+  <div class="chart-grid">
+    <div class="chart-block wide">
+      <h4>Czy w domu było ciepło?</h4>
+      <div id="take-comfort"></div>
+      <div class="chart" id="chart-comfort">ładowanie…</div>
+      <p class="how">Linia ciągła to średnia temperatura w pokojach dziennych, kropkowana — najzimniejszy pokój. Mają leżeć między przerywanymi liniami <em>cel</em> i <em>minimum</em>. Pogoda na zewnątrz ma własną skalę po prawej.</p>
+    </div>
+    <div class="chart-block">
+      <h4>Ile prądu bierze pompa i kiedy?</h4>
+      <div id="take-energy"></div>
+      <div class="chart" id="chart-energy">ładowanie…</div>
+      <p class="how">Słupek to prąd zużyty w danym czasie. Ciemniejsza część to drogi szczyt — im jej mniej, tym taniej.</p>
+    </div>
+    <div class="chart-block">
+      <h4>Czy add-on dobrze przewiduje temperaturę?</h4>
+      <div id="take-model"></div>
+      <div class="chart" id="chart-model">ładowanie…</div>
+      <p class="how">Różnica między temperaturą zmierzoną a przewidzianą przez <span id="term-model"></span>. Blisko zera to dobrze; przerywane linie to ±0,5 °C.</p>
+    </div>
+  </div>
+  <details class="fold">
+    <summary>Plan nastaw wody i krzywa grzewcza (dla dociekliwych)</summary>
+    <div class="chart-block">
+      <div class="chart" id="chart-plan">ładowanie…</div>
+      <p class="how">Na jaką temperaturę wody add-on planował grzać w trybie Komfort i Ekonomia, w porównaniu z naturalną <span id="term-curve"></span> pompy i faktyczną temperaturą wody.</p>
+    </div>
+  </details>
+
+  <h3>Poddasze — klimatyzacja</h3>
+  <div class="chart-grid">
+    <div class="chart-block">
+      <h4>Jak pracowała klimatyzacja na poddaszu?</h4>
+      <div id="take-attic"></div>
+      <div class="chart" id="chart-attic">ładowanie…</div>
+      <p class="how">Linie to temperatura na poddaszu i nastawa klimatyzacji. Wypełnienie pokazuje moc, jaką klimatyzacja pobierała (skala po prawej).</p>
+    </div>
+  </div>
+
+  <details class="fold">
+    <summary>Dane szczegółowe — ostatnie cykle</summary>
+    <h4>Dom i ogrzewanie</h4>
+    <div id="heiko-history" class="history-table">ładowanie…</div>
+    <h4>Poddasze</h4>
+    <div id="attic-history" class="history-table">ładowanie…</div>
+  </details>
 </section>
 {% endblock %}
 {% block scripts %}

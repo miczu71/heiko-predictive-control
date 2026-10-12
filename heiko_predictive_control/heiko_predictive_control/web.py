@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, dhw_model, experiments, floor_learn,
-               ha_client, layout, live, rooms, tariff, telemetry)
+               ha_client, layout, live, rooms, stats, tariff, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
 
@@ -176,6 +176,26 @@ def create_app(db_path: str,
         finally:
             conn.close()
         return jsonify([dict(r) for r in rows])
+
+    @app.get("/api/stats/<loop>")
+    def api_stats(loop: str):
+        """Szeregi do wykresów Statystyk: 24 h = każdy cykl, 7 i 30 dni = średnie godzinowe."""
+        if loop not in ("heiko", "attic"):
+            return jsonify({"error": "unknown loop"}), 400
+        try:
+            hours = int(request.args.get("hours", 168))
+        except ValueError:
+            return jsonify({"error": "hours must be a number"}), 400
+        if hours not in stats.RANGES_H:
+            return jsonify({"error": f"hours must be one of {stats.RANGES_H}"}), 400
+        settings = get_settings()
+        meta = ({"target_c": float(settings.get("heiko_room_target_c", 20.6)),
+                 "room_min_c": float(settings.get("heiko_room_min_c", 18.5))} if loop == "heiko" else {})
+        conn = db_conn()
+        try:
+            return jsonify(stats.build(conn, loop, hours, datetime.now(), meta))
+        finally:
+            conn.close()
 
     @app.get("/api/today_summary/<loop>")
     def api_today_summary(loop: str):
