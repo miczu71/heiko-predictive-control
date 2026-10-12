@@ -30,7 +30,8 @@ BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-DATA_VERSION = 2                   # rekordy bez `v` (A2) nie mają pól odcinków — backfill je przelicza
+DATA_VERSION = 3                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`) — backfill je przelicza
+TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0
 MIN_HP_SEG_MIN = 5.0
 MIN_AH_SEG_MIN = 3.0
@@ -97,6 +98,17 @@ def _segment(water_times: list[datetime], water_values: list[float | None],
     return {"rate": round((w_b - w_a) / minutes, 3),
             "kw": None if kwh is None else round(kwh / (minutes / 60.0), 2),
             "mid": round((w_a + w_b) / 2.0, 1), "minutes": round(minutes, 1)}
+
+
+def _trace(water_times: list[datetime], water_values: list[float | None],
+           start: datetime, end: datetime) -> list[list]:
+    """Temperatura wody co minutę cyklu: [[minuta od startu, °C], ...]. Minuty bez znanej wartości pomijamy."""
+    out = []
+    for m in range(min(int(_minutes(start, end)), TRACE_MAX_POINTS - 1) + 1):
+        v = _value_at(water_times, water_values, start + timedelta(minutes=m))
+        if v is not None:
+            out.append([m, v])
+    return out
 
 
 def _classify(start: datetime, target_times: list[datetime], target_values: list[float | None],
@@ -199,6 +211,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
             "v": DATA_VERSION,
             "start": start.isoformat(), "end": end.isoformat(), "complete": complete,
             "water_end_c": _value_at(water_times, water_values, end),
+            "trace": _trace(water_times, water_values, start, end),
             "kwh_total": None if kwh_total is None else round(kwh_total, 3),
             "hp_rate_c_min": hp and hp["rate"], "hp_kw": hp and hp["kw"],
             "hp_water_mid_c": hp and hp["mid"], "hp_seg_min": hp and hp["minutes"],

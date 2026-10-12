@@ -82,3 +82,19 @@ def test_summarize_totals_and_price_per_saved_minute():
 def test_summarize_without_savings_gives_no_price_per_minute():
     s = dm.summarize([], dm.fit_model(GRID), price, TZ)
     assert s["cycles_with_ah"] == 0 and s["pln_per_saved_min"] is None
+
+
+def test_ah_effect_returns_counterfactual_line_from_trace():
+    """Linia „sama sprężarka”: od minuty wejścia AH, z temperatury z przebiegu, tempem z modelu (0,6 °C/min)."""
+    m = dm.fit_model(GRID)
+    trace = [[0, 40.0], [18, 42.0], [19, 42.5], [25, 47.6]]
+    eff = dm.ah_effect(ah_cycle(trace=trace), m, price, TZ)
+    delta_c = 0.85 * 6.0
+    assert eff["counterfactual"][0] == [19.0, 42.5]
+    assert eff["counterfactual"][1][0] == pytest.approx(19.0 + delta_c / 0.6, abs=0.1)
+    assert eff["counterfactual"][1][1] == pytest.approx(42.5 + delta_c, abs=0.01)
+
+
+def test_ah_effect_without_trace_has_no_counterfactual_line():
+    eff = dm.ah_effect(ah_cycle(), dm.fit_model(GRID), price, TZ)
+    assert eff["ok"] and eff["counterfactual"] is None

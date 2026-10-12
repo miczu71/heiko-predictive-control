@@ -451,3 +451,5 @@ img { max-width: 100%; }
 .bar-key-1 { background: var(--accent); }
 .bar-key-2 { background: var(--accent-light); border: 1px solid var(--accent); }
 .bar-key-3 { background: var(--muted); opacity: .45; }
+.trace-pick { margin: 8px 0; font-size: 14px; }
+.trace-pick select { font: inherit; max-width: 100%; }

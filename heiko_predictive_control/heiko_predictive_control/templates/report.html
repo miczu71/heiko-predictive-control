@@ -20,14 +20,21 @@
     <div id="dhw-groups" class="history-table">ładowanie…</div>
     <div id="dhw-cycles" class="history-table"></div>
 
-    <h3>Model grzania ciepłej wody i koszt grzałki</h3>
-    <p class="sub">Model uczy się z odcinków, na których grzeje sama sprężarka (od 5. minuty cyklu do wejścia grzałki):
-      tempo grzania wody i moc zależnie od temperatury zewnętrznej i wody. Dla cykli z grzałką liczy, ile ta sama zmiana
-      temperatury kosztowałaby samą sprężarką. W zł za kWh ciepła grzałka nie wygra z pompą — liczy się cena skrócenia
-      cyklu. Czujnik wody jest na pompie, nie w zasobniku, więc tempo służy do porównań między cyklami.</p>
-    <div id="dhw-model" class="history-table model-table">ładowanie…</div>
-    <figure class="plan-chart" id="dhw-model-chart"></figure>
-    <div id="dhw-ah-effect" class="history-table model-table"></div>
+    <h3>Czy grzałka AH się opłaca?</h3>
+    <div id="dhw-verdict"></div>
+    <p class="trace-pick"><label for="dhw-pick">Przebieg cyklu:</label> <select id="dhw-pick"></select></p>
+    <div id="dhw-trace" class="chart"></div>
+    <p class="sub" id="dhw-trace-note"></p>
+    <details class="fold">
+      <summary>Szczegóły dla dociekliwych: model grzania i tabela wycen</summary>
+      <p class="sub">Model uczy się z odcinków, na których grzeje sama sprężarka (od 5. minuty cyklu do wejścia grzałki):
+        tempo grzania wody i moc zależnie od temperatury zewnętrznej i wody. Dla cykli z grzałką liczy, ile ta sama zmiana
+        temperatury kosztowałaby samą sprężarką. Czujnik wody jest na pompie, nie w zasobniku, więc tempo służy do
+        porównań między cyklami.</p>
+      <div id="dhw-model" class="history-table model-table">ładowanie…</div>
+      <figure class="plan-chart" id="dhw-model-chart"></figure>
+      <div id="dhw-ah-effect" class="history-table model-table"></div>
+    </details>
   </div>
 
   <div class="subpane" data-pane="ogrzewanie" hidden>

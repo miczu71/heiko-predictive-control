@@ -87,6 +87,17 @@ def _in_range(model: dict, outdoor_c: float, water_c: float) -> bool:
             and lo_w - RANGE_MARGIN_C <= water_c <= hi_w + RANGE_MARGIN_C)
 
 
+def _counterfactual(cycle: dict, delta_c: float, minutes_without: float) -> list[list[float]] | None:
+    """Odcinek „sama sprężarka” do wykresu: od minuty wejścia AH, z temperatury w tej minucie (z przebiegu),
+    o ten sam przyrost `delta_c`, w czasie wyliczonym z modelu. Brak przebiegu (zapis sprzed v3) → None."""
+    tick = cycle["ah_tick_min"]
+    before = [p for p in cycle.get("trace") or [] if p[0] <= tick]
+    if not before:
+        return None
+    t0 = before[-1][1]
+    return [[tick, t0], [round(tick + minutes_without, 1), round(t0 + delta_c, 2)]]
+
+
 def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], tz: ZoneInfo) -> dict:
     """Kontrfaktyka odcinka z AH: to samo ogrzanie (°C) samą sprężarką. `extra_kwh`/`extra_pln` = ile
     AH dołożyła, `saved_min` = o ile krócej trwało grzanie. Cena z godziny wejścia AH (`price_fn(lokalny czas)`)."""
@@ -109,7 +120,8 @@ def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], t
     ah_start = datetime.fromisoformat(cycle["start"]) + timedelta(minutes=cycle["ah_tick_min"])
     price = price_fn(ah_start.astimezone(tz))
     return {"ok": True, "extra_kwh": round(extra_kwh, 3), "extra_pln": round(extra_kwh * price, 2),
-            "saved_min": round(minutes_without - cycle["ah_seg_min"], 1), "price_pln_kwh": price}
+            "saved_min": round(minutes_without - cycle["ah_seg_min"], 1), "price_pln_kwh": price,
+            "counterfactual": _counterfactual(cycle, delta_c, minutes_without)}
 
 
 def summarize(cycles: list[dict], model: dict, price_fn: Callable[[datetime], float], tz: ZoneInfo) -> dict:

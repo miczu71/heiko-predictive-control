@@ -148,11 +148,61 @@ function renderDhwModel(payload) {
     table(["Wejście AH", "Dodatkowe kWh", "Dodatkowe zł", "Zaoszczędzone min", "Cena zł/kWh", "Uwagi"], [...rows, ...skipped]));
 }
 
+function dhwVerdict(a) {
+  if (!a.cycles_with_ah) return "W oknie 60 dni grzałka AH nie weszła ani razu — przy opóźnieniu jej startu 30 min to normalne.";
+  if (!a.evaluated) return `Grzałka AH weszła ${a.cycles_with_ah} raz(y), ale żadnego cyklu nie da się jeszcze wycenić (powód w szczegółach poniżej).`;
+  return `Grzałka AH weszła ${a.cycles_with_ah} raz(y) w 60 dni, dołożyła ${a.extra_kwh} kWh (${a.extra_pln} zł) i skróciła grzanie o ${a.saved_min} min` +
+    `${a.pln_per_saved_min === null ? "" : ` — ${a.pln_per_saved_min} zł za zaoszczędzoną minutę`}. Nie opłaca się, jeśli liczy się koszt: ` +
+    `grzałka daje 1 kWh ciepła z 1 kWh prądu, sprężarka ok. 3 kWh; ma sens tylko jako przyspieszenie.`;
+}
+
+// Przebieg wybranego cyklu: woda co minutę, odcinek z AH innym kolorem, przerywana „sama sprężarka” od wejścia AH.
+function drawTrace(c, a) {
+  const note = document.getElementById("dhw-trace-note");
+  if (!c.trace || !c.trace.length) {
+    HPC.chart(document.getElementById("dhw-trace"), { data: [], series: [], empty: "Ten cykl pochodzi sprzed zapisu przebiegów — nie ma minutowego wykresu." });
+    note.textContent = ""; return;
+  }
+  const t0 = Date.parse(c.start) / 1000, tick = c.ah_tick_min;
+  const cf = ((a.rows || []).find(r => r.start === c.start) || {}).counterfactual;
+  const mins = new Set(c.trace.map(p => p[0]));
+  if (cf) cf.forEach(p => mins.add(p[0]));
+  const xs = [...mins].sort((p, q) => p - q), val = new Map(c.trace);
+  const at = m => val.has(m) ? val.get(m) : null;
+  const comp = xs.map(m => (tick == null || m <= Math.ceil(tick)) ? at(m) : null);
+  const withAh = xs.map(m => (tick != null && m >= tick) ? at(m) : null);
+  const line = xs.map(m => !cf || m < cf[0][0] || m > cf[1][0] ? null :
+    cf[0][1] + (cf[1][1] - cf[0][1]) * (m - cf[0][0]) / ((cf[1][0] - cf[0][0]) || 1));
+  HPC.chart(document.getElementById("dhw-trace"), {
+    unit: "°C (czujnik na pompie)", height: 240, data: [xs.map(m => t0 + m * 60), comp, withAh, line],
+    series: [{ label: "Grzeje sprężarka", color: "--accent" }, { label: "Dochodzi grzałka AH", color: "--peak" },
+             { label: "Sama sprężarka (model)", color: "--muted", dash: [6, 4] }],
+  });
+  note.textContent = tick == null ? "W tym cyklu grzałka nie weszła." :
+    cf ? `Grzałka weszła w ${tick}. minucie. Linia przerywana pokazuje, jak długo trwałoby to samo ogrzanie samą sprężarką.` :
+      `Grzałka weszła w ${tick}. minucie; ten cykl nie ma wyceny (model niegotowy albo warunki poza jego zakresem).`;
+}
+
+function renderDhwTrace(payload) {
+  const a = payload.ah_effect || {}, cycles = (payload.cycles || []).slice(0, 30);
+  put("dhw-verdict", HPC.insight(dhwVerdict(a), "Werdykt:"));
+  const pick = document.getElementById("dhw-pick");
+  if (!cycles.length) { pick.innerHTML = ""; HPC.chart(document.getElementById("dhw-trace"), { data: [], series: [], empty: "Brak cykli CWU w dzienniku." }); return; }
+  pick.innerHTML = cycles.map((c, i) => `<option value="${i}">${esc(when(c.start))}${c.ah_tick_min != null ? " — z grzałką" : ""}` +
+    `${c.trace && c.trace.length ? "" : " (sprzed zapisu przebiegów)"}</option>`).join("");
+  const best = cycles.findIndex(c => c.ah_tick_min != null && c.trace && c.trace.length);
+  const first = best >= 0 ? best : Math.max(0, cycles.findIndex(c => c.trace && c.trace.length));
+  pick.value = String(first);
+  pick.onchange = () => drawTrace(cycles[Number(pick.value)], a);
+  drawTrace(cycles[first], a);
+}
+
 async function loadDhwCycles() {
   try {
     const payload = await HPC.getJSON("/api/dhw_cycles");
     renderDhwCycles(payload);
     renderDhwModel(payload);
+    renderDhwTrace(payload);
   } catch (e) { put("dhw-groups", "Błąd wczytywania cykli CWU."); }
 }
 

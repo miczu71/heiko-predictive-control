@@ -199,3 +199,28 @@ def test_segment_of_cycle_without_ah_runs_to_the_end_and_short_ones_are_skipped(
     assert long_c["hp_kw"] == pytest.approx(1.92)
     assert long_c["ah_rate_c_min"] is None and long_c["ah_total_kw"] is None and long_c["ah_seg_min"] is None
     assert short_c["duration_min"] == 8.0 and short_c["hp_rate_c_min"] is None   # po 5 min pominięcia zostają 3 < 5
+
+
+def test_cycle_record_has_minute_trace_and_v3():
+    mode = series((z(0), "0"), (z(9, 0), "1"), (z(9, 5), "0"))
+    water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
+    s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
+    assert dc.DATA_VERSION == 3 and c["v"] == 3
+    assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
+
+
+def test_trace_is_capped_and_skips_missing_water():
+    mode = series((z(0), "0"), (z(9, 0), "1"), (z(12, 0), "0"))          # 180 min
+    s = {"mode": mode, "water": [], "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
+    assert dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["trace"] == []
+    s["water"] = series((z(9, 0), "40.0"))
+    assert len(dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["trace"]) == dc.TRACE_MAX_POINTS
+
+
+def test_v2_records_are_recomputed_by_backfill(conn):
+    now = datetime(2026, 9, 22, 12, 0)
+    conn.execute("INSERT INTO dhw_cycles (start, end, data) VALUES (?, ?, ?)",
+                 ("2026-09-21T09:00:00+00:00", "2026-09-21T09:25:00+00:00", '{"v": 2}'))
+    conn.commit()
+    assert date(2026, 9, 21) in dc.missing_days(conn, now, back_days=3)
