@@ -1,5 +1,5 @@
 // Raport doradcy D1 — wyłącznie odczyt. Wszystkie fetch-e względne (ingress).
-const esc = s => String(s ?? "—").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const esc = HPC.esc;
 const fmt = v => (v === null || v === undefined) ? "—" : (typeof v === "number" && !Number.isInteger(v) ? v.toFixed(2) : v);
 
 // Tabele zwijają się do 5 wierszy (przycisk „Pokaż wszystkie”); wiersze od najnowszego.
@@ -31,7 +31,7 @@ function svgBars(title, labels, series, unit) {
 }
 // Klucze klas temperatury są liczbami jako napisy ("-3", "0", "12"): Object.entries ułożyłoby ujemne na końcu.
 const byTemp = obj => Object.entries(obj).sort((a, b) => Number(a[0]) - Number(b[0]));
-const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+const put = HPC.put;
 
 function renderReport(payload) {
   const r = payload.report;

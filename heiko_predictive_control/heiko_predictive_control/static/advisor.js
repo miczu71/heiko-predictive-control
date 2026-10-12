@@ -1,8 +1,8 @@
 // Doradca — propozycje i decyzje w trybie próbnym (bez zapisu do pompy). Wszystkie fetch-e względne (ingress).
-const esc = s => String(s ?? "—").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = HPC.esc;
 const num = (v, d = 2) => (v === null || v === undefined) ? "—" : Number(v).toLocaleString("pl-PL", { maximumFractionDigits: d });
 const signed = (v, d = 2) => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${num(v, d)}`;
-const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+const put = HPC.put;
 
 const KIND = { zmiana: "Zmiana", test: "Propozycja testu", eksperyment: "Eksperyment (dawny)", "cofnięcie": "Cofnięcie", alert: "Alert" };
 const LENSES = [["komfort", "Komfort"], ["ekonomia", "Oszczędność"], ["obie", "Alerty i wskazówki"]];

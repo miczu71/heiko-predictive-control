@@ -101,4 +101,5 @@ HPC.chart = (el, opts) => {
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => charts.forEach(c => c.rebuild()));
 
   HPC.esc = esc; HPC.html = html;
+  HPC.put = (id, markup) => { const el = document.getElementById(id); if (el) el.innerHTML = markup; };
 })();

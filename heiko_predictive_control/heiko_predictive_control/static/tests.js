@@ -1,6 +1,6 @@
 // Testy uruchamiane przez usera. Start wymaga drugiego kliknięcia (potwierdzenie harmonogramu).
-const esc = s => String(s ?? "—").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const put = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+const esc = HPC.esc;
+const put = HPC.put;
 const shift = v => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toLocaleString("pl-PL")}°C`;
 const when = iso => {
   if (!iso) return "—";
