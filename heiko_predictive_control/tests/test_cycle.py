@@ -278,3 +278,44 @@ def test_plan_document_carries_uniform_shift_effects_for_the_advisor(conn):
     uniform = dbm.get_setting(conn, "heiko_plan")["uniform_shift"]
     assert uniform["horizon_h"] == 36.0 and set(uniform) >= {"-1", "+1", "base"}
     assert uniform["-1"]["energy_day_delta_kwh"] < uniform["+1"]["energy_day_delta_kwh"]
+
+
+def _counters(world, imp, chg, dis, soc_pct=40.0, rce=0.3):
+    world.numeric.update({"sensor.power_meter_consumption": imp, "sensor.battery_total_charge": chg,
+                          "sensor.battery_total_discharge": dis, "sensor.battery_state_of_capacity": soc_pct,
+                          "sensor.batteries_rated_capacity": 5000, "sensor.current_rce_price_kwh": rce})
+
+
+def test_second_cycle_splits_pump_energy_by_source_and_prices_it(conn):
+    world = World(mode="Heating")
+    _counters(world, imp=1000.0, chg=50.0, dis=40.0)
+    _run(conn, world, NOW)
+    world.energy += 0.5
+    _counters(world, imp=1000.1, chg=50.0, dis=40.3)                # 0,1 z sieci, 0,3 z baterii, reszta PV
+    row = _run(conn, world, NOW + timedelta(minutes=15))
+    assert row["grid_kwh"] == pytest.approx(0.1)
+    assert row["battery_kwh"] == pytest.approx(0.3)
+    assert row["pv_kwh"] == pytest.approx(0.1)
+    battery = row["battery_cost_pln_kwh"]                           # start: cena poza szczytem
+    assert row["cost_pln"] == pytest.approx(0.1 * 1.2304 + 0.3 * battery + 0.1 * 0.3)
+    assert row["rce_pln_kwh"] == 0.3
+    assert dbm.latest_cycle(conn, "heiko")["cost_pln"] == pytest.approx(row["cost_pln"])
+
+
+def test_without_meter_counters_source_columns_stay_empty(conn):
+    world = World(mode="Heating")
+    _run(conn, world, NOW)
+    world.energy += 0.5
+    row = _run(conn, world, NOW + timedelta(minutes=15))
+    assert row["energy_kwh"] == pytest.approx(0.5)
+    assert row.get("grid_kwh") is None and row.get("cost_pln") is None
+
+
+def test_counter_reset_skips_split_for_that_step(conn):
+    world = World(mode="Heating")
+    _counters(world, imp=1000.0, chg=50.0, dis=40.0)
+    _run(conn, world, NOW)
+    world.energy += 0.5
+    _counters(world, imp=3.0, chg=50.0, dis=40.0)                   # licznik sieci się wyzerował
+    row = _run(conn, world, NOW + timedelta(minutes=15))
+    assert row.get("grid_kwh") is None

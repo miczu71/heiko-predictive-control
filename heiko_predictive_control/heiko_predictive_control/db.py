@@ -192,6 +192,13 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("curve_on", "INTEGER"),          # krzywa grzewcza włączona (0/1/NULL)
     ("reduced_active", "INTEGER"),    # wnioskowane: cel wody poniżej krzywej (0/1/NULL = nie wiadomo)
     ("curve_shift_c", "REAL"),        # 0.12.0 — przesunięcie krzywej (HC Parallel); skoki = wymuszenie do uczenia
+    # 0.15.0 — skąd przyszła energia pompy w kroku (energy_source) i jej realny koszt.
+    ("grid_kwh", "REAL"),             # z sieci (po cenie taryfy)
+    ("battery_kwh", "REAL"),          # z baterii (po średnim koszcie energii w baterii)
+    ("pv_kwh", "REAL"),               # z nadwyżki PV (po RCE)
+    ("cost_pln", "REAL"),             # koszt kroku wg źródeł; NULL = brak liczników, wycena zegarowa
+    ("rce_pln_kwh", "REAL"),
+    ("battery_cost_pln_kwh", "REAL"), # średni koszt energii w baterii na początku kroku
 )
 
 

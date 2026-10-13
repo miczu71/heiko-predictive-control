@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 
 from . import attic, comfort
 from . import db as dbm
+from . import energy_source as es
 from . import floor_learn
 from . import floor_model as fm
 from . import floor_plan as fp
@@ -30,6 +31,11 @@ _DEFAULT_MODE = "sensor.heiko_heat_pump_working_mode_2"
 DEFAULT_WATER_TARGET_ENTITY = "sensor.heiko_heat_pump_water_temperature_setpoint"
 _DEFAULT_CURVE_SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
 REDUCED_MIN_DROP_C = 0.5          # o tyle cel wody poniżej krzywej = ograniczona nastawa aktywna
+_COUNTERS = {                     # liczniki kWh do podziału energii pompy na źródła (klucz opcji: <nazwa>_entity)
+    "grid_import": "sensor.power_meter_consumption",
+    "battery_charge": "sensor.battery_total_charge",
+    "battery_discharge": "sensor.battery_total_discharge",
+}
 
 
 # ── Pętla A (Heiko / podłogówka) — funkcje czyste ───────────────────────────
@@ -232,6 +238,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         tw = water_temp if water_temp is not None else (curve_now if curve_now is not None else outdoor_c + 10)
         heat_kw = fm.measured_heat_kw(energy_kwh, dt_h, outdoor_c, tw) if heating_step else 0.0
     result["energy_kwh"], result["heat_kw"] = energy_kwh, heat_kw
+    result.update(_energy_sources(conn, settings, get_numeric, energy_kwh, price))
 
     fstate = dbm.get_setting(conn, "floor_state") or {}
     qf_now, model_err = (heat_kw or 0.0), None
@@ -291,6 +298,35 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         now, t0, inputs["komfort"], base, plans, shifts, indoor_c, outdoor_c, min_room, uniform))
     dbm.insert_cycle(conn, result)
     return result
+
+
+def _energy_sources(conn, settings: dict, get_numeric, energy_kwh: float | None, price: float) -> dict:
+    """Podział energii pompy z kroku na sieć/baterię/PV i jej koszt (moduł `energy_source`).
+    Średni koszt energii w baterii jest aktualizowany co cykl, także gdy pompa stoi."""
+    counters = {k: get_numeric(settings.get(f"{k}_entity") or default) for k, default in _COUNTERS.items()}
+    soc = get_numeric(settings.get("battery_soc_entity") or "sensor.battery_state_of_capacity")
+    capacity_wh = get_numeric(settings.get("battery_capacity_entity") or "sensor.batteries_rated_capacity")
+    rce = get_numeric(settings.get("rce_price_entity") or "sensor.current_rce_price_kwh")
+    prev = dbm.get_setting(conn, "last_energy_counters") or {}
+    if None in counters.values():
+        return {}
+    dbm.set_setting(conn, "last_energy_counters", counters)
+    deltas = {k: v - prev[k] for k, v in counters.items() if prev.get(k) is not None}
+    if len(deltas) < len(counters) or min(deltas.values()) < 0 or None in (soc, capacity_wh, rce):
+        return {}                                      # pierwszy cykl, reset licznika albo brak SoC/RCE
+    battery_cost = dbm.get_setting(conn, "battery_cost_pln_kwh")
+    if battery_cost is None:
+        battery_cost = DEFAULT_OFFPEAK_PRICE_PLN
+    rce = max(rce, 0.0)                                # przy ujemnej RCE oddana energia jest warta 0
+    step = es.Step(load_kwh=energy_kwh or 0.0, import_kwh=deltas["grid_import"],
+                   charge_kwh=deltas["battery_charge"], discharge_kwh=deltas["battery_discharge"],
+                   soc_kwh=soc / 100.0 * capacity_wh / 1000.0, grid_price=price, rce_price=rce)
+    a = es.attribute(step, float(battery_cost))
+    dbm.set_setting(conn, "battery_cost_pln_kwh", a.battery_cost)
+    out = {"rce_pln_kwh": rce, "battery_cost_pln_kwh": battery_cost}
+    if energy_kwh is not None:
+        out.update(grid_kwh=a.grid_kwh, battery_kwh=a.battery_kwh, pv_kwh=a.pv_kwh, cost_pln=a.cost_pln)
+    return out
 
 
 def _get_last_energy(conn) -> float | None:

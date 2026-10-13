@@ -1,0 +1,51 @@
+"""Skąd naprawdę przyszła energia pompy w kroku cyklu: sieć, bateria czy PV — i ile kosztowała.
+
+Przypisanie krańcowe (pompa jest „ostatnim odbiornikiem”): gdyby pompa nie pracowała, pobór z sieci
+spadłby o tyle, ile go było, potem mniej rozładowałaby się bateria, a resztę oddalibyśmy do sieci.
+Z przyrostów liczników w kroku: sieć = min(E, ΔI), bateria = min(reszta, ΔD), PV = reszta.
+
+Wycena: sieć po cenie taryfy z chwili, PV po RCE (utracony przychód z net-billingu),
+bateria po średnim ważonym koszcie energii, która do niej weszła (ładowanie z sieci po taryfie,
+z nadwyżki PV po RCE). Funkcje czyste, bez I/O."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Step:
+    load_kwh: float          # energia pompy w kroku
+    import_kwh: float        # przyrost licznika poboru z sieci
+    charge_kwh: float        # przyrost licznika ładowania baterii
+    discharge_kwh: float     # przyrost licznika rozładowania baterii
+    soc_kwh: float           # energia w baterii na końcu kroku
+    grid_price: float        # cena taryfy, zł/kWh
+    rce_price: float         # RCE, zł/kWh
+
+
+@dataclass(frozen=True)
+class Attribution:
+    grid_kwh: float
+    battery_kwh: float
+    pv_kwh: float
+    cost_pln: float
+    battery_cost: float      # średni koszt energii w baterii po kroku, zł/kWh
+
+
+def attribute(step: Step, battery_cost: float) -> Attribution:
+    grid = min(step.load_kwh, step.import_kwh)
+    battery = min(step.load_kwh - grid, step.discharge_kwh)
+    pv = step.load_kwh - grid - battery
+    cost = grid * step.grid_price + battery * battery_cost + pv * step.rce_price
+    return Attribution(grid, battery, pv, cost, _battery_cost_after(step, grid, battery_cost))
+
+
+def _battery_cost_after(step: Step, load_grid_kwh: float, battery_cost: float) -> float:
+    """Średnia ważona: zawartość sprzed ładowania po starej cenie + naładowane w kroku wg źródła
+    (pobór z sieci, który został po pompie, idzie najpierw na ładowanie; reszta to nadwyżka PV)."""
+    if step.charge_kwh <= 0:
+        return battery_cost
+    from_grid = min(step.charge_kwh, max(step.import_kwh - load_grid_kwh, 0.0))
+    charged_cost = from_grid * step.grid_price + (step.charge_kwh - from_grid) * step.rce_price
+    kept = max(step.soc_kwh - step.charge_kwh, 0.0)
+    return (kept * battery_cost + charged_cost) / (kept + step.charge_kwh)
