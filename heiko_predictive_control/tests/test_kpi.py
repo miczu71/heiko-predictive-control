@@ -105,3 +105,32 @@ def test_recent_kpi_reads_last_week_from_cycles():
                             "tariff_peak": 1, "outdoor_temp_c": 2.0})     # poza oknem 7 dni
     k = kpi.recent_kpi(conn, now, None)
     assert k["kwh"] == pytest.approx(20.0) and k["share"] == pytest.approx(0.5)
+
+
+def test_peak_share_counts_only_grid_energy_in_peak():
+    rows = ([{"energy_kwh": 1.0, "tariff_peak": 1, "outdoor_temp_c": 2.0, "grid_kwh": 0.25}] * 5    # słońce
+            + [{"energy_kwh": 1.0, "tariff_peak": 0, "outdoor_temp_c": 2.0, "grid_kwh": 1.0}] * 5
+            + [{"energy_kwh": 1.0, "tariff_peak": 1, "outdoor_temp_c": 2.0, "grid_kwh": None}] * 2)   # sprzed 0.15.0
+    k = kpi.peak_share_kpi(rows, None)
+    assert k["share"] == pytest.approx((5 * 0.25 + 2 * 1.0) / 12, abs=1e-4)
+
+
+def test_baseline_counts_peak_hours_covered_by_own_energy_as_not_peak():
+    stats = _winter_stats(days=28)
+    stats["sensor.grid"] = [{"start": r["start"], "change": 0.0} for r in stats["sensor.energy"]]  # zawsze PV/bateria
+    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", grid="sensor.grid")
+    assert b["overall"] == 0.0
+
+
+def test_old_clock_only_baseline_is_recomputed_once():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    dbm.set_setting(conn, "peak_baseline", {"overall": 0.6, "kwh": 1.0, "hours": 1})   # zapis sprzed 0.15.0
+    settings = {"heiko_bootstrap_outdoor_entity": "sensor.owm", "pump_energy_entity": "sensor.energy"}
+    stats = _winter_stats(days=28, start=datetime(2025, 12, 1, tzinfo=timezone.utc))
+    stats["sensor.power_meter_consumption"] = [{"start": r["start"], "change": 5.0} for r in stats["sensor.energy"]]
+    asked = []
+    b = kpi.ensure_peak_baseline(conn, settings, datetime(2026, 9, 26, 12, 0),
+                                 get_statistics=lambda ids, *a: asked.append(ids) or stats)
+    assert "sensor.power_meter_consumption" in asked[0]
+    assert b["overall"] == pytest.approx(70 / 119, abs=0.005) and b["v"] == kpi.BASELINE_VERSION

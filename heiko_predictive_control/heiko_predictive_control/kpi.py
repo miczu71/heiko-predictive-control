@@ -4,6 +4,8 @@ To jest właściwa miara przesunięcia grzania — nie zależy od modelu domu. P
 ostatnie dni z zimą sprzed sterowania (statystyki LTS), **przy tym samym rozkładzie
 temperatur zewnętrznych** (klasy co 3°C), żeby chłodniejsza pogoda nie udawała zmiany
 zachowania pompy. Energia obejmuje CWU po obu stronach porównania (LTS nie rozróżnia).
+Od 0.15.0 do szczytu liczy się tylko energia z sieci (`energy_source`): pompa na PV albo
+baterii w godzinach szczytu nie płaci ceny szczytowej. Baza z LTS — ten sam podział, godzinowo.
 
 Funkcje czyste + `ensure_peak_baseline` (jedyne I/O: statystyki HA)."""
 from __future__ import annotations
@@ -14,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from . import db as dbm
 from . import ha_client
+from .energy_source import COUNTERS
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
 from .tariff import is_peak_hour
 
@@ -23,6 +26,7 @@ CLASS_STEP_C = 3
 MIN_WINDOW_KWH = 5.0          # poniżej: lato / pompa prawie nie grzeje — KPI nie ma sensu
 MIN_CLASS_HOURS = 24          # klasa temperatury w bazie z mniejszą liczbą godzin -> udział ogólny
 DEFAULT_TZ = "Europe/Warsaw"
+BASELINE_VERSION = 2          # 2 = szczyt tylko z poboru z sieci; starsza baza (zegarowa) liczona od nowa
 
 
 def outdoor_class(temp_c: float) -> int:
@@ -30,12 +34,14 @@ def outdoor_class(temp_c: float) -> int:
 
 
 def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
-                        tz_name: str = DEFAULT_TZ) -> dict | None:
+                        tz_name: str = DEFAULT_TZ, grid: str | None = None) -> dict | None:
     """Udział energii w szczycie w zimie, ogółem i per klasa temp. zewn. Szczyt = dzień
-    roboczy (pn–pt, święta pomijamy) w oknach G12w, wg czasu lokalnego."""
+    roboczy (pn–pt, święta pomijamy) w oknach G12w, wg czasu lokalnego. Z `grid` (licznik
+    poboru z sieci) w szczycie liczy się tylko min(energia pompy, pobór) w tej godzinie."""
     tz = ZoneInfo(tz_name)
     temps = {r["start"]: r["mean"] for r in stats.get(outdoor, []) if r.get("mean") is not None}
     kwh = {r["start"]: r["change"] for r in stats.get(energy, []) if r.get("change") is not None}
+    imported = {r["start"]: r["change"] for r in stats.get(grid, []) if r.get("change") is not None} if grid else {}
     total = peak = 0.0
     hours = 0
     by_class: dict[int, list[float]] = {}                 # klasa -> [kwh, peak_kwh, godziny]
@@ -48,12 +54,13 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
             continue
         local = utc.astimezone(tz)
         is_peak = is_peak_hour(local.hour, local.weekday() < 5)
+        from_grid = min(e, max(imported[start], 0.0)) if start in imported else e
         cls = by_class.setdefault(outdoor_class(to), [0.0, 0.0, 0])
         cls[0] += e
-        cls[1] += e if is_peak else 0.0
+        cls[1] += from_grid if is_peak else 0.0
         cls[2] += 1
         total += e
-        peak += e if is_peak else 0.0
+        peak += from_grid if is_peak else 0.0
         hours += 1
     if hours == 0 or total <= 0:
         return None
@@ -65,7 +72,8 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
 
 
 def peak_share_kpi(rows, baseline: dict | None, min_kwh: float = MIN_WINDOW_KWH) -> dict | None:
-    """`rows`: wiersze cykli z `energy_kwh`, `tariff_peak`, `outdoor_temp_c`.
+    """`rows`: wiersze cykli z `energy_kwh`, `tariff_peak`, `outdoor_temp_c` i opcjonalnie `grid_kwh`
+    (brak = cykl sprzed podziału na źródła, cała energia jak z sieci).
     Zwraca udział szczytu w oknie i oczekiwany udział z zimy przy tym samym rozkładzie temperatur."""
     total = peak = 0.0
     per_class: dict[int, float] = {}
@@ -73,8 +81,9 @@ def peak_share_kpi(rows, baseline: dict | None, min_kwh: float = MIN_WINDOW_KWH)
         e, is_peak, to = r["energy_kwh"], r["tariff_peak"], r["outdoor_temp_c"]
         if e is None or e < 0 or is_peak is None:
             continue
+        grid = r["grid_kwh"] if "grid_kwh" in r.keys() and r["grid_kwh"] is not None else e
         total += e
-        peak += e if is_peak else 0.0
+        peak += grid if is_peak else 0.0
         if to is not None:
             per_class[outdoor_class(to)] = per_class.get(outdoor_class(to), 0.0) + e
     if total < min_kwh:
@@ -101,7 +110,7 @@ def peak_share_kpi(rows, baseline: dict | None, min_kwh: float = MIN_WINDOW_KWH)
 def recent_kpi(conn, now: datetime, baseline: dict | None, days: int = 7) -> dict | None:
     cutoff = (now.replace(microsecond=0) - timedelta(days=days)).isoformat()
     rows = conn.execute(
-        "SELECT energy_kwh, tariff_peak, outdoor_temp_c FROM cycles "
+        "SELECT energy_kwh, tariff_peak, outdoor_temp_c, grid_kwh FROM cycles "
         "WHERE loop = 'heiko' AND ts >= ? AND energy_kwh IS NOT NULL", (cutoff,)).fetchall()
     return peak_share_kpi(rows, baseline)
 
@@ -110,20 +119,21 @@ def ensure_peak_baseline(conn, settings: dict, now: datetime,
                          get_statistics=ha_client.get_statistics) -> dict | None:
     """Raz (do skutku) policz bazę z LTS ostatniego pełnego sezonu i zapisz w `peak_baseline`."""
     existing = dbm.get_setting(conn, "peak_baseline")
-    if existing:
+    if existing and existing.get("v") == BASELINE_VERSION:
         return existing
     outdoor = settings.get("heiko_bootstrap_outdoor_entity") or settings.get("outdoor_temp_entity", "")
     energy = settings.get("pump_energy_entity", "")
+    grid = settings.get("grid_import_entity") or COUNTERS["grid_import"]
     start, end = season_window(now)
-    stats = get_statistics([outdoor, energy], start.isoformat(), end.isoformat())
+    stats = get_statistics([outdoor, energy, grid], start.isoformat(), end.isoformat())
     if stats is None:
         logger.info("Baza udziału szczytu: statystyki niedostępne — spróbuję po restarcie")
         return None
-    baseline = baseline_from_stats(stats, outdoor, energy, settings.get("timezone") or DEFAULT_TZ)
+    baseline = baseline_from_stats(stats, outdoor, energy, settings.get("timezone") or DEFAULT_TZ, grid=grid)
     if baseline is None:
         logger.warning("Baza udziału szczytu: brak danych sezonu w statystykach")
         return None
-    baseline["at"] = now.isoformat(timespec="minutes")
+    baseline["at"], baseline["v"] = now.isoformat(timespec="minutes"), BASELINE_VERSION
     dbm.set_setting(conn, "peak_baseline", baseline)
     logger.info("Baza udziału szczytu (zima): %s", {k: baseline[k] for k in ("overall", "kwh", "hours")})
     return baseline

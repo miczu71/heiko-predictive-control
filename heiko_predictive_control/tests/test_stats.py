@@ -139,3 +139,18 @@ def test_stats_api_defaults_to_a_week_and_validates_input(client):
     assert client.get("/api/stats/heiko?hours=48").status_code == 400
     assert client.get("/api/stats/heiko?hours=abc").status_code == 400
     assert client.get("/api/stats/other").status_code == 400
+
+
+def test_source_split_counts_only_grid_as_peak_and_uses_real_cost(conn):
+    heiko_row(conn, NOW - timedelta(minutes=30), tariff_peak=1, energy_kwh=0.5, price_pln_kwh=1.2,
+              grid_kwh=0.1, battery_kwh=0.1, pv_kwh=0.3, cost_pln=0.25)          # słoneczny szczyt
+    heiko_row(conn, NOW - timedelta(minutes=15), tariff_peak=1, energy_kwh=0.5, price_pln_kwh=1.2)  # sprzed 0.15.0
+    out = stats.build(conn, "heiko", 24, NOW)
+    s = out["series"]
+    assert s["energy_peak_kwh"] == [pytest.approx(0.1), 0.5]
+    assert s["energy_own_kwh"] == [pytest.approx(0.4), None]
+    assert s["cost_pln"] == [pytest.approx(0.25), pytest.approx(0.6)]
+    sm = out["summary"]
+    assert sm["cost_pln"] == pytest.approx(0.85)
+    assert sm["own_kwh"] == pytest.approx(0.4)
+    assert sm["peak_share"] == pytest.approx(0.6)                                    # (0,1 + 0,5) / 1,0

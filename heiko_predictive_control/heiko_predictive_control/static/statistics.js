@@ -20,7 +20,8 @@ function heikoNotes(d) {
     : ` Żaden pokój nie spadł poniżej minimum ${num(m.room_min_c)} °C.`;
   note("take-comfort", `Z ${span}: średnio ${num(s.avg_indoor_c)} °C przy celu ${num(m.target_c)} °C, najzimniej ${num(s.coldest_room_c)} °C.${below}`);
   note("take-energy", `Z ${span}: ${kwh(s.energy_kwh)} kWh, czyli ok. ${zl(s.cost_pln)} zł` +
-    (s.peak_share === null ? "." : `; w drogim szczycie ${num(s.peak_share * 100, 0)}% tego prądu.`));
+    (s.peak_share === null ? "." : `; z sieci w drogim szczycie ${num(s.peak_share * 100, 0)}% tego prądu.`) +
+    (s.own_kwh > 0 ? ` ${kwh(s.own_kwh)} kWh dały panele i bateria — ten prąd liczymy po cenie, za jaką poszedłby do sieci.` : ""));
   note("take-model", s.model_within_half_deg_pct === null ? "Model nie ma jeszcze pomiarów do porównania."
     : `W ${s.model_within_half_deg_pct}% kroków model pomylił się o najwyżej 0,5 °C (średni błąd ${num(s.model_mean_abs_err_c, 2)} °C). ` +
       (s.model_within_half_deg_pct >= 80 ? "To dobry wynik." : "Poniżej 80% — przewidywania warto traktować ostrożnie."));
@@ -33,10 +34,13 @@ function renderHeiko(d) {
     series: [{ label: "Średnia w pokojach", color: "--accent" }, { label: "Najzimniejszy pokój", color: "--accent", dash: [2, 3] },
       { label: "Cel", color: "--muted", dash: [6, 4], width: 1 }, { label: "Minimum", color: "--peak", dash: [6, 4], width: 1 },
       { label: "Na zewnątrz", color: "--chart-out", y2: true, width: 1.5 }] });
-  const total = s.energy_offpeak_kwh.map((v, i) => (v === null && s.energy_peak_kwh[i] === null) ? null : (v || 0) + (s.energy_peak_kwh[i] || 0));
-  HPC.chart($("chart-energy"), { unit: "kWh", data: [t, total, s.energy_offpeak_kwh], yRange: (u, lo, hi) => [0, Math.max(hi, 0.1)],
-    series: [{ label: "W tym szczyt (drogo)", color: "--peak", kind: "bars", shown: s.energy_peak_kwh },
-      { label: "Tania taryfa", color: "--accent", kind: "bars", shown: s.energy_offpeak_kwh }] });
+  // Słupki nakładane: najwyższy (całość) pod spodem, na nim sieć, na wierzchu tania taryfa — trzy pasy.
+  const sum = (...cols) => cols[0].map((_, i) => cols.every(c => c[i] === null) ? null : cols.reduce((a, c) => a + (c[i] || 0), 0));
+  const grid = sum(s.energy_offpeak_kwh, s.energy_peak_kwh), total = sum(grid, s.energy_own_kwh);
+  HPC.chart($("chart-energy"), { unit: "kWh", data: [t, total, grid, s.energy_offpeak_kwh], yRange: (u, lo, hi) => [0, Math.max(hi, 0.1)],
+    series: [{ label: "Z paneli i baterii", color: "--chart-out", kind: "bars", shown: s.energy_own_kwh },
+      { label: "Z sieci w szczycie (drogo)", color: "--peak", kind: "bars", shown: s.energy_peak_kwh },
+      { label: "Z sieci, tania taryfa", color: "--accent", kind: "bars", shown: s.energy_offpeak_kwh }] });
   HPC.chart($("chart-model"), { unit: "°C (zmierzone − przewidziane)", data: [t, s.model_err_c, flat(n, 0.5), flat(n, -0.5)],
     yRange: (u, lo, hi) => [Math.min(lo, -1), Math.max(hi, 1)],
     series: [{ label: "Błąd modelu", color: "--accent" }, { label: "+0,5", color: "--muted", dash: [6, 4], width: 1 }, { label: "−0,5", color: "--muted", dash: [6, 4], width: 1 }] });

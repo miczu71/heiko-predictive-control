@@ -31,11 +31,6 @@ _DEFAULT_MODE = "sensor.heiko_heat_pump_working_mode_2"
 DEFAULT_WATER_TARGET_ENTITY = "sensor.heiko_heat_pump_water_temperature_setpoint"
 _DEFAULT_CURVE_SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
 REDUCED_MIN_DROP_C = 0.5          # o tyle cel wody poniżej krzywej = ograniczona nastawa aktywna
-_COUNTERS = {                     # liczniki kWh do podziału energii pompy na źródła (klucz opcji: <nazwa>_entity)
-    "grid_import": "sensor.power_meter_consumption",
-    "battery_charge": "sensor.battery_total_charge",
-    "battery_discharge": "sensor.battery_total_discharge",
-}
 
 
 # ── Pętla A (Heiko / podłogówka) — funkcje czyste ───────────────────────────
@@ -303,7 +298,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
 def _energy_sources(conn, settings: dict, get_numeric, energy_kwh: float | None, price: float) -> dict:
     """Podział energii pompy z kroku na sieć/baterię/PV i jej koszt (moduł `energy_source`).
     Średni koszt energii w baterii jest aktualizowany co cykl, także gdy pompa stoi."""
-    counters = {k: get_numeric(settings.get(f"{k}_entity") or default) for k, default in _COUNTERS.items()}
+    counters = {k: get_numeric(settings.get(f"{k}_entity") or default) for k, default in es.COUNTERS.items()}
     soc = get_numeric(settings.get("battery_soc_entity") or "sensor.battery_state_of_capacity")
     capacity_wh = get_numeric(settings.get("battery_capacity_entity") or "sensor.batteries_rated_capacity")
     rce = get_numeric(settings.get("rce_price_entity") or "sensor.current_rce_price_kwh")

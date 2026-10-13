@@ -11,6 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+COUNTERS = {                     # domyślne liczniki kWh (opcja nadpisująca: <nazwa>_entity)
+    "grid_import": "sensor.power_meter_consumption",
+    "battery_charge": "sensor.battery_total_charge",
+    "battery_discharge": "sensor.battery_total_discharge",
+}
+
 
 @dataclass(frozen=True)
 class Step:
