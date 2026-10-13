@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.15.0 — koszt i szczyt wg źródła energii: sieć, bateria, PV
+
+Cel: raporty nie traktują już każdej kWh w godzinach szczytu G12w jako drogiej. Gdy pompa grzeje z nadwyżki PV albo
+z baterii, ta energia nie kosztuje ceny szczytowej. Zero nowych zapisów do pompy.
+
+- **Podział energii pompy co cykl** (nowy moduł `energy_source`): z przyrostów liczników — sieć = min(energia pompy,
+  pobór z sieci), bateria = min(reszta, rozładowanie), PV = reszta. Wycena: sieć po cenie taryfy, PV po bieżącej RCE
+  (utracony przychód z net-billingu; ujemna RCE = 0), bateria po średnim ważonym koszcie energii, która do niej weszła
+  (ładowanie z sieci po taryfie, z PV po RCE). Domyślne encje: `sensor.power_meter_consumption`,
+  `sensor.battery_total_charge`/`_discharge`, `sensor.battery_state_of_capacity`, `sensor.batteries_rated_capacity`,
+  `sensor.current_rce_price_kwh` (nadpisywalne ustawieniem `<nazwa>_entity`).
+- **Statystyki:** koszt wg źródła, wykres energii w trzech pasach (sieć tania / sieć w szczycie / panele i bateria),
+  udział szczytu liczy tylko prąd z sieci.
+- **KPI udziału szczytu:** szczyt tylko z sieci, liczony godzinowo; zimowa baza z LTS przeliczana raz tą samą metodą.
+- **Doby i CWU:** `kwh_peak` w streszczeniu doby i koszt grzałki AH wg źródła energii.
+- Dane sprzed 0.15.0 (cykle, streszczenia dób, cykle CWU) zostają z wyceną zegarową — nie da się ich przeliczyć
+  bez historii liczników, a skasowanie oznaczałoby utratę dni spoza okna recordera.
+
 ## 0.14.0 — czytelniejszy interfejs: wykresy, podzakładki, język dla laika
 
 Cel: add-on ma być zrozumiały bez znajomości kodów etapów i skrótów. Zero nowych zapisów do pompy.
