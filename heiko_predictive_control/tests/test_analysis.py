@@ -130,12 +130,10 @@ def test_ideas_offpeak_ceiling_and_rule_based_text():
     assert an.ideas({}) == []
 
 
-def test_gaps_flag_unrealistic_cop_and_short_own_history():
-    report = {**_report(), "cop": {"9": {"hours": 17, "mean": 8.95}, "12": {"hours": 18, "mean": 9.9}}}
-    gaps = an.data_gaps(report, datetime(2026, 9, 26))
+def test_gaps_name_cop_cutoff_and_short_own_history():
+    gaps = an.data_gaps({**_report(), "cop": {"9": {"mean": 3.1}}}, datetime(2026, 9, 26))
     assert any("2026-04-12" in g for g in gaps) and any("3 dni" in g for g in gaps)
-    assert any("nierealne" in g for g in gaps)
-    assert not any("nierealne" in g for g in an.data_gaps({**_report(), "cop": {"9": {"mean": 3.1}}}, datetime(2026, 9, 26)))
+    assert any("COP liczony od 2026-10-12" in g for g in gaps)
 
 
 def test_compute_report_survives_missing_statistics(tmp_path):
@@ -149,4 +147,17 @@ def test_compute_report_survives_missing_statistics(tmp_path):
     assert report["own"]["days"] == 0 and report["data_gaps"]
     an.save_report(conn, report)
     assert an.load_report(conn)["created"] == report["created"]
+    conn.close()
+
+
+def test_compute_report_reads_cop_only_since_new_formula(tmp_path):
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    dbm.migrate(conn)
+    settings = {**SETTINGS, "outdoor_temp_entity": "out", "timezone": "Europe/Warsaw"}
+    cop_id = "sensor.heiko_heat_pump_cop_estimated"
+    calls = []
+    an.compute_report(conn, settings, datetime(2026, 10, 13, 12, 0),
+                      get_statistics=lambda ids, start, *a, **k: calls.append((ids, start)),
+                      get_states=lambda: [{"entity_id": cop_id, "state": "3.1"}])
+    assert ([cop_id, "out"], an.COP_SINCE.isoformat()) in calls
     conn.close()

@@ -19,6 +19,7 @@ from .tariff import PEAK_WINDOWS
 logger = logging.getLogger(__name__)
 
 HEIKO_SINCE = datetime(2026, 4, 12, tzinfo=timezone.utc)      # integracja `heiko_heatpump` działa od tej daty
+COP_SINCE = datetime(2026, 10, 11, 22, tzinfo=timezone.utc)   # 12.10 lokalnie: integracja 1.14.0 liczy COP z Tuo−Tui; wcześniej Tw−Tc (CWU vs grzewcza) = bezwartościowe
 DEFAULT_TZ = "Europe/Warsaw"
 
 
@@ -161,7 +162,7 @@ def pump_hours(daily: dict, outdoor_hourly: list[dict], tz: ZoneInfo) -> dict | 
 
 
 def cop_by_class(stats: dict, cop: str, outdoor: str) -> dict | None:
-    """COP (estymowany przez integrację, tylko tryb grzania) wg klas temp. zewn., od uruchomienia integracji."""
+    """COP (estymowany przez integrację, tylko tryb grzania) wg klas temp. zewn., od COP_SINCE."""
     temps = _by_start(stats.get(outdoor, []), "mean")
     classes: dict[int, list[float]] = {}
     for start, c in _by_start(stats.get(cop, []), "mean").items():
@@ -236,14 +237,13 @@ def ideas(report: dict) -> list[str]:
 
 
 def data_gaps(report: dict, now: datetime) -> list[str]:
-    gaps = [f"Czujniki Heiko (COP, sprężarka, HBH, P0) mają dane dopiero od {HEIKO_SINCE.date().isoformat()} — bez pełnej zimy.",
+    gaps = [f"Czujniki Heiko (sprężarka, HBH, P0) mają dane dopiero od {HEIKO_SINCE.date().isoformat()} — bez pełnej zimy.",
+            f"COP liczony od {COP_SINCE.astimezone(ZoneInfo(DEFAULT_TZ)).date().isoformat()} (integracja 1.14.0, ΔT na wymienniku); "
+            "starszy COP pominięty jako błędny.",
             "Bezwładność domu nie jest zidentyfikowana (jedna zima, prawie jedna nastawa) — skutków zmian nastaw nie da się jeszcze przewidzieć."]
     cop = report.get("cop")
     if not cop:
         gaps.append("Brak COP w LTS dla trybu grzania (latem pompa robi głównie CWU).")
-    elif any(v["mean"] > 7 for v in cop.values()):
-        gaps.append("COP estymowany przez integrację ma klasy o średniej > 7 (nierealne dla pompy powietrznej: szacunek z nominalnego "
-                    "przepływu) — używać wyłącznie jako trendu; wiarygodny COP wymaga miernika ciepła albo bilansu energii.")
     own_days = (report.get("own") or {}).get("days", 0)
     if own_days < 14:
         gaps.append(f"Własne streszczenia dobowe add-onu: {own_days} dni — statystyki cykli będą wiarygodne po ~2 tygodniach.")
@@ -276,7 +276,7 @@ def compute_report(conn, settings: dict, now: datetime, get_statistics=ha_client
         report["pump_hours"] = pump_hours(daily, season.get(outdoor, []), tz)
     cop_id = catalog.resolve_telemetry(get_states() or []).get("cop_estimated")
     if cop_id and outdoor:
-        got = get_statistics([cop_id, outdoor], HEIKO_SINCE.isoformat(), now.astimezone(timezone.utc).isoformat())
+        got = get_statistics([cop_id, outdoor], COP_SINCE.isoformat(), now.astimezone(timezone.utc).isoformat())
         if got:
             report["cop"] = cop_by_class(got, cop_id, outdoor)
     report["own"] = own_data(summaries.load_summaries(conn), telemetry.changes_summary(conn, now))
