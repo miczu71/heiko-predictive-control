@@ -17,7 +17,7 @@ from . import catalog
 from . import energy_source as es
 from . import ha_client
 from .summaries import DHW_CODES, day_bounds
-from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour
+from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour, price_for
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
         if prev is not None and v is not None and v >= prev:
             inc = v - prev
             local = t.astimezone(tz)
-            tariff = peak_price if is_peak_hour(local.hour, is_workday(local.date())) else offpeak_price
+            tariff = price_for(is_peak_hour(local.hour, is_workday(local.date())), peak_price, offpeak_price)
             d_grid, d_dis, rce_now = grid.delta(prev_t, t), discharge.delta(prev_t, t), rce.at(t)
             total += inc
             if None in (d_grid, d_dis, rce_now):
@@ -156,7 +156,7 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
             else:
                 g, b, p = es.split(inc, d_grid, d_dis)
                 battery = battery_cost_at(t)
-                price += g * tariff + b * (offpeak_price if battery is None else battery) + p * max(rce_now, 0.0)
+                price += es.price(g, b, p, tariff, offpeak_price if battery is None else battery, rce_now)
         prev, prev_t = v, t
     if total <= 0:
         return {"kwh": 0.0, "pln": 0.0}
@@ -180,7 +180,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
     energy_times, energy_values = _points(series.get("energy_c", []))
     total_times, total_values = _points(series.get("energy_total", []))
     outdoor_times, outdoor_values = _points(series.get("outdoor", []))
-    sources = {k: es.Counter(zip(*_points(series.get(k, [])))) for k in ("grid", "discharge", "rce")}
+    sources = {k: es.Counter((t, catalog.to_number(s)) for t, s in series.get(k, [])) for k in ("grid", "discharge", "rce")}
     if not mode_times:
         return []
 
@@ -313,9 +313,8 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
              "energy_total": settings.get("pump_energy_entity") or None,
              "outdoor": tel.get("ambient_air_temperature")}
     if roles["energy_c"]:                              # koszt grzałki wg źródła energii
-        roles.update(grid=settings.get("grid_import_entity") or es.COUNTERS["grid_import"],
-                     discharge=settings.get("battery_discharge_entity") or es.COUNTERS["battery_discharge"],
-                     rce=settings.get("rce_price_entity") or es.RCE_ENTITY)
+        ent = es.entities(settings)
+        roles.update(grid=ent["grid_import"], discharge=ent["battery_discharge"], rce=ent["rce_price"])
     entities = [e for e in roles.values() if e]
     if not entities:
         return 0

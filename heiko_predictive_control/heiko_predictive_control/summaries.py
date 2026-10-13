@@ -165,7 +165,7 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
              "ah": tel.get("ah_working_time"), "hbh": tel.get("hbh_working_time"),
              "hwtbh": tel.get("hwtbh_working_time"),
              "p1": tel.get("water_pump_p1"), "energy": settings.get("pump_energy_entity") or None,
-             "grid": (settings.get("grid_import_entity") or es.COUNTERS["grid_import"])
+             "grid": es.entities(settings)["grid_import"]
                      if settings.get("pump_energy_entity") else None}
     entities = [e for e in roles.values() if e]
     tz_name = settings.get("timezone") or "Europe/Warsaw"

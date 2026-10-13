@@ -12,12 +12,25 @@ from __future__ import annotations
 import bisect
 from dataclasses import dataclass
 
-COUNTERS = {                     # domyślne liczniki kWh (opcja nadpisująca: <nazwa>_entity)
-    "grid_import": "sensor.power_meter_consumption",
-    "battery_charge": "sensor.battery_total_charge",
-    "battery_discharge": "sensor.battery_total_discharge",
+ENTITIES = {                     # domyślne encje HA (opcja nadpisująca: <nazwa>_entity)
+    "grid_import": "sensor.power_meter_consumption",          # licznik kWh poboru z sieci
+    "battery_charge": "sensor.battery_total_charge",          # licznik kWh ładowania baterii
+    "battery_discharge": "sensor.battery_total_discharge",    # licznik kWh rozładowania baterii
+    "battery_soc": "sensor.battery_state_of_capacity",        # %
+    "battery_capacity": "sensor.batteries_rated_capacity",    # Wh
+    "rce_price": "sensor.current_rce_price_kwh",              # zł/kWh
 }
-RCE_ENTITY = "sensor.current_rce_price_kwh"
+COUNTERS = ("grid_import", "battery_charge", "battery_discharge")
+
+
+def entities(settings: dict) -> dict[str, str]:
+    return {k: settings.get(f"{k}_entity") or default for k, default in ENTITIES.items()}
+
+
+def price(grid_kwh: float, battery_kwh: float, pv_kwh: float,
+          tariff: float, battery_cost: float, rce: float) -> float:
+    """Koszt podzielonej energii. Ujemna RCE = 0: oddana wtedy energia nic nie jest warta."""
+    return grid_kwh * tariff + battery_kwh * battery_cost + pv_kwh * max(rce, 0.0)
 
 
 @dataclass(frozen=True)
@@ -66,7 +79,7 @@ class Counter:
 
 def attribute(step: Step, battery_cost: float) -> Attribution:
     grid, battery, pv = split(step.load_kwh, step.import_kwh, step.discharge_kwh)
-    cost = grid * step.grid_price + battery * battery_cost + pv * step.rce_price
+    cost = price(grid, battery, pv, step.grid_price, battery_cost, step.rce_price)
     return Attribution(grid, battery, pv, cost, _battery_cost_after(step, grid, battery_cost))
 
 
@@ -76,6 +89,6 @@ def _battery_cost_after(step: Step, load_grid_kwh: float, battery_cost: float) -
     if step.charge_kwh <= 0:
         return battery_cost
     from_grid = min(step.charge_kwh, max(step.import_kwh - load_grid_kwh, 0.0))
-    charged_cost = from_grid * step.grid_price + (step.charge_kwh - from_grid) * step.rce_price
+    charged_cost = price(from_grid, 0.0, step.charge_kwh - from_grid, step.grid_price, 0.0, step.rce_price)
     kept = max(step.soc_kwh - step.charge_kwh, 0.0)
     return (kept * battery_cost + charged_cost) / (kept + step.charge_kwh)

@@ -298,21 +298,21 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
 def _energy_sources(conn, settings: dict, get_numeric, energy_kwh: float | None, price: float) -> dict:
     """Podział energii pompy z kroku na sieć/baterię/PV i jej koszt (moduł `energy_source`).
     Średni koszt energii w baterii jest aktualizowany co cykl, także gdy pompa stoi."""
-    counters = {k: get_numeric(settings.get(f"{k}_entity") or default) for k, default in es.COUNTERS.items()}
-    soc = get_numeric(settings.get("battery_soc_entity") or "sensor.battery_state_of_capacity")
-    capacity_wh = get_numeric(settings.get("battery_capacity_entity") or "sensor.batteries_rated_capacity")
-    rce = get_numeric(settings.get("rce_price_entity") or es.RCE_ENTITY)
-    prev = dbm.get_setting(conn, "last_energy_counters") or {}
+    ent = es.entities(settings)
+    counters = {k: get_numeric(ent[k]) for k in es.COUNTERS}
     if None in counters.values():
         return {}
+    soc, capacity_wh, rce = (get_numeric(ent[k]) for k in ("battery_soc", "battery_capacity", "rce_price"))
+    prev = dbm.get_setting(conn, "last_energy_counters") or {}
     dbm.set_setting(conn, "last_energy_counters", counters)
-    deltas = {k: v - prev[k] for k, v in counters.items() if prev.get(k) is not None}
-    if len(deltas) < len(counters) or min(deltas.values()) < 0 or None in (soc, capacity_wh, rce):
-        return {}                                      # pierwszy cykl, reset licznika albo brak SoC/RCE
+    if any(prev.get(k) is None for k in counters) or None in (soc, capacity_wh, rce):
+        return {}                                      # pierwszy cykl albo brak SoC/RCE
+    deltas = {k: v - prev[k] for k, v in counters.items()}
+    if min(deltas.values()) < 0:
+        return {}                                      # reset licznika
     battery_cost = dbm.get_setting(conn, "battery_cost_pln_kwh")
     if battery_cost is None:
         battery_cost = DEFAULT_OFFPEAK_PRICE_PLN
-    rce = max(rce, 0.0)                                # przy ujemnej RCE oddana energia jest warta 0
     step = es.Step(load_kwh=energy_kwh or 0.0, import_kwh=deltas["grid_import"],
                    charge_kwh=deltas["battery_charge"], discharge_kwh=deltas["battery_discharge"],
                    soc_kwh=soc / 100.0 * capacity_wh / 1000.0, grid_price=price, rce_price=rce)

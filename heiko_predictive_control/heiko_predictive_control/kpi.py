@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from . import db as dbm
 from . import ha_client
-from .energy_source import COUNTERS
+from . import energy_source as es
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
 from .tariff import is_peak_hour
 
@@ -54,7 +54,7 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
             continue
         local = utc.astimezone(tz)
         is_peak = is_peak_hour(local.hour, local.weekday() < 5)
-        from_grid = min(e, max(imported[start], 0.0)) if start in imported else e
+        from_grid = es.split(e, imported[start])[0] if start in imported else e
         cls = by_class.setdefault(outdoor_class(to), [0.0, 0.0, 0])
         cls[0] += e
         cls[1] += from_grid if is_peak else 0.0
@@ -123,7 +123,7 @@ def ensure_peak_baseline(conn, settings: dict, now: datetime,
         return existing
     outdoor = settings.get("heiko_bootstrap_outdoor_entity") or settings.get("outdoor_temp_entity", "")
     energy = settings.get("pump_energy_entity", "")
-    grid = settings.get("grid_import_entity") or COUNTERS["grid_import"]
+    grid = es.entities(settings)["grid_import"]
     start, end = season_window(now)
     stats = get_statistics([outdoor, energy, grid], start.isoformat(), end.isoformat())
     if stats is None:
