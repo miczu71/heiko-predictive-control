@@ -127,3 +127,11 @@ def test_counter_unchanged_all_day_is_zero_not_missing():
     out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "ah": quiet}, TZ)["backup"]
     assert out["ah_min"] == 0.0
     assert sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0"))}, TZ).get("backup") is None     # brak licznika = brak danych
+
+
+def test_peak_counts_only_energy_drawn_from_grid():
+    energy = series((z(0, d=20), "1000.0"), (z(7), "1001.0"), (z(12), "1002.0"))  # 2 × 1 kWh w szczycie
+    grid = series((z(0, d=20), "500.0"), (z(7), "501.0"),                         # rano cały kWh z sieci
+                  (z(12), "501.2"))                                               # w południe 0,2 z sieci, reszta PV
+    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy, "grid": grid}, TZ)["energy"]
+    assert out["kwh"] == 2.0 and out["kwh_peak"] == pytest.approx(1.2)

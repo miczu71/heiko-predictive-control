@@ -14,6 +14,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import catalog
+from . import energy_source as es
 from . import ha_client
 from .summaries import DHW_CODES, day_bounds
 from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour
@@ -130,36 +131,46 @@ def _classify(start: datetime, target_times: list[datetime], target_values: list
 
 def _cost(times: list[datetime], values: list[float | None], start: datetime, end: datetime,
           tz: ZoneInfo, is_workday: Callable[[date], bool],
-          peak_price: float, offpeak_price: float) -> dict | None:
+          peak_price: float, offpeak_price: float, grid: es.Counter, discharge: es.Counter, rce: es.Counter,
+          battery_cost_at: Callable[[datetime], float | None]) -> dict | None:
     """kWh i koszt PLN z licznika energii (faza C = AH) na [start, end], przyrost po przyroście
-    przypisany do godziny lokalnej próbki końcowej (jak `summaries._energy`)."""
+    przypisany do godziny lokalnej próbki końcowej (jak `summaries._energy`). Z historią poboru z sieci,
+    rozładowania baterii i RCE przyrost jest dzielony na źródła (`energy_source.split`): sieć po taryfie,
+    bateria po średnim koszcie energii w baterii, PV po RCE; bez nich — cały po taryfie."""
     if _value_at(times, values, start) is None:
         return None
     i = bisect.bisect_right(times, start)
-    total = peak = 0.0
-    prev = _value_at(times, values, start)
+    total = price = 0.0
+    prev, prev_t = _value_at(times, values, start), start
     for t, v in zip(times[i:], values[i:]):
         if t > end:
             break
         if prev is not None and v is not None and v >= prev:
             inc = v - prev
             local = t.astimezone(tz)
+            tariff = peak_price if is_peak_hour(local.hour, is_workday(local.date())) else offpeak_price
+            d_grid, d_dis, rce_now = grid.delta(prev_t, t), discharge.delta(prev_t, t), rce.at(t)
             total += inc
-            if is_peak_hour(local.hour, is_workday(local.date())):
-                peak += inc
-        prev = v
+            if None in (d_grid, d_dis, rce_now):
+                price += inc * tariff
+            else:
+                g, b, p = es.split(inc, d_grid, d_dis)
+                battery = battery_cost_at(t)
+                price += g * tariff + b * (offpeak_price if battery is None else battery) + p * max(rce_now, 0.0)
+        prev, prev_t = v, t
     if total <= 0:
         return {"kwh": 0.0, "pln": 0.0}
-    price = peak_price * peak + offpeak_price * (total - peak)
     return {"kwh": round(total, 3), "pln": round(price, 2)}
 
 
 def extract_cycles(series: dict[str, Series], window_start: datetime, window_end: datetime,
                     tz: ZoneInfo, is_workday: Callable[[date], bool] = lambda d: d.weekday() < 5,
                     peak_price: float = DEFAULT_PEAK_PRICE_PLN,
-                    offpeak_price: float = DEFAULT_OFFPEAK_PRICE_PLN) -> list[dict]:
+                    offpeak_price: float = DEFAULT_OFFPEAK_PRICE_PLN,
+                    battery_cost_at: Callable[[datetime], float | None] = lambda t: None) -> list[dict]:
     """Cykle CWU (`working_mode` w DHW_CODES) w [window_start, window_end). `series`: mode, water,
-    target (dhw_setpoint), ah (ah_working_time), energy_c, outdoor. Cykl wciąż trwający na prawej
+    target (dhw_setpoint), ah (ah_working_time), energy_c, outdoor oraz do kosztu wg źródła: grid
+    (pobór z sieci), discharge (rozładowanie baterii), rce. Cykl wciąż trwający na prawej
     granicy okna dostaje `complete: False` i nie powinien być zapisany — wołający go pomija, okno
     przesunięte o dzień naprzód złapie go w całości."""
     mode_times, mode_values = _points(series.get("mode", []))
@@ -169,6 +180,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
     energy_times, energy_values = _points(series.get("energy_c", []))
     total_times, total_values = _points(series.get("energy_total", []))
     outdoor_times, outdoor_values = _points(series.get("outdoor", []))
+    sources = {k: es.Counter(zip(*_points(series.get(k, [])))) for k in ("grid", "discharge", "rce")}
     if not mode_times:
         return []
 
@@ -200,7 +212,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
         first_tick = _first_tick(ah_times, ah_values, start, end)
         ah_min = _delta(ah_times, ah_values, start, end)
         cost = _cost(energy_times, energy_values, start, end + timedelta(minutes=2),
-                     tz, is_workday, peak_price, offpeak_price)
+                     tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, **sources)
         hp_end = end if first_tick is None else first_tick - timedelta(minutes=AH_TICK_MARGIN_MIN)
         hp = _segment(water_times, water_values, total_times, total_values,
                       start + timedelta(minutes=HP_SKIP_MIN), hp_end, MIN_HP_SEG_MIN)
@@ -300,6 +312,10 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
              "energy_c": settings.get("ah_energy_entity") or None,
              "energy_total": settings.get("pump_energy_entity") or None,
              "outdoor": tel.get("ambient_air_temperature")}
+    if roles["energy_c"]:                              # koszt grzałki wg źródła energii
+        roles.update(grid=settings.get("grid_import_entity") or es.COUNTERS["grid_import"],
+                     discharge=settings.get("battery_discharge_entity") or es.COUNTERS["battery_discharge"],
+                     rce=settings.get("rce_price_entity") or es.RCE_ENTITY)
     entities = [e for e in roles.values() if e]
     if not entities:
         return 0
@@ -311,7 +327,13 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
     if not hist:
         return 0
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
-    cycles = extract_cycles(series, fetch_start, day_end, tz, is_workday or (lambda d: d.weekday() < 5))
+    # Średni koszt energii w baterii zapisują cykle pętli A (czas lokalny bez strefy).
+    battery = es.Counter((datetime.fromisoformat(r["ts"]), r["battery_cost_pln_kwh"]) for r in conn.execute(
+        "SELECT ts, battery_cost_pln_kwh FROM cycles WHERE loop = 'heiko' AND ts >= ? AND ts <= ?",
+        ((fetch_start - timedelta(hours=1)).astimezone(tz).replace(tzinfo=None).isoformat(),
+         day_end.astimezone(tz).replace(tzinfo=None).isoformat())))
+    cycles = extract_cycles(series, fetch_start, day_end, tz, is_workday or (lambda d: d.weekday() < 5),
+                            battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)))
     stored = 0
     for c in cycles:
         if not c["complete"]:

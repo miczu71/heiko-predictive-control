@@ -9,6 +9,7 @@ bateria po średnim ważonym koszcie energii, która do niej weszła (ładowanie
 z nadwyżki PV po RCE). Funkcje czyste, bez I/O."""
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass
 
 COUNTERS = {                     # domyślne liczniki kWh (opcja nadpisująca: <nazwa>_entity)
@@ -16,6 +17,7 @@ COUNTERS = {                     # domyślne liczniki kWh (opcja nadpisująca: <
     "battery_charge": "sensor.battery_total_charge",
     "battery_discharge": "sensor.battery_total_discharge",
 }
+RCE_ENTITY = "sensor.current_rce_price_kwh"
 
 
 @dataclass(frozen=True)
@@ -38,10 +40,32 @@ class Attribution:
     battery_cost: float      # średni koszt energii w baterii po kroku, zł/kWh
 
 
+def split(load_kwh: float, import_kwh: float, discharge_kwh: float = 0.0) -> tuple[float, float, float]:
+    """(sieć, bateria, PV) — przypisanie krańcowe energii odbiornika w kroku."""
+    grid = min(load_kwh, max(import_kwh, 0.0))
+    battery = min(load_kwh - grid, max(discharge_kwh, 0.0))
+    return grid, battery, load_kwh - grid - battery
+
+
+class Counter:
+    """Historia stanu z HA jako schodki (wartość „nosi się” do przodu): odczyt i przyrost licznika."""
+
+    def __init__(self, points):
+        pts = sorted((t, v) for t, v in points if v is not None)
+        self.times, self.values = [t for t, _ in pts], [v for _, v in pts]
+
+    def at(self, t) -> float | None:
+        i = bisect.bisect_right(self.times, t) - 1
+        return self.values[i] if i >= 0 else None
+
+    def delta(self, a, b) -> float | None:
+        """Przyrost w [a, b]; brak danych albo reset licznika → None."""
+        va, vb = self.at(a), self.at(b)
+        return None if va is None or vb is None or vb < va else vb - va
+
+
 def attribute(step: Step, battery_cost: float) -> Attribution:
-    grid = min(step.load_kwh, step.import_kwh)
-    battery = min(step.load_kwh - grid, step.discharge_kwh)
-    pv = step.load_kwh - grid - battery
+    grid, battery, pv = split(step.load_kwh, step.import_kwh, step.discharge_kwh)
     cost = grid * step.grid_price + battery * battery_cost + pv * step.rce_price
     return Attribution(grid, battery, pv, cost, _battery_cost_after(step, grid, battery_cost))
 

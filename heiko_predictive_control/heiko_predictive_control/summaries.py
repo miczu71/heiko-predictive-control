@@ -12,6 +12,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import catalog
+from . import energy_source as es
 from . import ha_client
 from .tariff import is_peak_hour
 
@@ -89,20 +90,23 @@ def _delta(series: Series, start: datetime, end: datetime) -> float | None:
     return last - first
 
 
-def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_workday: Callable[[date], bool]
-            ) -> dict | None:
-    """Energia z licznika: przyrost między kolejnymi próbkami przypisany do godziny lokalnej próbki końcowej."""
+def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_workday: Callable[[date], bool],
+            grid: Series | None = None) -> dict | None:
+    """Energia z licznika: przyrost między kolejnymi próbkami przypisany do godziny lokalnej próbki końcowej.
+    Z historią licznika poboru z sieci (`grid`) do szczytu liczy się tylko część pokryta z sieci."""
     pts = sorted((t, _num(s)) for t, s in series if _num(s) is not None and t < end)
+    imported = es.Counter((t, _num(s)) for t, s in grid or [])
     total = peak = 0.0
-    prev = None
+    prev = prev_t = None
     for t, v in pts:
         if prev is not None and t > start and v >= prev:
             inc = v - prev
             local = t.astimezone(tz)
             total += inc
             if is_peak_hour(local.hour, is_workday(local.date())):
-                peak += inc
-        prev = v
+                d = imported.delta(prev_t, t)
+                peak += inc if d is None else es.split(inc, d)[0]
+        prev, prev_t = v, t
     if not pts:
         return None
     return {"kwh": round(total, 3), "kwh_peak": round(peak, 3),
@@ -147,7 +151,7 @@ def summarize_day(day: date, series: dict[str, Series], tz_name: str,
         runs = _runs(p1, lambda v: v > 0)
         out["p0"] = {"pulses": len(runs), "on_min": round(sum(runs), 1),
                      "mean_pulse_min": round(sum(runs) / len(runs), 1) if runs else None}
-    energy = _energy(series.get("energy", []), start, end, tz, is_workday)
+    energy = _energy(series.get("energy", []), start, end, tz, is_workday, series.get("grid"))
     if energy:
         out["energy"] = energy
     return out
@@ -160,7 +164,9 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
     roles = {"mode": tel.get("working_mode"), "freq": tel.get("compressor_frequency"),
              "ah": tel.get("ah_working_time"), "hbh": tel.get("hbh_working_time"),
              "hwtbh": tel.get("hwtbh_working_time"),
-             "p1": tel.get("water_pump_p1"), "energy": settings.get("pump_energy_entity") or None}
+             "p1": tel.get("water_pump_p1"), "energy": settings.get("pump_energy_entity") or None,
+             "grid": (settings.get("grid_import_entity") or es.COUNTERS["grid_import"])
+                     if settings.get("pump_energy_entity") else None}
     entities = [e for e in roles.values() if e]
     tz_name = settings.get("timezone") or "Europe/Warsaw"
     start, end = day_bounds(day, tz_name)

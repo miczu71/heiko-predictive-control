@@ -301,7 +301,7 @@ def _energy_sources(conn, settings: dict, get_numeric, energy_kwh: float | None,
     counters = {k: get_numeric(settings.get(f"{k}_entity") or default) for k, default in es.COUNTERS.items()}
     soc = get_numeric(settings.get("battery_soc_entity") or "sensor.battery_state_of_capacity")
     capacity_wh = get_numeric(settings.get("battery_capacity_entity") or "sensor.batteries_rated_capacity")
-    rce = get_numeric(settings.get("rce_price_entity") or "sensor.current_rce_price_kwh")
+    rce = get_numeric(settings.get("rce_price_entity") or es.RCE_ENTITY)
     prev = dbm.get_setting(conn, "last_energy_counters") or {}
     if None in counters.values():
         return {}

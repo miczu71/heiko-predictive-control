@@ -234,3 +234,41 @@ def test_v2_records_are_recomputed_by_backfill(conn):
                  ("2026-09-21T09:00:00+00:00", "2026-09-21T09:25:00+00:00", '{"v": 2}'))
     conn.commit()
     assert date(2026, 9, 21) in dc.missing_days(conn, now, back_days=3)
+
+
+def test_ah_cost_prices_grid_battery_and_pv_parts_separately():
+    """W szczycie (12:00) 0,4 kWh grzałki: 0,1 z sieci, 0,1 z baterii, 0,2 z PV."""
+    mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
+    water = series((z(12, 0), "42.0"), (z(12, 30), "45.0"))
+    energy = series((z(12, 0), "10.0"), (z(12, 10), "10.4"))
+    grid = series((z(11), "500.0"), (z(12, 10), "500.1"))
+    discharge = series((z(11), "40.0"), (z(12, 10), "40.1"))
+    rce = series((z(11), "0.25"))
+    s = {"mode": mode, "water": water, "target": series((z(0), "48")), "energy_c": energy,
+         "grid": grid, "discharge": discharge, "rce": rce}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0,
+                          battery_cost_at=lambda t: 0.5)[0]
+    assert c["ah_kwh"] == pytest.approx(0.4)
+    assert c["ah_pln"] == pytest.approx(round(0.1 * 2.0 + 0.1 * 0.5 + 0.2 * 0.25, 2))
+
+
+def test_store_cycles_prices_battery_part_with_battery_cost_from_pump_cycles(conn):
+    dbm.insert_cycle(conn, {"ts": "2026-09-21T11:45:00", "loop": "heiko", "active_profile": "ekonomia",
+                            "write_enabled": 0, "battery_cost_pln_kwh": 0.5})          # czas lokalny, jak w cyklach
+    states = [{"entity_id": "sensor.heiko_heat_pump_working_mode", "state": "0"}]
+    asked = []
+
+    def fake_history(entities, start, end):
+        asked.extend(entities)
+        return {"sensor.heiko_heat_pump_working_mode": series((z(0), "0"), (z(12), "1"), (z(12, 30), "0")),
+                "sensor.ah": series((z(12), "10.0"), (z(12, 10), "10.4")),
+                "sensor.power_meter_consumption": series((z(11), "500.0"), (z(12, 10), "500.0")),
+                "sensor.battery_total_discharge": series((z(11), "40.0"), (z(12, 10), "40.4")),
+                "sensor.current_rce_price_kwh": series((z(11), "0.25"))}
+
+    settings = {"timezone": "Europe/Warsaw", "ah_energy_entity": "sensor.ah"}
+    assert dc.store_cycles(conn, settings, date(2026, 9, 21), states, datetime(2026, 9, 22, 0, 20),
+                           get_history=fake_history) == 1
+    assert {"sensor.power_meter_consumption", "sensor.battery_total_discharge",
+            "sensor.current_rce_price_kwh"} <= set(asked)
+    assert dc.load_cycles(conn)[0]["ah_pln"] == pytest.approx(0.2)                     # 0,4 kWh z baterii × 0,5
