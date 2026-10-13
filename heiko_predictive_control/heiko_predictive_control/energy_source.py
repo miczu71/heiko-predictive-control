@@ -21,6 +21,7 @@ ENTITIES = {                     # domyślne encje HA (opcja nadpisująca: <nazw
     "rce_price": "sensor.current_rce_price_kwh",              # zł/kWh
 }
 COUNTERS = ("grid_import", "battery_charge", "battery_discharge")
+MAX_STEP_KWH = 10.0              # większy przyrost licznika w jednym kroku = błędny odczyt, krok pomijamy
 
 
 def entities(settings: dict) -> dict[str, str]:

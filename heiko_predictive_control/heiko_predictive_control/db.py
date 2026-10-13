@@ -199,6 +199,7 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("cost_pln", "REAL"),             # koszt kroku wg źródeł; NULL = brak liczników, wycena zegarowa
     ("rce_pln_kwh", "REAL"),
     ("battery_cost_pln_kwh", "REAL"), # średni koszt energii w baterii na początku kroku
+    ("grid_import_kwh", "REAL"),      # pobór z sieci całego domu w kroku (KPI liczy szczyt godzinowo, jak baza z LTS)
 )
 
 

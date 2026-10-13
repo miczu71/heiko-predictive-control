@@ -319,3 +319,30 @@ def test_counter_reset_skips_split_for_that_step(conn):
     _counters(world, imp=3.0, chg=50.0, dis=40.0)                   # licznik sieci się wyzerował
     row = _run(conn, world, NOW + timedelta(minutes=15))
     assert row.get("grid_kwh") is None
+
+
+def test_glitched_counter_reading_does_not_reach_battery_cost(conn):
+    world = World(mode="Heating")
+    _counters(world, imp=1000.0, chg=50.0, dis=40.0)
+    _run(conn, world, NOW)
+    for minutes, chg in ((15, 0.0), (30, 50.0)):                    # odczyt 0, potem z powrotem prawdziwy
+        world.energy += 0.2
+        _counters(world, imp=1000.0, chg=chg, dis=40.0)
+        row = _run(conn, world, NOW + timedelta(minutes=minutes))
+        assert row.get("grid_kwh") is None
+    assert dbm.get_setting(conn, "battery_cost_pln_kwh") is None    # średnia nietknięta
+
+
+def test_missing_pump_reading_keeps_all_deltas_on_the_same_interval(conn):
+    world = World(mode="Heating")
+    _counters(world, imp=1000.0, chg=50.0, dis=40.0)
+    _run(conn, world, NOW)
+    world.energy, world_energy = None, world.energy                 # licznik pompy niedostępny
+    _counters(world, imp=1000.5, chg=50.0, dis=40.0)
+    _run(conn, world, NOW + timedelta(minutes=15))
+    world.energy = world_energy + 1.0
+    _counters(world, imp=1000.6, chg=50.0, dis=40.0)
+    row = _run(conn, world, NOW + timedelta(minutes=30))
+    # pompa (1,0) i sieć (0,6) liczone z tego samego przedziału 0–30 min — inaczej sieć miałaby tylko 0,1
+    assert row["energy_kwh"] == pytest.approx(1.0)
+    assert row["grid_kwh"] == pytest.approx(0.6) and row["pv_kwh"] == pytest.approx(0.4)

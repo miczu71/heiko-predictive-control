@@ -272,3 +272,12 @@ def test_store_cycles_prices_battery_part_with_battery_cost_from_pump_cycles(con
     assert {"sensor.power_meter_consumption", "sensor.battery_total_discharge",
             "sensor.current_rce_price_kwh"} <= set(asked)
     assert dc.load_cycles(conn)[0]["ah_pln"] == pytest.approx(0.2)                     # 0,4 kWh z baterii × 0,5
+
+
+def test_ah_cost_without_battery_history_still_splits_grid_and_pv():
+    mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
+    s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
+         "energy_c": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
+         "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    assert c["ah_pln"] == pytest.approx(round(0.1 * 2.0 + 0.3 * 0.25, 2))

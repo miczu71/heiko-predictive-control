@@ -107,12 +107,32 @@ def peak_share_kpi(rows, baseline: dict | None, min_kwh: float = MIN_WINDOW_KWH)
     }
 
 
+def hourly_rows(rows) -> list[dict]:
+    """Cykle zsumowane do godzin, żeby udział z sieci liczyć tak jak baza z godzinowych LTS:
+    min(energia pompy w godzinie, pobór z sieci w godzinie). Godzina z cyklem bez poboru
+    (sprzed 0.15.0 albo bez liczników) — suma `grid_kwh` per cykl, a bez niego cała energia."""
+    hours: dict[tuple, list] = {}
+    for r in rows:
+        if r["tariff_peak"] is not None:
+            hours.setdefault((r["ts"][:13], r["tariff_peak"]), []).append(r)
+    out = []
+    for members in hours.values():
+        e = sum(m["energy_kwh"] for m in members)
+        imports = [m["grid_import_kwh"] for m in members]
+        grid = es.split(e, sum(imports))[0] if None not in imports else \
+            sum(m["energy_kwh"] if m["grid_kwh"] is None else m["grid_kwh"] for m in members)
+        temps = [m["outdoor_temp_c"] for m in members if m["outdoor_temp_c"] is not None]
+        out.append({"energy_kwh": e, "tariff_peak": members[0]["tariff_peak"], "grid_kwh": grid,
+                    "outdoor_temp_c": sum(temps) / len(temps) if temps else None})
+    return out
+
+
 def recent_kpi(conn, now: datetime, baseline: dict | None, days: int = 7) -> dict | None:
     cutoff = (now.replace(microsecond=0) - timedelta(days=days)).isoformat()
     rows = conn.execute(
-        "SELECT energy_kwh, tariff_peak, outdoor_temp_c, grid_kwh FROM cycles "
+        "SELECT ts, energy_kwh, tariff_peak, outdoor_temp_c, grid_kwh, grid_import_kwh FROM cycles "
         "WHERE loop = 'heiko' AND ts >= ? AND energy_kwh IS NOT NULL", (cutoff,)).fetchall()
-    return peak_share_kpi(rows, baseline)
+    return peak_share_kpi(hourly_rows(rows), baseline)
 
 
 def ensure_peak_baseline(conn, settings: dict, now: datetime,
@@ -121,6 +141,9 @@ def ensure_peak_baseline(conn, settings: dict, now: datetime,
     existing = dbm.get_setting(conn, "peak_baseline")
     if existing and existing.get("v") == BASELINE_VERSION:
         return existing
+    if existing:                                       # baza zegarowa nie pasuje do szczytu z sieci — bez porównania,
+        dbm.set_setting(conn, "peak_baseline", None)   # dopóki nowa się nie policzy
+
     outdoor = settings.get("heiko_bootstrap_outdoor_entity") or settings.get("outdoor_temp_entity", "")
     energy = settings.get("pump_energy_entity", "")
     grid = es.entities(settings)["grid_import"]

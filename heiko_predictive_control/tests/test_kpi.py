@@ -134,3 +134,34 @@ def test_old_clock_only_baseline_is_recomputed_once():
                                  get_statistics=lambda ids, *a: asked.append(ids) or stats)
     assert "sensor.power_meter_consumption" in asked[0]
     assert b["overall"] == pytest.approx(70 / 119, abs=0.005) and b["v"] == kpi.BASELINE_VERSION
+
+
+def _cycle(conn, ts, **kw):
+    dbm.insert_cycle(conn, {"ts": ts.isoformat(), "loop": "heiko", "active_profile": "ekonomia",
+                            "write_enabled": 0, "outdoor_temp_c": 2.0, **kw})
+
+
+def test_recent_kpi_takes_grid_share_per_hour_like_the_lts_baseline():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    now = datetime(2026, 1, 14, 12, 0)                               # środa
+    hour = datetime(2026, 1, 14, 10, 0)                              # szczyt
+    for i, (imp, grid) in enumerate([(2.0, 0.5), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]):
+        _cycle(conn, hour + timedelta(minutes=15 * i), energy_kwh=0.5, tariff_peak=1,
+               grid_kwh=grid, grid_import_kwh=imp)
+    for i in range(12):                                              # noc, poza szczytem
+        _cycle(conn, datetime(2026, 1, 14, 1, 0) + timedelta(minutes=15 * i), energy_kwh=0.5, tariff_peak=0,
+               grid_kwh=0.5, grid_import_kwh=0.5)
+    k = kpi.recent_kpi(conn, now, None)
+    assert k["kwh"] == pytest.approx(8.0)
+    assert k["share"] == pytest.approx(2.0 / 8.0, abs=1e-4)          # min(2,0 kWh pompy, 2,0 kWh poboru) w godzinie
+
+
+def test_failed_recompute_drops_the_old_clock_baseline():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    dbm.set_setting(conn, "peak_baseline", {"overall": 0.6, "kwh": 1.0, "hours": 1})
+    settings = {"heiko_bootstrap_outdoor_entity": "sensor.owm", "pump_energy_entity": "sensor.energy"}
+    assert kpi.ensure_peak_baseline(conn, settings, datetime(2026, 9, 26, 12, 0),
+                                    get_statistics=lambda *a: None) is None
+    assert not dbm.get_setting(conn, "peak_baseline")                # nie porównujemy z bazą zegarową

@@ -233,7 +233,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         tw = water_temp if water_temp is not None else (curve_now if curve_now is not None else outdoor_c + 10)
         heat_kw = fm.measured_heat_kw(energy_kwh, dt_h, outdoor_c, tw) if heating_step else 0.0
     result["energy_kwh"], result["heat_kw"] = energy_kwh, heat_kw
-    result.update(_energy_sources(conn, settings, get_numeric, energy_kwh, price))
+    result.update(_energy_sources(conn, settings, get_numeric, energy_now, energy_kwh is not None, price))
 
     fstate = dbm.get_setting(conn, "floor_state") or {}
     qf_now, model_err = (heat_kw or 0.0), None
@@ -295,11 +295,14 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     return result
 
 
-def _energy_sources(conn, settings: dict, get_numeric, energy_kwh: float | None, price: float) -> dict:
+def _energy_sources(conn, settings: dict, get_numeric, energy_now: float | None, step_ok: bool,
+                    price: float) -> dict:
     """Podział energii pompy z kroku na sieć/baterię/PV i jej koszt (moduł `energy_source`).
+    Licznik pompy jest w tym samym zestawie co liczniki sieci i baterii: brak któregokolwiek pomija
+    krok w całości, więc kolejny krok liczy wszystkie przyrosty z tego samego przedziału.
     Średni koszt energii w baterii jest aktualizowany co cykl, także gdy pompa stoi."""
     ent = es.entities(settings)
-    counters = {k: get_numeric(ent[k]) for k in es.COUNTERS}
+    counters = {"pump": energy_now, **{k: get_numeric(ent[k]) for k in es.COUNTERS}}
     if None in counters.values():
         return {}
     soc, capacity_wh, rce = (get_numeric(ent[k]) for k in ("battery_soc", "battery_capacity", "rce_price"))
@@ -308,19 +311,20 @@ def _energy_sources(conn, settings: dict, get_numeric, energy_kwh: float | None,
     if any(prev.get(k) is None for k in counters) or None in (soc, capacity_wh, rce):
         return {}                                      # pierwszy cykl albo brak SoC/RCE
     deltas = {k: v - prev[k] for k, v in counters.items()}
-    if min(deltas.values()) < 0:
-        return {}                                      # reset licznika
+    if not all(0 <= d <= es.MAX_STEP_KWH for d in deltas.values()):
+        return {}                                      # reset licznika albo błędny odczyt
     battery_cost = dbm.get_setting(conn, "battery_cost_pln_kwh")
     if battery_cost is None:
         battery_cost = DEFAULT_OFFPEAK_PRICE_PLN
-    step = es.Step(load_kwh=energy_kwh or 0.0, import_kwh=deltas["grid_import"],
+    step = es.Step(load_kwh=deltas["pump"], import_kwh=deltas["grid_import"],
                    charge_kwh=deltas["battery_charge"], discharge_kwh=deltas["battery_discharge"],
                    soc_kwh=soc / 100.0 * capacity_wh / 1000.0, grid_price=price, rce_price=rce)
     a = es.attribute(step, float(battery_cost))
     dbm.set_setting(conn, "battery_cost_pln_kwh", a.battery_cost)
     out = {"rce_pln_kwh": rce, "battery_cost_pln_kwh": battery_cost}
-    if energy_kwh is not None:
-        out.update(grid_kwh=a.grid_kwh, battery_kwh=a.battery_kwh, pv_kwh=a.pv_kwh, cost_pln=a.cost_pln)
+    if step_ok:
+        out.update(grid_kwh=a.grid_kwh, battery_kwh=a.battery_kwh, pv_kwh=a.pv_kwh, cost_pln=a.cost_pln,
+                   grid_import_kwh=deltas["grid_import"])
     return out
 
 

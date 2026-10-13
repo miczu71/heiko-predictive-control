@@ -149,9 +149,9 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
             inc = v - prev
             local = t.astimezone(tz)
             tariff = price_for(is_peak_hour(local.hour, is_workday(local.date())), peak_price, offpeak_price)
-            d_grid, d_dis, rce_now = grid.delta(prev_t, t), discharge.delta(prev_t, t), rce.at(t)
+            d_grid, d_dis, rce_now = grid.delta(prev_t, t), discharge.delta(prev_t, t) or 0.0, rce.at(t)
             total += inc
-            if None in (d_grid, d_dis, rce_now):
+            if d_grid is None or rce_now is None:      # bez historii baterii: rozładowanie 0
                 price += inc * tariff
             else:
                 g, b, p = es.split(inc, d_grid, d_dis)
