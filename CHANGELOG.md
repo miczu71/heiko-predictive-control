@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1 — raport COP tylko z wiarygodnych danych
+
+- Raport (COP wg klas temp. zewn.) czyta statystyki COP dopiero od 2026-10-12, czyli od integracji `heiko_heatpump`
+  1.14.0. Wcześniej COP liczono z Tw−Tc (zasobnik CWU vs woda grzewcza), co dawało średnie 9–25 i zawyżało każdą klasę.
+- Braki danych podają datę odcięcia COP; usunięta stara uwaga „COP nierealny”.
+
 ## 0.15.0 — koszt i szczyt wg źródła energii: sieć, bateria, PV
 
 Cel: raporty nie traktują już każdej kWh w godzinach szczytu G12w jako drogiej. Gdy pompa grzeje z nadwyżki PV albo
