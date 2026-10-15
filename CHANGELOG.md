@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.16.0 — Doradca: test A/B pompy obiegowej P0 (1/6 vs 5/5) i propozycje nastawy
+
+Cel: sprawdzić pomiarem, czy P0 5/5 wyrównuje temperatury pokoi lepiej niż 1/6 (kosztuje ok. 15 W). Zapis do pompy
+tylko w teście uruchomionym przez usera; propozycje „zmień P0” niczego nie zapisują.
+
+- **Miara rozrzutu** (Raport): dobowa nastawa P0, godziny standby i średni rozrzut stref (max−min) w standby.
+- **Test „Pompa obiegowa P0: 1/6 vs 5/5”** (zakładka Testy): 6 dób A B A B A B, zmiana o północy, powrót do wartości
+  wyjściowej. Start dopiero po zakończonym teście Bezwładność, przy włączonej krzywej i P0 = 1/6 albo 5/5. Allowlista
+  tylko dwie encje P0 i pary 1/6, 5/5 (postój nigdy < 5 min). Zabezpieczenia jak w teście krzywej (Przerwij, ręczna
+  zmiana wygrywa, potwierdzenie z ramki, komfort, restart add-onu). Werdykt: 5/5 wygrywa przy rozrzucie niższym
+  o ≥ 0,3°C i niespadającej średniej stref (tolerancja 0,1°C); wynik z kWh/dobę i pewnością.
+- **Analizator P0** w Doradcy + powiadomienie: powrót do 1/6 przy wyłączonej krzywej, zmiana na werdykt testu,
+  ponowny test, gdy 3-dobowa średnia temp. zewn. wyjdzie poza pasmo testu ±3°C, propozycja pierwszego testu.
+  Odrzucona propozycja milczy 14 dni.
+- Poprawka: przerwanie testu kończy się także wtedy, gdy encje P0 są chwilowo niedostępne (start HA).
+
 ## 0.15.1 — raport COP tylko z wiarygodnych danych
 
 - Raport (COP wg klas temp. zewn.) czyta statystyki COP dopiero od 2026-10-12, czyli od integracji `heiko_heatpump`
