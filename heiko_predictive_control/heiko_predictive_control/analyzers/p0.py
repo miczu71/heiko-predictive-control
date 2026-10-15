@@ -24,7 +24,7 @@ def _label(pair: tuple[float, float]) -> str:
     return f"{pair[0]:g}/{pair[1]:g}"
 
 
-def _change(snap: Snapshot, cur: tuple[float, float], target: tuple[float, float], reason: str, confidence: str,
+def _change(cur: tuple[float, float], target: tuple[float, float], reason: str, confidence: str,
             evidence: dict) -> list[Draft]:
     if not catalog.check_class_a(RUN_KEY, cur[0], target[0])[0]:
         return []
@@ -52,7 +52,7 @@ def analyze(snap: Snapshot) -> list[Draft]:
     if not snap.curve_on:
         if cur == DEFAULT_PAIR:
             return []
-        return _change(snap, cur, DEFAULT_PAIR, "Krzywa grzewcza jest wyłączona, więc P0 5/5 tylko zużywa prąd (ok. 15 W) "
+        return _change(cur, DEFAULT_PAIR, "Krzywa grzewcza jest wyłączona, więc P0 5/5 tylko zużywa prąd (ok. 15 W) "
                        "bez poprawy rozkładu ciepła.", CONF_MEDIUM, evidence)
     verdict = snap.p0_verdict
     if verdict and verdict.get("verdict") in PAIRS:
@@ -66,7 +66,7 @@ def analyze(snap: Snapshot) -> list[Draft]:
                          f"— werdykt {verdict['verdict']} jest poza pasmem ±{WEATHER_BAND_C:g}°C.", evidence)
         target = PAIRS[verdict["verdict"]]
         if cur != target:
-            return _change(snap, cur, target, f"Test A/B wskazał {verdict['verdict']} (pewność {verdict.get('confidence') or '—'}).",
+            return _change(cur, target, f"Test A/B wskazał {verdict['verdict']} (pewność {verdict.get('confidence') or '—'}).",
                            CONF_MEDIUM if verdict.get("confidence") == "wysoka" else CONF_LOW, evidence)
         return []
     if snap.p0_test_ready and cur in PAIRS.values():
