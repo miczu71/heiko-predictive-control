@@ -161,3 +161,13 @@ def test_compute_report_reads_cop_only_since_new_formula(tmp_path):
                       get_states=lambda: [{"entity_id": cop_id, "state": "3.1"}])
     assert ([cop_id, "out"], an.COP_SINCE.isoformat()) in calls
     conn.close()
+
+
+def test_own_data_lists_p0_days_with_spread_newest_first():
+    sums = {"2026-10-12": {"p0": {"pulses": 3, "setting": {"run_min": 1.0, "stop_min": 6.0},
+                                  "standby_spread": {"spread_c": 1.1, "zones_avg_c": 21.4, "samples": 40}}},
+            "2026-10-13": {"p0": {"pulses": 9}},                                  # bez rozrzutu — pomijamy
+            "2026-10-14": {"p0": {"standby_spread": {"spread_c": 0.7, "zones_avg_c": 21.0, "samples": 30}}}}
+    out = an.own_data(sums, {})["p0_days"]
+    assert [d["day"] for d in out] == ["2026-10-14", "2026-10-12"]
+    assert out[1] == {"day": "2026-10-12", "run_min": 1.0, "stop_min": 6.0, "spread_c": 1.1, "zones_avg_c": 21.4, "samples": 40}

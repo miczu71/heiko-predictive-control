@@ -181,7 +181,9 @@ def own_data(sums: dict[str, dict[str, dict]], changes: dict) -> dict:
     def avg(topic, field):
         vals = [d[topic][field] for d in sums.values() if topic in d and d[topic].get(field) is not None]
         return _r(sum(vals) / len(vals), 1) if vals else None
-    return {"days": len(sums), "changes": changes,
+    p0_days = [{"day": day, **(d["p0"].get("setting") or {}), **d["p0"]["standby_spread"]}
+               for day, d in sorted(sums.items(), reverse=True) if "standby_spread" in d.get("p0", {})]
+    return {"days": len(sums), "changes": changes, "p0_days": p0_days,
             "avg_per_day": {"compressor_starts": avg("compressor", "starts"),
                             "compressor_run_min": avg("compressor", "run_min"),
                             "short_cycles": avg("compressor", "short_cycles"),

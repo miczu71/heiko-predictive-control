@@ -61,7 +61,7 @@ CATALOG: tuple[Param, ...] = (
     _n("p0_run_time", "circulation_pump_p0_run_time", CLASS_A, "Pompa obiegowa P0: czas pracy",
        "zużycie prądu, przepływ, komfort zimą", "min", (1, 30)),
     _n("p0_stop_time", "circulation_pump_p0_stop_time", CLASS_A, "Pompa obiegowa P0: czas postoju",
-       "zużycie prądu, przepływ, komfort zimą", "min", (1, 60)),
+       "zużycie prądu, przepływ, komfort zimą", "min", (5, 60), note="pompa odrzuca postój poniżej 5 min"),
     Param("p0_speed_heating", "circulation_pump_p0_speed_heating", "select", CLASS_A,
           "Pompa obiegowa P0: obroty (ogrzewanie)", "zużycie prądu, przepływ", options=_SPEED),
     Param("p0_speed_dhw", "circulation_pump_p0_speed_dhw", "select", CLASS_A,

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime, timedelta, timezone
+from statistics import mean
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 DHW_CODES = (1, 4, 5)
 HEAT_CODES = (2, 4)
 SHORT_CYCLE_MIN = 10.0
+SPREAD_MIN_SAMPLES = 8               # próbek telemetrii co 15 min w standby (2 h), poniżej nie liczymy rozrzutu
 
 Series = list[tuple[datetime, str]]
 
@@ -157,6 +159,56 @@ def summarize_day(day: date, series: dict[str, Series], tz_name: str,
     return out
 
 
+def standby_spread(mode: dict[int, float], zones: dict[int, dict[str, float]], n_zones: int) -> dict | None:
+    """Średni rozrzut (max − min) temperatur stref w próbkach, gdy pompa stoi w standby (tryb 0).
+    Liczą się tylko próbki ze WSZYSTKIMI strefami (zmienny skład dawałby sztuczne skoki). Miara testu P0."""
+    spreads, avgs = [], []
+    for ts, code in mode.items():
+        vals = zones.get(ts) or {}
+        if int(round(code)) != 0 or len(vals) < n_zones:
+            continue
+        spreads.append(max(vals.values()) - min(vals.values()))
+        avgs.append(mean(vals.values()))
+    if len(spreads) < SPREAD_MIN_SAMPLES:
+        return None
+    return {"spread_c": round(mean(spreads), 2), "zones_avg_c": round(mean(avgs), 2), "samples": len(spreads)}
+
+
+def _telemetry_day(conn, names: list[str], start_ts: int, end_ts: int) -> dict[str, dict[int, float]]:
+    rows = conn.execute(
+        f"SELECT t.ts AS ts, k.name AS name, t.value AS value FROM telemetry t JOIN telemetry_keys k ON k.id = t.key_id "
+        f"WHERE t.ts >= ? AND t.ts < ? AND t.value IS NOT NULL AND k.name IN ({','.join('?' * len(names))})",
+        (start_ts, end_ts, *names)).fetchall()
+    out: dict[str, dict[int, float]] = {n: {} for n in names}
+    for r in rows:
+        out[r["name"]][r["ts"]] = r["value"]
+    return out
+
+
+P0_KEYS = (("run_min", "p0_run_time"), ("stop_min", "p0_stop_time"))
+
+
+def p0_setting(conn, end: datetime, states: list[dict]) -> dict | None:
+    """Nastawa P0 (praca/postój, min) na koniec doby. Encje `number` nie są w recorderze, więc: pierwsza zmiana
+    po końcu doby w `param_changes` zwraca swoje `old`; bez późniejszej zmiany obowiązuje bieżący stan."""
+    entities = catalog.resolve_params(states)
+    state_of = {st.get("entity_id"): st.get("state") for st in states}
+    out = {}
+    for field, key in P0_KEYS:
+        value = _num(state_of.get(entities.get(key)))
+        for row in conn.execute("SELECT ts, old FROM param_changes WHERE key = ? ORDER BY ts", (key,)):
+            when = datetime.fromisoformat(row["ts"])
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            if when >= end:
+                value = _num(row["old"])
+                break
+        if value is None:
+            return None
+        out[field] = value
+    return out
+
+
 def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime,
               get_history=ha_client.get_history, is_workday: Callable[[date], bool] | None = None) -> dict[str, dict]:
     """Pobiera historię doby z HA i zapisuje streszczenia (INSERT OR REPLACE). Pusty wynik = nic nie zapisujemy."""
@@ -175,6 +227,18 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
         return {}
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
     summary = summarize_day(day, series, tz_name, is_workday or (lambda d: d.weekday() < 5))
+    if summary:
+        zones = [e.strip() for e in str(settings.get("day_zone_temp_entities") or "").split(",") if e.strip()]
+        extra = {"setting": p0_setting(conn, end, states)}
+        if zones:
+            tel = _telemetry_day(conn, ["working_mode", *zones], int(start.timestamp()), int(end.timestamp()))
+            by_ts: dict[int, dict[str, float]] = {}
+            for name in zones:
+                for ts, value in tel[name].items():
+                    by_ts.setdefault(ts, {})[name] = value
+            extra["standby_spread"] = standby_spread(tel["working_mode"], by_ts, len(zones))
+        if any(extra.values()):
+            summary.setdefault("p0", {}).update({k: v for k, v in extra.items() if v})
     for topic, data in summary.items():
         conn.execute("INSERT OR REPLACE INTO daily_summary (day, topic, data) VALUES (?, ?, ?)",
                      (day.isoformat(), topic, json.dumps(data)))

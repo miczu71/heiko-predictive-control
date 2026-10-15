@@ -135,3 +135,58 @@ def test_peak_counts_only_energy_drawn_from_grid():
                   (z(12), "501.2"))                                               # w południe 0,2 z sieci, reszta PV
     out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy, "grid": grid}, TZ)["energy"]
     assert out["kwh"] == 2.0 and out["kwh_peak"] == pytest.approx(1.2)
+
+
+# ── miara równości pokoi w standby (P0) ─────────────────────────────────────
+
+ZONES = ["sensor.salon", "sensor.sypialnia"]
+T0 = int(datetime(2026, 9, 20, 22, tzinfo=timezone.utc).timestamp())      # początek doby lokalnej 21.09
+
+
+def _telemetry(conn, ts, values):
+    for name, value in values.items():
+        conn.execute("INSERT OR IGNORE INTO telemetry_keys (name) VALUES (?)", (name,))
+        key_id = conn.execute("SELECT id FROM telemetry_keys WHERE name = ?", (name,)).fetchone()["id"]
+        conn.execute("INSERT OR REPLACE INTO telemetry (ts, key_id, value) VALUES (?, ?, ?)", (ts, key_id, value))
+    conn.commit()
+
+
+def test_standby_spread_counts_only_standby_samples_with_all_zones():
+    mode = {t: 0.0 for t in range(10)}
+    mode[3] = 2.0                                                  # grzanie — pomijamy
+    zones = {t: {"a": 21.0, "b": 22.0} for t in range(10)}        # rozrzut 1,0
+    zones[5] = {"a": 21.0}                                         # brak strefy — pomijamy
+    out = sm.standby_spread(mode, zones, 2)
+    assert out == {"spread_c": 1.0, "zones_avg_c": 21.5, "samples": 8}
+
+
+def test_standby_spread_needs_enough_samples():
+    mode = {t: 0.0 for t in range(sm.SPREAD_MIN_SAMPLES - 1)}
+    zones = {t: {"a": 21.0, "b": 22.0} for t in mode}
+    assert sm.standby_spread(mode, zones, 2) is None
+
+
+def test_store_day_adds_spread_and_p0_setting(conn):
+    settings = {"timezone": TZ, "day_zone_temp_entities": ", ".join(ZONES)}
+    for i in range(12):                                            # 3 h co 15 min, standby, rozrzut 1,5
+        ts = T0 + 3600 * 6 + i * 900
+        _telemetry(conn, ts, {"working_mode": 0.0, "sensor.salon": 22.0, "sensor.sypialnia": 20.5})
+    states = [{"entity_id": "sensor.heiko_heat_pump_working_mode", "state": "0"},
+              {"entity_id": "number.lazienka_dol_heiko_heat_pump_circulation_pump_p0_run_time", "state": "5"},
+              {"entity_id": "number.lazienka_dol_heiko_heat_pump_circulation_pump_p0_stop_time", "state": "5"}]
+    conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) VALUES "
+                 "('2026-09-22T09:00:00+02:00', 'p0_run_time', 'x', '1', '5', 'użytkownik HA'), "
+                 "('2026-09-22T09:00:05+02:00', 'p0_stop_time', 'x', '6', '5', 'użytkownik HA')")
+    conn.commit()
+    hist = {"sensor.heiko_heat_pump_working_mode": series((z(0, d=20), "0"))}
+    done = sm.store_day(conn, settings, DAY, states, datetime(2026, 9, 22, 0, 20), get_history=lambda *a: hist)
+    assert done["p0"]["standby_spread"] == {"spread_c": 1.5, "zones_avg_c": 21.25, "samples": 12}
+    assert done["p0"]["setting"] == {"run_min": 1.0, "stop_min": 6.0}     # zmiana po tej dobie → wartość z `old`
+
+
+def test_p0_setting_falls_back_to_current_when_no_later_change(conn):
+    states = [{"entity_id": "number.lazienka_dol_heiko_heat_pump_circulation_pump_p0_run_time", "state": "1"},
+              {"entity_id": "number.lazienka_dol_heiko_heat_pump_circulation_pump_p0_stop_time", "state": "6"}]
+    end = datetime(2026, 9, 21, 22, tzinfo=timezone.utc)
+    assert sm.p0_setting(conn, end, states) == {"run_min": 1.0, "stop_min": 6.0}
+    assert sm.p0_setting(conn, end, []) is None

@@ -39,6 +39,8 @@ def test_keys_unique_and_classes_valid():
     ("p0_run_time", 1, 30, True),           # pełny zakres integracji, bez limitu kroku
     ("p0_run_time", 1, 31, False),
     ("p0_stop_time", 6, 60, True),
+    ("p0_stop_time", 6, 5, True),            # pompa nie przyjmuje postoju < 5 min (zapis 2 wracał do 6)
+    ("p0_stop_time", 6, 4, False),
 ])
 def test_class_a_ranges_and_step(key, cur, new, ok):
     assert catalog.check_class_a(key, cur, new)[0] is ok

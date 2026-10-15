@@ -83,6 +83,9 @@ function renderReport(payload) {
   put("report-own", `<p class="sub">Dób ze streszczeniami: ${o.days ?? 0}</p>` +
     table(["Starty sprężarki", "Praca sprężarki min", "Krótkie cykle", "Śr. cykl min", "Cykle CWU", "CWU min", "Grzanie min", "AH min", "HBH min", "Sygnał HWTBH min", "Impulsy P0", "kWh", "Udział szczytu"],
       [[a.compressor_starts, a.compressor_run_min, a.short_cycles, a.mean_run_min, a.dhw_cycles, a.dhw_min, a.heating_min, a.ah_min, a.hbh_min, a.hwtbh_min, a.p0_pulses, a.kwh, a.peak_share]]));
+  put("report-p0", !(o.p0_days || []).length ? "Brak doby z wystarczającą liczbą próbek w standby." :
+    table(["Doba", "P0 praca min", "P0 postój min", "Rozrzut °C", "Średnia stref °C", "Próbek (co 15 min)"],
+      o.p0_days.map(d => [d.day, d.run_min ?? "?", d.stop_min ?? "?", d.spread_c, d.zones_avg_c, d.samples]), { show: 14 }));
 }
 
 const when = iso => new Date(iso).toLocaleString("pl-PL");
