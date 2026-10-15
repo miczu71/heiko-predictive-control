@@ -369,7 +369,11 @@ def _abort(conn, settings: dict, test, reason: str, now: datetime, writer, notif
     restored, expected, baseline = None, _expected(test), _baseline(test)
     what = "nastawę P0" if isinstance(baseline, tuple) else "przesunięcie"
     if expected != baseline or force:
-        restored = _write_to(conn, settings, test, expected, baseline, now, writer, force)
+        try:
+            restored = _write_to(conn, settings, test, expected, baseline, now, writer, force)
+        except ValueError as exc:                          # np. brak encji P0 przy starcie HA — test i tak musi się zakończyć
+            logger.error("Przywrócenie wartości wyjściowej niemożliwe: %s", exc)
+            restored = False
     _finish(conn, test, ABORTED, now, reason)
     msg = f"Test przerwany: {reason}."
     if restored is not None:
@@ -480,7 +484,7 @@ def _done_message(test, result: dict) -> str:
     if result["verdict"] is None:
         return "Test P0 zakończony bez werdyktu (za mało próbek w standby). Szczegóły w zakładce Testy."
     kwh = f", koszt {result['extra_kwh_day']:+g} kWh/dobę" if "extra_kwh_day" in result else ""
-    return (f"Test P0 zakończony: werdykt {result['verdict']} (rozrzut pokoi niższy o {result['gain_c']:g}°C przy 5/5{kwh}, "
+    return (f"Test P0 zakończony: werdykt {result['verdict']} (rozrzut pokoi przy 5/5 {'niższy' if result['gain_c'] >= 0 else 'wyższy'} o {abs(result['gain_c']):g}°C{kwh}, "
             f"pewność {result['confidence']}). Wynik w zakładce Testy.")
 
 

@@ -201,7 +201,7 @@ def p0snap(run=1.0, stop=6.0, **kw) -> Snapshot:
 
 def test_p0_curve_off_and_not_default_proposes_back_to_1_6():
     (d,) = p0.analyze(p0snap(5.0, 5.0, curve_on=False))
-    assert (d.kind, d.param_key, d.from_value, d.to_value, d.dedupe_key) == ("zmiana", "p0_run_time", 5.0, 1.0, "p0:pair")
+    assert (d.kind, d.param_key, d.from_value, d.to_value, d.dedupe_key) == ("zmiana", "p0_run_time", 5.0, 1.0, "p0:pair:1/6")
     assert d.evidence["to_stop"] == 6.0 and "1/6" in d.reason and d.lens == "obie"
 
 
@@ -242,3 +242,12 @@ def test_p0_silent_while_test_runs_or_without_readings():
     assert p0.analyze(p0snap(test_running=True)) == []
     assert p0.analyze(snap()) == []                                      # brak odczytu P0
     assert p0.analyze(p0snap(curve_on=None)) == []
+
+
+def test_p0_only_stop_differs_proposes_change_of_stop_time():
+    (d,) = p0.analyze(p0snap(1.0, 10.0, curve_on=False))
+    assert (d.param_key, d.from_value, d.to_value) == ("p0_stop_time", 10.0, 6.0)
+
+
+def test_p0_change_is_silent_while_snoozed():
+    assert p0.analyze(p0snap(5.0, 5.0, curve_on=False, p0_change_snoozed=True)) == []

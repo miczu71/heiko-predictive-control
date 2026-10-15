@@ -21,7 +21,7 @@ from . import catalog, comfort, cycle, floor_learn, ha_client, summaries
 from . import db as dbm
 from . import floor_plan as fp
 from .analysis import percentile
-from .analyzers import KIND_ALERT, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw, p0
+from .analyzers import KIND_ALERT, KIND_CHANGE, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw, p0
 from .kpi import outdoor_class
 from .profiles import HeikoProfiles
 from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour
@@ -126,17 +126,19 @@ def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY,
     return {"share": peak / total, "samples": total, "pv_covered": covered} if total else None
 
 
-def p0_inputs(conn, now: datetime) -> tuple[dict | None, float | None, bool]:
-    """(ostatni werdykt testu p0_ab, średnia temp. zewn. z 3 dób, czy test p0_ab można proponować)."""
+def p0_inputs(conn, now: datetime) -> tuple[dict | None, float | None, bool, bool]:
+    """(ostatni werdykt testu p0_ab, średnia temp. zewn. z 3 dób, czy test p0_ab można proponować,
+    czy propozycje zmiany P0 są wyciszone po odrzuceniu)."""
     row = conn.execute("SELECT result FROM tests WHERE kind = 'p0_ab' AND status = 'zakończony' ORDER BY id DESC LIMIT 1").fetchone()
     result = json.loads(row["result"]) if row and row["result"] else {}
     verdict = {k: result.get(k) for k in ("verdict", "confidence", "outdoor_c")} if result.get("verdict") else None
     outdoor = conn.execute("SELECT AVG(outdoor_temp_c) FROM cycles WHERE loop = 'heiko' AND ts >= ?",
                            (_iso(now - timedelta(days=P0_OUTDOOR_DAYS)),)).fetchone()[0]
-    snoozed = conn.execute("SELECT 1 FROM proposals WHERE analyzer = 'p0' AND kind = ? AND status = ? AND decided_at >= ? LIMIT 1",
-                           (KIND_TEST, STATUS_REJECTED, _iso(now - timedelta(days=P0_SNOOZE_DAYS)))).fetchone()
+    snoozed = {r["kind"] for r in conn.execute(
+        "SELECT DISTINCT kind FROM proposals WHERE analyzer = 'p0' AND status = ? AND decided_at >= ?",
+        (STATUS_REJECTED, _iso(now - timedelta(days=P0_SNOOZE_DAYS))))}
     d4b = conn.execute("SELECT 1 FROM tests WHERE kind = 'bezwladnosc' AND status = 'zakończony' LIMIT 1").fetchone()
-    return verdict, outdoor, bool(d4b) and not snoozed
+    return verdict, outdoor, bool(d4b) and KIND_TEST not in snoozed, KIND_CHANGE in snoozed
 
 
 def _plan_inputs(conn, now: datetime) -> tuple[dict | None, dict | None]:
@@ -169,7 +171,7 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
                 if curve_eid else None)
     stats = room_window_stats(conn, settings, now, by_id)
     uniform, time_shift = _plan_inputs(conn, now)
-    p0_verdict, outdoor3d, p0_ready = p0_inputs(conn, now)
+    p0_verdict, outdoor3d, p0_ready, p0_snoozed = p0_inputs(conn, now)
     return Snapshot(
         now=now, target_c=float(settings.get("heiko_room_target_c", 20.6)),
         room_min_c=float(settings.get("heiko_room_min_c", 18.5)),
@@ -179,7 +181,7 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         test_running=conn.execute("SELECT 1 FROM tests WHERE status = 'w_toku' LIMIT 1").fetchone() is not None,
         summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
                                                                        grid_key=settings.get("grid_power_entity") or None),
-        p0_verdict=p0_verdict, outdoor3d_c=outdoor3d, p0_test_ready=p0_ready,
+        p0_verdict=p0_verdict, outdoor3d_c=outdoor3d, p0_test_ready=p0_ready, p0_change_snoozed=p0_snoozed,
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
                    if str((by_id.get(e) or {}).get("state", "")).lower() == "on"])
 

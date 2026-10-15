@@ -32,6 +32,7 @@ class Snapshot:
     p0_verdict: dict | None = None                    # ostatni zakończony test p0_ab: {"verdict", "confidence", "outdoor_c"}
     outdoor3d_c: float | None = None                  # średnia temp. zewn. z ostatnich 3 dób
     p0_test_ready: bool = False                       # test p0_ab można uruchomić i user go ostatnio nie odrzucił
+    p0_change_snoozed: bool = False                   # user niedawno odrzucił propozycję zmiany P0
     alerts_on: list[tuple[str, str]] = field(default_factory=list)        # (entity_id, nazwa) aktywnych czujników ostrzeżeń
 
 

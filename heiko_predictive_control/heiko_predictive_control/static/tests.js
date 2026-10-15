@@ -11,7 +11,7 @@ const when = iso => {
 const val = (v, stop) => (stop === null || stop === undefined) ? shift(v) : `${v}/${stop}`;     // para P0 „5/5” albo przesunięcie
 const isP0 = w => (w.entity_id || "").includes("circulation_pump_p0");
 const VERDICT_NOTE = r => r.verdict
-  ? `werdykt ${r.verdict}${r.gain_c !== undefined ? ` (rozrzut pokoi −${r.gain_c}°C przy 5/5` : ""}` +
+  ? `werdykt ${r.verdict}${r.gain_c !== undefined ? ` (rozrzut pokoi przy 5/5 ${r.gain_c >= 0 ? "niższy" : "wyższy"} o ${Math.abs(r.gain_c)}°C` : ""}` +
     `${r.extra_kwh_day !== undefined ? `, ${r.extra_kwh_day > 0 ? "+" : ""}${r.extra_kwh_day} kWh/dobę` : ""}` +
     `${r.gain_c !== undefined ? ")" : ""}, pewność ${r.confidence}`
   : "bez werdyktu (za mało próbek w standby)";

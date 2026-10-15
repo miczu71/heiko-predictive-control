@@ -337,12 +337,12 @@ def _add_p0_test(conn, verdict="1/6", outdoor=2.0, kind="p0_ab", status="zakońc
 
 
 def test_p0_inputs_reads_last_verdict_outdoor_average_and_readiness(conn):
-    assert advisor.p0_inputs(conn, NOW) == (None, None, False)            # D4b niezakończony
+    assert advisor.p0_inputs(conn, NOW) == (None, None, False, False)            # D4b niezakończony
     _add_p0_test(conn, kind="bezwladnosc", verdict=None)
     conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, outdoor_temp_c) VALUES (?, 'heiko', 'komfort', 0, 4.0)", ((NOW - timedelta(days=1)).isoformat(),))
     conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, outdoor_temp_c) VALUES (?, 'heiko', 'komfort', 0, 9.0)", ((NOW - timedelta(days=5)).isoformat(),))
     _add_p0_test(conn)
-    verdict, outdoor, ready = advisor.p0_inputs(conn, NOW)
+    verdict, outdoor, ready, _ = advisor.p0_inputs(conn, NOW)
     assert verdict == {"verdict": "1/6", "confidence": "wysoka", "outdoor_c": 2.0} and outdoor == 4.0 and ready
 
 
@@ -350,7 +350,7 @@ def test_p0_test_proposal_rejected_snoozes_it_for_two_weeks(conn):
     _add_p0_test(conn, kind="bezwladnosc", verdict=None)
     (pid,) = advisor.sync(conn, [draft(kind="test", analyzer="p0", key="p0:test", param=None, to=None, frm=None)], NOW)
     advisor.decide(conn, pid, "odrzucona", NOW)
-    assert advisor.p0_inputs(conn, NOW + timedelta(days=13))[2] is False
+    assert advisor.p0_inputs(conn, NOW + timedelta(days=13))[2:] == (False, False)
     assert advisor.p0_inputs(conn, NOW + timedelta(days=15))[2] is True
 
 
@@ -372,3 +372,11 @@ def test_p0_revalidation_fails_when_stop_time_changed_meanwhile(conn):
 def p0_analyzer_draft(conn, states):
     snap_ = advisor.build_snapshot(conn, SETTINGS, NOW, states)
     return next(d for d in advisor.run_analyzers(snap_) if d.analyzer == "p0")
+
+
+def test_p0_rejected_change_proposal_snoozes_changes_but_not_tests(conn):
+    (pid,) = advisor.sync(conn, [draft(analyzer="p0", key="p0:pair:1/6", param="p0_run_time", to=1.0, frm=5.0)], NOW)
+    advisor.decide(conn, pid, "odrzucona", NOW)
+    _, _, test_ready, change_snoozed = advisor.p0_inputs(conn, NOW)
+    assert change_snoozed and not test_ready                              # test: brak D4b w tym teście
+    assert advisor.p0_inputs(conn, NOW + timedelta(days=15))[3] is False

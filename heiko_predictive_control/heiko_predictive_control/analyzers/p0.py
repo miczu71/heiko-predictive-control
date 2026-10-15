@@ -26,11 +26,12 @@ def _label(pair: tuple[float, float]) -> str:
 
 def _change(cur: tuple[float, float], target: tuple[float, float], reason: str, confidence: str,
             evidence: dict) -> list[Draft]:
-    if not catalog.check_class_a(RUN_KEY, cur[0], target[0])[0]:
+    key, i = (RUN_KEY, 0) if cur[0] != target[0] else (STOP_KEY, 1)       # parametr, który faktycznie się zmienia
+    if not catalog.check_class_a(key, cur[i], target[i])[0]:
         return []
     return [Draft(
-        analyzer="p0", dedupe_key="p0:pair", lens=LENS_BOTH, kind=KIND_CHANGE, param_key=RUN_KEY,
-        from_value=cur[0], to_value=target[0], ttl_h=TTL_H, confidence=confidence,
+        analyzer="p0", dedupe_key=f"p0:pair:{_label(target)}", lens=LENS_BOTH, kind=KIND_CHANGE, param_key=key,
+        from_value=cur[i], to_value=target[i], ttl_h=TTL_H, confidence=confidence,
         reason=f"{reason} Ustaw czas pracy/postoju P0 na {_label(target)} (z {_label(cur)}) w HA — doradca niczego nie zmienia sam.",
         evidence={**evidence, "from_stop": cur[1], "to_stop": target[1]})]
 
@@ -45,7 +46,7 @@ def _test(reason: str, evidence: dict) -> list[Draft]:
 
 def analyze(snap: Snapshot) -> list[Draft]:
     run, stop = snap.params.get(RUN_KEY), snap.params.get(STOP_KEY)
-    if run is None or stop is None or snap.test_running or snap.curve_on is None:
+    if run is None or stop is None or snap.test_running or snap.curve_on is None or snap.p0_change_snoozed:
         return []
     cur = (run, stop)
     evidence = {"p0": _label(cur), "curve_on": snap.curve_on, "outdoor3d_c": snap.outdoor3d_c}

@@ -501,3 +501,12 @@ def test_unknown_kind_row_does_not_break_overview(conn):
                  (ex.DONE, "2026-10-01T10:00:00"))
     conn.commit()
     assert ex.overview(conn, P0_SETTINGS, T0, Pump().get_state, Pump().get_numeric, workday)["history"][0]["kind"] == "przyszly"
+
+
+def test_p0_abort_finishes_test_even_when_p0_entities_are_unresolvable(conn, monkeypatch):
+    pump = P0Pump()
+    m2 = _run_to_second_block(conn, pump)
+    _p0_tick(conn, pump, m2)                                              # pompa na 5/5
+    monkeypatch.setattr(ex.ha_client, "get_all_states", lambda: [])       # HA jeszcze się uruchamia
+    out = ex.recover_on_start(conn, P0_SETTINGS, m2 + timedelta(minutes=10), writer=pump.writer, notify=pump.notify)
+    assert out["status"] == ex.ABORTED and ex.running_test(conn) is None
