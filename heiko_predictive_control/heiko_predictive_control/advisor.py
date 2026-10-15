@@ -21,14 +21,14 @@ from . import catalog, comfort, cycle, floor_learn, ha_client, summaries
 from . import db as dbm
 from . import floor_plan as fp
 from .analysis import percentile
-from .analyzers import KIND_ALERT, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw
+from .analyzers import KIND_ALERT, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw, p0
 from .kpi import outdoor_class
 from .profiles import HeikoProfiles
 from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour
 
 logger = logging.getLogger(__name__)
 
-ANALYZERS: tuple[Callable[[Snapshot], list[Draft]], ...] = (curve.analyze, dhw.analyze, anomalies.analyze)
+ANALYZERS: tuple[Callable[[Snapshot], list[Draft]], ...] = (curve.analyze, dhw.analyze, anomalies.analyze, p0.analyze)
 STATUS_PENDING, STATUS_APPROVED, STATUS_REJECTED = "oczekuje", "zatwierdzona", "odrzucona"
 STATUS_EXPIRED, STATUS_SUPERSEDED = "wygasła", "zastąpiona"
 LENS_OFF = "żaden"
@@ -37,6 +37,8 @@ MIN_WINDOW_SAMPLES = 24           # próbek co 15 min (6 h) — poniżej nie oce
 SUMMARY_DAYS = 15
 PLAN_MAX_AGE_H = 3                # starszy plan nie służy do oceny skutków
 DHW_PEAK_DAYS = 14
+P0_OUTDOOR_DAYS = 3                # średnia temp. zewn. do oceny, czy werdykt P0 jest jeszcze aktualny
+P0_SNOOZE_DAYS = 14               # tyle dni po odrzuceniu nie proponujemy testu P0 ponownie
 GRID_IMPORT_W = 500                # pobór z sieci od tylu W = CWU w szczycie naprawdę kosztuje taryfę szczytową
 REPLAY_DECISION_HOUR = 7          # odtworzenie zimy: „decyzja” raz na dobę o tej godzinie
 REPLAY_MIN_HOURS = 20             # godzin z pełnymi danymi w oknie 24 h
@@ -124,6 +126,19 @@ def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY,
     return {"share": peak / total, "samples": total, "pv_covered": covered} if total else None
 
 
+def p0_inputs(conn, now: datetime) -> tuple[dict | None, float | None, bool]:
+    """(ostatni werdykt testu p0_ab, średnia temp. zewn. z 3 dób, czy test p0_ab można proponować)."""
+    row = conn.execute("SELECT result FROM tests WHERE kind = 'p0_ab' AND status = 'zakończony' ORDER BY id DESC LIMIT 1").fetchone()
+    result = json.loads(row["result"]) if row and row["result"] else {}
+    verdict = {k: result.get(k) for k in ("verdict", "confidence", "outdoor_c")} if result.get("verdict") else None
+    outdoor = conn.execute("SELECT AVG(outdoor_temp_c) FROM cycles WHERE loop = 'heiko' AND ts >= ?",
+                           (_iso(now - timedelta(days=P0_OUTDOOR_DAYS)),)).fetchone()[0]
+    snoozed = conn.execute("SELECT 1 FROM proposals WHERE analyzer = 'p0' AND kind = ? AND status = ? AND decided_at >= ? LIMIT 1",
+                           (KIND_TEST, STATUS_REJECTED, _iso(now - timedelta(days=P0_SNOOZE_DAYS)))).fetchone()
+    d4b = conn.execute("SELECT 1 FROM tests WHERE kind = 'bezwladnosc' AND status = 'zakończony' LIMIT 1").fetchone()
+    return verdict, outdoor, bool(d4b) and not snoozed
+
+
 def _plan_inputs(conn, now: datetime) -> tuple[dict | None, dict | None]:
     """(skutki jednolitego przesunięcia, oszczędność z przesuwania w czasie zł/dobę) z ostatniego planu."""
     plan = dbm.get_setting(conn, "heiko_plan") or {}
@@ -154,6 +169,7 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
                 if curve_eid else None)
     stats = room_window_stats(conn, settings, now, by_id)
     uniform, time_shift = _plan_inputs(conn, now)
+    p0_verdict, outdoor3d, p0_ready = p0_inputs(conn, now)
     return Snapshot(
         now=now, target_c=float(settings.get("heiko_room_target_c", 20.6)),
         room_min_c=float(settings.get("heiko_room_min_c", 18.5)),
@@ -163,6 +179,7 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         test_running=conn.execute("SELECT 1 FROM tests WHERE status = 'w_toku' LIMIT 1").fetchone() is not None,
         summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
                                                                        grid_key=settings.get("grid_power_entity") or None),
+        p0_verdict=p0_verdict, outdoor3d_c=outdoor3d, p0_test_ready=p0_ready,
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
                    if str((by_id.get(e) or {}).get("state", "")).lower() == "on"])
 
@@ -286,6 +303,9 @@ def make_revalidator(conn, settings: dict, now: datetime, states: list[dict],
             current = snap.params.get(row["param_key"])
             if current is None or current != row["from_value"]:
                 return False, f"parametr ma teraz wartość {current}, a propozycja zakładała {row['from_value']}"
+            from_stop = json.loads(row["evidence"]).get("from_stop")          # P0: propozycja dotyczy pary praca/postój
+            if from_stop is not None and snap.params.get(p0.STOP_KEY) != from_stop:
+                return False, f"czas postoju P0 to teraz {snap.params.get(p0.STOP_KEY)}, a propozycja zakładała {from_stop}"
         return True, ""
     return check
 

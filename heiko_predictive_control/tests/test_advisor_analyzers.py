@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from heiko_predictive_control import floor_plan as fp
-from heiko_predictive_control.analyzers import Snapshot, anomalies, curve, dhw
+from heiko_predictive_control.analyzers import Snapshot, anomalies, curve, dhw, p0
 from heiko_predictive_control.floor_model import FloorModel
 
 NOW = datetime(2026, 1, 14, 7, 0)
@@ -189,3 +189,56 @@ def test_hwtbh_counter_is_not_an_alarm_source_the_heater_does_not_exist():
     from heiko_predictive_control.analyzers import anomalies
     assert not [m for m in anomalies.METRICS if m[1] == "hwtbh_min"]
     assert {m[1] for m in anomalies.METRICS if m[0] == "backup"} == {"hbh_min", "ah_min"}
+
+
+# ── pompa obiegowa P0 ────────────────────────────────────────────────────────
+
+def p0snap(run=1.0, stop=6.0, **kw) -> Snapshot:
+    base = dict(params={"p0_run_time": run, "p0_stop_time": stop}, p0_test_ready=True, outdoor3d_c=2.0)
+    base.update(kw)
+    return snap(**base)
+
+
+def test_p0_curve_off_and_not_default_proposes_back_to_1_6():
+    (d,) = p0.analyze(p0snap(5.0, 5.0, curve_on=False))
+    assert (d.kind, d.param_key, d.from_value, d.to_value, d.dedupe_key) == ("zmiana", "p0_run_time", 5.0, 1.0, "p0:pair")
+    assert d.evidence["to_stop"] == 6.0 and "1/6" in d.reason and d.lens == "obie"
+
+
+def test_p0_curve_off_with_default_is_silent():
+    assert p0.analyze(p0snap(curve_on=False)) == []
+
+
+def test_p0_no_verdict_with_curve_on_proposes_ab_test_once_ready():
+    (d,) = p0.analyze(p0snap())
+    assert (d.kind, d.evidence["test_kind"], d.dedupe_key, d.param_key) == ("test", "p0_ab", "p0:test", None)
+    assert p0.analyze(p0snap(p0_test_ready=False)) == []                 # D4b w toku albo odrzucona w ostatnich dniach
+
+
+def test_p0_no_test_proposal_when_pump_has_foreign_setting():
+    assert p0.analyze(p0snap(2.0, 10.0)) == []                           # test porównuje tylko 1/6 i 5/5
+
+
+def test_p0_verdict_differs_from_setting_proposes_change():
+    v = {"verdict": "5/5", "confidence": "wysoka", "outdoor_c": 2.0}
+    (d,) = p0.analyze(p0snap(p0_verdict=v))
+    assert (d.kind, d.from_value, d.to_value, d.confidence) == ("zmiana", 1.0, 5.0, "średnia")
+    (low,) = p0.analyze(p0snap(p0_verdict={**v, "confidence": "niska"}))
+    assert low.confidence == "niska"
+
+
+def test_p0_verdict_matching_setting_is_silent():
+    assert p0.analyze(p0snap(5.0, 5.0, p0_verdict={"verdict": "5/5", "confidence": "wysoka", "outdoor_c": 2.0})) == []
+
+
+def test_p0_weather_outside_band_proposes_retest_instead_of_change():
+    v = {"verdict": "5/5", "confidence": "wysoka", "outdoor_c": 2.0}
+    (d,) = p0.analyze(p0snap(p0_verdict=v, outdoor3d_c=5.5))             # 3,5°C od testu
+    assert d.kind == "test" and "poza pasmem" in d.reason
+    assert [x.kind for x in p0.analyze(p0snap(p0_verdict=v, outdoor3d_c=4.9))] == ["zmiana"]   # w paśmie → zmiana
+
+
+def test_p0_silent_while_test_runs_or_without_readings():
+    assert p0.analyze(p0snap(test_running=True)) == []
+    assert p0.analyze(snap()) == []                                      # brak odczytu P0
+    assert p0.analyze(p0snap(curve_on=None)) == []

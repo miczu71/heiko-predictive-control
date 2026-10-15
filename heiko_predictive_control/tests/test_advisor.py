@@ -322,3 +322,53 @@ def test_replay_winter_without_statistics_reports_error():
 def test_replay_roundtrip_in_cache(conn):
     advisor.save_replay(conn, {"created": "2026-09-26T10:00", "ok": True})
     assert advisor.load_replay(conn) == {"created": "2026-09-26T10:00", "ok": True}
+
+
+# ── P0: migawka i zatwierdzenie ──────────────────────────────────────────────
+
+P0_STATES = [{"entity_id": "number.x_heiko_heat_pump_circulation_pump_p0_run_time", "state": "5"},
+             {"entity_id": "number.x_heiko_heat_pump_circulation_pump_p0_stop_time", "state": "5"}]
+
+
+def _add_p0_test(conn, verdict="1/6", outdoor=2.0, kind="p0_ab", status="zakończony"):
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, result) VALUES (?,?,?,'[]',1,?)",
+                 (kind, status, NOW.isoformat(), json.dumps({"verdict": verdict, "confidence": "wysoka", "outdoor_c": outdoor})))
+    conn.commit()
+
+
+def test_p0_inputs_reads_last_verdict_outdoor_average_and_readiness(conn):
+    assert advisor.p0_inputs(conn, NOW) == (None, None, False)            # D4b niezakończony
+    _add_p0_test(conn, kind="bezwladnosc", verdict=None)
+    conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, outdoor_temp_c) VALUES (?, 'heiko', 'komfort', 0, 4.0)", ((NOW - timedelta(days=1)).isoformat(),))
+    conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, outdoor_temp_c) VALUES (?, 'heiko', 'komfort', 0, 9.0)", ((NOW - timedelta(days=5)).isoformat(),))
+    _add_p0_test(conn)
+    verdict, outdoor, ready = advisor.p0_inputs(conn, NOW)
+    assert verdict == {"verdict": "1/6", "confidence": "wysoka", "outdoor_c": 2.0} and outdoor == 4.0 and ready
+
+
+def test_p0_test_proposal_rejected_snoozes_it_for_two_weeks(conn):
+    _add_p0_test(conn, kind="bezwladnosc", verdict=None)
+    (pid,) = advisor.sync(conn, [draft(kind="test", analyzer="p0", key="p0:test", param=None, to=None, frm=None)], NOW)
+    advisor.decide(conn, pid, "odrzucona", NOW)
+    assert advisor.p0_inputs(conn, NOW + timedelta(days=13))[2] is False
+    assert advisor.p0_inputs(conn, NOW + timedelta(days=15))[2] is True
+
+
+def test_p0_revalidation_fails_when_stop_time_changed_meanwhile(conn):
+    _add_p0_test(conn, kind="bezwladnosc", verdict=None)
+    _add_p0_test(conn, verdict="1/6")
+    states = [*_states(), *P0_STATES]
+    d = p0_analyzer_draft(conn, states)
+    assert (d.from_value, d.to_value) == (5.0, 1.0)
+    (pid,) = advisor.sync(conn, [d], NOW)
+    row = rows(conn)[0]
+    ok, _ = advisor.make_revalidator(conn, SETTINGS, NOW, states)(row)
+    assert ok
+    changed = [*_states(), P0_STATES[0], {**P0_STATES[1], "state": "6"}]
+    ok, why = advisor.make_revalidator(conn, SETTINGS, NOW, changed)(row)
+    assert not ok and "postoju" in why
+
+
+def p0_analyzer_draft(conn, states):
+    snap_ = advisor.build_snapshot(conn, SETTINGS, NOW, states)
+    return next(d for d in advisor.run_analyzers(snap_) if d.analyzer == "p0")

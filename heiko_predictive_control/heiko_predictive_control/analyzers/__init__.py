@@ -29,12 +29,15 @@ class Snapshot:
     time_shift: dict | None = None                    # oszczędność z samego przesuwania w czasie, zł/dobę per soczewka
     summaries: dict[str, dict[str, dict]] = field(default_factory=dict)   # doba -> temat -> dane
     dhw_peak: dict | None = None                      # {"share": udział CWU w szczycie z sieci, "samples", "pv_covered"}
+    p0_verdict: dict | None = None                    # ostatni zakończony test p0_ab: {"verdict", "confidence", "outdoor_c"}
+    outdoor3d_c: float | None = None                  # średnia temp. zewn. z ostatnich 3 dób
+    p0_test_ready: bool = False                       # test p0_ab można uruchomić i user go ostatnio nie odrzucił
     alerts_on: list[tuple[str, str]] = field(default_factory=list)        # (entity_id, nazwa) aktywnych czujników ostrzeżeń
 
 
 @dataclass
 class Draft:
-    analyzer: str                                     # curve | dhw | anomaly
+    analyzer: str                                     # curve | dhw | anomaly | p0
     dedupe_key: str                                   # ta sama para = ta sama propozycja (aktualizacja zamiast duplikatu)
     lens: str
     kind: str
