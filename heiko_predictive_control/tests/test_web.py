@@ -528,6 +528,7 @@ def _tests_client(tmp_path, monkeypatch, settings=None):
         pump["shift"] = data.get("value", pump["shift"])
         return True
     monkeypatch.setattr(ha_client, "call_service", fake_call)
+    monkeypatch.setattr(ha_client, "get_all_states", lambda: [])          # encje P0 niedostępne — bez sieci
     db_path = str(tmp_path / "t.db")
     conn = dbm.get_conn(db_path)
     dbm.migrate(conn)

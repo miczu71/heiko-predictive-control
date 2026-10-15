@@ -185,6 +185,20 @@ def _telemetry_day(conn, names: list[str], start_ts: int, end_ts: int) -> dict[s
     return out
 
 
+def zone_samples(conn, settings: dict, start_ts: int, end_ts: int):
+    """(tryb pracy, temperatury stref wg czasu, liczba stref) z telemetrii w oknie — wejście `standby_spread`.
+    None, gdy nie wskazano stref dnia."""
+    zones = [e.strip() for e in str(settings.get("day_zone_temp_entities") or "").split(",") if e.strip()]
+    if not zones:
+        return None
+    tel = _telemetry_day(conn, ["working_mode", *zones], start_ts, end_ts)
+    by_ts: dict[int, dict[str, float]] = {}
+    for name in zones:
+        for ts, value in tel[name].items():
+            by_ts.setdefault(ts, {})[name] = value
+    return tel["working_mode"], by_ts, len(zones)
+
+
 P0_KEYS = (("run_min", "p0_run_time"), ("stop_min", "p0_stop_time"))
 
 
@@ -228,15 +242,10 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
     summary = summarize_day(day, series, tz_name, is_workday or (lambda d: d.weekday() < 5))
     if summary:
-        zones = [e.strip() for e in str(settings.get("day_zone_temp_entities") or "").split(",") if e.strip()]
         extra = {"setting": p0_setting(conn, end, states)}
-        if zones:
-            tel = _telemetry_day(conn, ["working_mode", *zones], int(start.timestamp()), int(end.timestamp()))
-            by_ts: dict[int, dict[str, float]] = {}
-            for name in zones:
-                for ts, value in tel[name].items():
-                    by_ts.setdefault(ts, {})[name] = value
-            extra["standby_spread"] = standby_spread(tel["working_mode"], by_ts, len(zones))
+        samples = zone_samples(conn, settings, int(start.timestamp()), int(end.timestamp()))
+        if samples:
+            extra["standby_spread"] = standby_spread(*samples)
         if any(extra.values()):
             summary.setdefault("p0", {}).update({k: v for k, v in extra.items() if v})
     for topic, data in summary.items():

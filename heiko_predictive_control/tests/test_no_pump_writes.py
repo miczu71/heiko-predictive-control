@@ -1,7 +1,7 @@
 """Twarda gwarancja: żaden moduł pętli A (obserwacji) nie ma ścieżki zapisu do urządzeń.
 Analiza AST (nie tekstu): liczy się faktyczne użycie `call_service`, nie wzmianka w docstringu.
 Miejsca z zapisem poza `ha_client`: pętla B (klimatyzacja poddasza) i — świadomie od D3a (0.12.0) — wykonawca testów
-`experiments._write` (tylko `number.set_value` na przesunięciu krzywej)."""
+`experiments._write` (tylko `number.set_value` na przesunięciu krzywej i — od 0.16.0 — na parze czas pracy/postoju P0)."""
 import ast
 import inspect
 
@@ -55,6 +55,10 @@ def test_experiments_write_only_in_one_function_with_allowlist():
     assert experiments.ALLOWED_ENTITY_SUFFIX == "heating_curve_parallel_shift"
     assert experiments.ALLOWED_SERVICE == ("number", "set_value")
     assert (experiments.SHIFT_MIN, experiments.SHIFT_MAX, experiments.MAX_STEP) == (-4, 4, 1)
+    # 0.16.0: allowlista rozszerzona wyłącznie o dwie encje P0 i dwie pary praca/postój
+    assert set(experiments._WRITE_RULES) == {"heating_curve_parallel_shift", "circulation_pump_p0_run_time",
+                                             "circulation_pump_p0_stop_time"}
+    assert experiments.P0_PAIRS == ((1.0, 6.0), (5.0, 5.0))
 
 
 def test_comfort_alarm_only_notifies_the_user():
