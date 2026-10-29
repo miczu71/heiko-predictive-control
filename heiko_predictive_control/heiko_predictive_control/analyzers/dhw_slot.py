@@ -38,7 +38,7 @@ def _start(cycle: dict) -> datetime | None:
     return t.replace(tzinfo=timezone.utc) if t.tzinfo is None else t
 
 
-def _winter_cycles(slot: dict, now: datetime, cur: float) -> list[dict]:
+def _winter_cycles(slot: dict, now: datetime) -> list[dict]:
     since = _aware(now) - timedelta(days=WINTER_DAYS)
     out = []
     for c in slot.get("cycles") or []:
@@ -72,7 +72,7 @@ def analyze(snap: Snapshot) -> list[Draft]:
     to = cur - STEP
     if to < MIN_DELAY or not (price is None or price < AH_VALUE_MAX_PLN_PER_MIN):
         return []
-    winter = _winter_cycles(slot, snap.now, cur)
+    winter = _winter_cycles(slot, snap.now)
     if len(winter) < WINTER_MIN_CYCLES:
         return []
     over = sum(1 for c in winter if c["duration_min"] > cur) / len(winter)

@@ -146,3 +146,13 @@ def test_g12w_constants_only_in_tariff_py():
     hits = [f"{p.name}:{i}" for p in root.glob("*.py") if p.name != "tariff.py"
             for i, line in enumerate(p.read_text().splitlines(), 1) if pattern.search(line)]
     assert hits == []
+
+
+def test_refresh_rejects_schedule_with_stale_generated_at():
+    c = conn()
+    old = (NOW - timedelta(hours=4)).isoformat(timespec="seconds")
+    data = {"state": "peak", "attributes": {"schedule": schedule(NOW.replace(minute=0)), "generated_at": old}}
+    assert tf.TariffFeed(FakeHA(data), c, ENTITY).refresh(NOW, force=True) is False
+    assert c.execute("SELECT COUNT(*) FROM tariff_hours").fetchone()[0] == 0
+    data["attributes"]["generated_at"] = (NOW - timedelta(minutes=30)).isoformat(timespec="seconds")
+    assert tf.TariffFeed(FakeHA(data), c, ENTITY).refresh(NOW, force=True) is True

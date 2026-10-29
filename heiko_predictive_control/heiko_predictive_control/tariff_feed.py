@@ -62,6 +62,14 @@ def _parse_item(item) -> tuple | None:
             item.get("confidence"))
 
 
+def _source_stale(generated_at, now: datetime) -> bool:
+    """True, gdy pv_roi podał `generated_at` starszy niż STALE_MIN (retained payload po awarii publikacji)."""
+    try:
+        return (now - datetime.fromisoformat(str(generated_at))).total_seconds() > STALE_MIN * 60
+    except (TypeError, ValueError):
+        return False
+
+
 class TariffFeed:
     """`ha_client` = moduł z `get_state(entity)`, `db` = połączenie sqlite, `entity` = encja z `schedule`,
     `is_workday(date) -> bool` tylko dla zapasu G12w (domyślnie pn–pt)."""
@@ -80,9 +88,12 @@ class TariffFeed:
         if not force and latest is not None and 0 <= (now - latest).total_seconds() < REFRESH_MIN * 60:
             return False
         data = (get_state or self.ha.get_state)(self.entity)
-        items = (data or {}).get("attributes", {}).get("schedule") if isinstance(data, dict) else None
+        attrs = (data or {}).get("attributes") or {} if isinstance(data, dict) else {}
+        items = attrs.get("schedule")
         ok = False
-        if isinstance(data, dict) and str(data.get("state", "")).strip().lower() not in _BAD_STATES \
+        if _source_stale(attrs.get("generated_at"), now):
+            self._warn("refresh", now, f"harmonogram z {self.entity} wygenerowany {attrs.get('generated_at')} — pv_roi nie publikuje")
+        elif isinstance(data, dict) and str(data.get("state", "")).strip().lower() not in _BAD_STATES \
                 and isinstance(items, list):
             rows = [p for p in map(_parse_item, items) if p]
             if rows:
