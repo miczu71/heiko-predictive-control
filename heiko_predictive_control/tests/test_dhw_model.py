@@ -105,3 +105,17 @@ def test_counterfactual_is_dropped_when_trace_has_no_point_near_the_tick():
 def test_ah_effect_without_trace_has_no_counterfactual_line():
     eff = dm.ah_effect(ah_cycle(), dm.fit_model(GRID), price, TZ)
     assert eff["ok"] and eff["counterfactual"] is None
+
+
+def test_ah_effect_prices_extra_energy_at_effective_ah_price_of_the_cycle():
+    """Efektywna cena fazy AH z rekordu (ah_pln / ah_kwh = 1,0) zamiast godziny wejścia (price_fn = 0,5)."""
+    eff = dm.ah_effect(ah_cycle(ah_kwh=0.4, ah_pln=0.4), dm.fit_model(GRID), price, TZ)
+    assert eff["ok"] and eff["price_pln_kwh"] == 1.0
+    assert eff["extra_pln"] == pytest.approx(round(eff["extra_kwh"] * 1.0, 2))
+
+
+def test_ah_effect_falls_back_to_price_fn_without_ah_cost():
+    m = dm.fit_model(GRID)
+    for over in ({"ah_kwh": 0.0, "ah_pln": 0.0}, {"ah_kwh": 0.4, "ah_pln": None}, {"ah_kwh": None, "ah_pln": None}):
+        eff = dm.ah_effect(ah_cycle(**over), m, price, TZ)
+        assert eff["ok"] and eff["price_pln_kwh"] == 0.5

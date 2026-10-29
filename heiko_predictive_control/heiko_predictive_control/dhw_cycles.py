@@ -32,7 +32,7 @@ BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-DATA_VERSION = 3                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`) — backfill je przelicza
+DATA_VERSION = 4                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu — backfill je przelicza
 TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0
 MIN_HP_SEG_MIN = 5.0
@@ -142,7 +142,8 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
     if _value_at(times, values, start) is None:
         return None
     i = bisect.bisect_right(times, start)
-    total = price = 0.0
+    total = price = pv = 0.0
+    split_complete = True
     prev, prev_t = _value_at(times, values, start), start
     for t, v in zip(times[i:], values[i:]):
         if t > end:
@@ -156,14 +157,16 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
             total += inc
             if d_grid is None or rce_now is None:      # bez historii baterii: rozładowanie 0
                 price += inc * tariff
+                split_complete = False
             else:
                 g, b, p = es.split(inc, d_grid, d_dis)
                 battery = battery_cost_at(t)
                 price += es.price(g, b, p, tariff, offpeak_price if battery is None else battery, rce_now)
+                pv += p
         prev, prev_t = v, t
     if total <= 0:
-        return {"kwh": 0.0, "pln": 0.0}
-    return {"kwh": round(total, 3), "pln": round(price, 2)}
+        return {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0, "split_complete": True}
+    return {"kwh": round(total, 3), "pln": round(price, 2), "pv_kwh": pv, "split_complete": split_complete}
 
 
 def extract_cycles(series: dict[str, Series], window_start: datetime, window_end: datetime,
@@ -220,6 +223,11 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
         ah_min = _delta(ah_times, ah_values, start, end)
         cost = _cost(energy_times, energy_values, start, end + timedelta(minutes=2),
                      tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, **sources)
+        total_cost = _cost(total_times, total_values, start, end + timedelta(minutes=2),
+                           tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, **sources)
+        pv_share = None if total_cost is None or not total_cost["split_complete"] or total_cost["kwh"] <= 0 \
+            else round(total_cost["pv_kwh"] / total_cost["kwh"], 3)
+        hour = None if feed is None else feed.at(start.astimezone(tz).replace(tzinfo=None))
         hp_end = end if first_tick is None else first_tick - timedelta(minutes=AH_TICK_MARGIN_MIN)
         hp = _segment(water_times, water_values, total_times, total_values,
                       start + timedelta(minutes=HP_SKIP_MIN), hp_end, MIN_HP_SEG_MIN)
@@ -244,6 +252,9 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
             "ah_min": None if ah_min is None else round(ah_min, 1),
             "ah_kwh": None if cost is None else cost["kwh"],
             "ah_pln": None if cost is None else cost["pln"],
+            "cost_pln": None if total_cost is None else total_cost["pln"],
+            "pv_share": pv_share,
+            "zone": None if hour is None else hour.zone,
         })
     return cycles
 

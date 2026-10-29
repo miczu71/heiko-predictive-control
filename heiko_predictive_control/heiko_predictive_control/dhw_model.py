@@ -101,7 +101,8 @@ def _counterfactual(cycle: dict, delta_c: float, minutes_without: float) -> list
 
 def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], tz: ZoneInfo) -> dict:
     """Kontrfaktyka odcinka z AH: to samo ogrzanie (°C) samą sprężarką. `extra_kwh`/`extra_pln` = ile
-    AH dołożyła, `saved_min` = o ile krócej trwało grzanie. Cena z godziny wejścia AH (`price_fn(lokalny czas)`)."""
+    AH dołożyła, `saved_min` = o ile krócej trwało grzanie. Cena: efektywna cena fazy AH z rekordu cyklu
+    (`ah_pln / ah_kwh`), a bez niej z godziny wejścia AH (`price_fn(lokalny czas)`)."""
     if not model.get("ok"):
         return {"ok": False, "reason": model.get("reason", "brak modelu")}
     if cycle.get("ah_tick_min") is None:
@@ -119,9 +120,13 @@ def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], t
     minutes_without = delta_c / rate
     extra_kwh = cycle["ah_total_kw"] * cycle["ah_seg_min"] / 60.0 - kw * minutes_without / 60.0
     ah_start = datetime.fromisoformat(cycle["start"]) + timedelta(minutes=cycle["ah_tick_min"])
-    price = price_fn(ah_start.astimezone(tz))
+    ah_kwh, ah_pln = cycle.get("ah_kwh"), cycle.get("ah_pln")
+    if ah_kwh and ah_kwh > 0 and ah_pln is not None:
+        price = ah_pln / ah_kwh
+    else:
+        price = price_fn(ah_start.astimezone(tz))
     return {"ok": True, "extra_kwh": round(extra_kwh, 3), "extra_pln": round(extra_kwh * price, 2),
-            "saved_min": round(minutes_without - cycle["ah_seg_min"], 1), "price_pln_kwh": price,
+            "saved_min": round(minutes_without - cycle["ah_seg_min"], 1), "price_pln_kwh": round(price, 4),
             "counterfactual": _counterfactual(cycle, delta_c, minutes_without)}
 
 

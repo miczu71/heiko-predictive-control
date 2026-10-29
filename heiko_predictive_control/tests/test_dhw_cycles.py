@@ -201,12 +201,12 @@ def test_segment_of_cycle_without_ah_runs_to_the_end_and_short_ones_are_skipped(
     assert short_c["duration_min"] == 8.0 and short_c["hp_rate_c_min"] is None   # po 5 min pominięcia zostają 3 < 5
 
 
-def test_cycle_record_has_minute_trace_and_v3():
+def test_cycle_record_has_minute_trace_and_v4():
     mode = series((z(0), "0"), (z(9, 0), "1"), (z(9, 5), "0"))
     water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
-    assert dc.DATA_VERSION == 3 and c["v"] == 3
+    assert dc.DATA_VERSION == 4 and c["v"] == 4
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
 
@@ -281,3 +281,53 @@ def test_ah_cost_without_battery_history_still_splits_grid_and_pv():
          "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
     assert c["ah_pln"] == pytest.approx(round(0.1 * 2.0 + 0.3 * 0.25, 2))
+
+
+def test_total_cycle_cost_prices_grid_battery_and_pv_parts_separately():
+    """Ten sam przyrost co w teście AH, ale z licznika pompy (`energy_total`): cały cykl = ten 0,4 kWh."""
+    mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
+    total = series((z(12, 0), "10.0"), (z(12, 10), "10.4"))
+    grid = series((z(11), "500.0"), (z(12, 10), "500.1"))
+    discharge = series((z(11), "40.0"), (z(12, 10), "40.1"))
+    rce = series((z(11), "0.25"))
+    s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")), "energy_total": total,
+         "grid": grid, "discharge": discharge, "rce": rce}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0,
+                          battery_cost_at=lambda t: 0.5)[0]
+    assert c["ah_kwh"] is None and c["ah_pln"] is None                  # brak energy_c — AH nietknięte
+    assert c["cost_pln"] == pytest.approx(round(0.1 * 2.0 + 0.1 * 0.5 + 0.2 * 0.25, 2))
+    assert c["pv_share"] == pytest.approx(0.5)                          # 0,2 z 0,4 kWh
+
+
+def test_total_cycle_without_energy_total_has_no_cost_and_no_pv_share():
+    mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
+    s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
+         "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
+    assert c["cost_pln"] is None and c["pv_share"] is None              # brak pomiaru ≠ 0
+
+
+def test_total_cycle_without_grid_history_is_priced_by_tariff_and_has_no_pv_share():
+    mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
+    s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
+         "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    assert c["cost_pln"] == pytest.approx(0.8)                          # 0,4 kWh × 2,0 (szczyt), bez podziału
+    assert c["pv_share"] is None
+
+
+def test_cycle_zone_comes_from_tariff_feed_at_start(conn):
+    class FakeHA:
+        def get_state(self, entity):
+            hours = [{"hour": (datetime(2026, 9, 21) + timedelta(hours=i)).strftime("%Y-%m-%dT%H"), "tariff": "G12w",
+                      "zone": "peak" if 6 <= i < 22 else "offpeak", "is_peak": 6 <= i < 22,
+                      "level": "expensive" if 6 <= i < 22 else "cheap", "gross": 1.5 if 6 <= i < 22 else 0.5,
+                      "net": 1.0, "confidence": "invoice"} for i in range(48)]
+            return {"state": "peak", "attributes": {"schedule": hours}}
+
+    feed = dc.tariff_feed.TariffFeed(FakeHA(), conn, "sensor.tariff", None)
+    assert feed.refresh(datetime(2026, 9, 21, 0, 0))
+    mode = series((z(0), "0"), (z(9, 0), "1"), (z(9, 5), "0"))
+    s = {"mode": mode, "water": series((z(9, 0), "40.0")), "target": series((z(0), "48"))}
+    assert dc.extract_cycles(s, z(0), z(23, 59), TZ, feed=feed)[0]["zone"] == "peak"
+    assert dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["zone"] is None  # bez feedu zona nieznana
