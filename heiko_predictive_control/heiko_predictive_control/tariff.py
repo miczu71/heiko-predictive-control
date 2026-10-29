@@ -79,6 +79,6 @@ def fallback_hour(dt: datetime, is_workday: bool) -> HourSlot:
                     is_peak=peak, price_pln_kwh=price_for(peak))
 
 
-def fallback_prices(dt: datetime) -> tuple[float, float]:
+def fallback_prices() -> tuple[float, float]:
     """(cena szczytu, cena poza szczytem) zapasu G12w — gdy brakuje feedu."""
     return price_for(True), price_for(False)

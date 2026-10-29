@@ -180,7 +180,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
     (pobór z sieci), discharge (rozładowanie baterii), rce. Cykl wciąż trwający na prawej
     granicy okna dostaje `complete: False` i nie powinien być zapisany — wołający go pomija, okno
     przesunięte o dzień naprzód złapie go w całości. Cena godziny z `feed` (tariff_hours), a bez niego z zapasu G12w."""
-    default_peak, default_offpeak = fallback_prices(window_start)
+    default_peak, default_offpeak = fallback_prices()
     peak_price = default_peak if peak_price is None else peak_price
     offpeak_price = default_offpeak if offpeak_price is None else offpeak_price
     mode_times, mode_values = _points(series.get("mode", []))

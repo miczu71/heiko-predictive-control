@@ -428,7 +428,7 @@ def _replay_effects(settings: dict, model, amb, wat, t0: datetime, hourly: dict,
     prof = HeikoProfiles.from_settings(settings).komfort
     target = float(settings.get("heiko_room_target_c", 20.6))
     # Odtworzenie zimy z LTS: doby sprzed feedu, więc szczyt i ceny z zapasu G12w (jak baza KPI).
-    peak_price, offpeak_price = fallback_prices(t0)
+    peak_price, offpeak_price = fallback_prices()
     blocks = fp.build_blocks(t0, n, _DEFAULT_WORKDAY, day_start, day_end, peak_price, offpeak_price)
     inp = fp.PlanInputs(
         model=model, tr0_c=avg24, qf0_kw=max(0.0, model.c * (avg24 - out_now) / max(model.g, 1e-3)), t_out_c=t_out,

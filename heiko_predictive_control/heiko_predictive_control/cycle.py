@@ -275,7 +275,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     # Plan: oba profile na tym samym modelu i tej samej osi czasu.
     day_start = int(settings.get("heiko_day_start_hour", 6))
     day_end = int(settings.get("heiko_day_end_hour", 22))
-    peak_const, offpeak_price = fallback_prices(now)
+    peak_const, offpeak_price = fallback_prices()
     hour_fn = None
     if row is not None:
         offpeak_price = feed.offpeak_price(now)
