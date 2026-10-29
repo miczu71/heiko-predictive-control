@@ -10,6 +10,13 @@
   --accent-light: #e8edf1;
   --peak: #9a4a2c;
   --chart-out: #4f8486;
+  --chart-avg: #1f5f8b;
+  --chart-cold: #c2571a;
+  --chart-target: #2e7d4f;
+  --chart-min: #b3261e;
+  --band-cold: rgba(179, 38, 30, .12);
+  --band-warn: rgba(224, 160, 40, .14);
+  --band-ok: rgba(46, 125, 79, .10);
 
   --wall-light: #ece8e1;
   --wall-dark: #ddd7cd;
@@ -56,6 +63,13 @@
     --accent-light: #243241;
     --peak: #e39a78;
     --chart-out: #7fb8ba;
+    --chart-avg: #7fb8e6;
+    --chart-cold: #f29a63;
+    --chart-target: #79c99a;
+    --chart-min: #ff8f86;
+    --band-cold: rgba(255, 143, 134, .16);
+    --band-warn: rgba(240, 190, 80, .16);
+    --band-ok: rgba(121, 201, 154, .12);
 
     --wall-light: #3a3733;
     --wall-dark: #2f2c29;

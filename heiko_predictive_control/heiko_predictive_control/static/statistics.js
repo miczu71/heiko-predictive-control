@@ -30,10 +30,14 @@ function heikoNotes(d) {
 function renderHeiko(d) {
   heikoNotes(d);
   const t = d.t, n = t.length, s = d.series, m = d.meta;
-  HPC.chart($("chart-comfort"), { unit: "°C", unit2: "°C na zewnątrz", data: [t, s.indoor_c, s.min_room_c, flat(n, m.target_c), flat(n, m.room_min_c), s.outdoor_c],
-    series: [{ label: "Średnia w pokojach", color: "--accent" }, { label: "Najzimniejszy pokój", color: "--accent", dash: [2, 3] },
-      { label: "Cel", color: "--muted", dash: [6, 4], width: 1 }, { label: "Minimum", color: "--peak", dash: [6, 4], width: 1 },
-      { label: "Na zewnątrz", color: "--chart-out", y2: true, width: 1.5 }] });
+  // Tła komfortu: poniżej minimum zimno, między minimum a celem ostrzeżenie, powyżej celu w porządku.
+  const minC = m.room_min_c, celC = m.target_c;
+  const bands = minC == null || celC == null ? undefined : [{ from: null, to: minC, color: "--band-cold" },
+    { from: minC, to: celC, color: "--band-warn" }, { from: celC, to: null, color: "--band-ok" }];
+  HPC.chart($("chart-comfort"), { unit: "°C", unit2: "°C na zewnątrz", bands, data: [t, s.indoor_c, s.min_room_c, flat(n, m.target_c), flat(n, m.room_min_c), s.outdoor_c],
+    series: [{ label: "Średnia w pokojach", color: "--chart-avg" }, { label: "Najzimniejszy pokój", color: "--chart-cold", dash: [2, 3] },
+      { label: "Cel", color: "--chart-target", dash: [6, 4], width: 1 }, { label: "Minimum", color: "--chart-min", dash: [6, 4], width: 1 },
+      { label: "Na zewnątrz", color: "--chart-out", y2: true, width: 1.5, fill: true, gradient: true }] });
   // Słupki nakładane: najwyższy (całość) pod spodem, na nim sieć, na wierzchu tania taryfa — trzy pasy.
   const sum = (...cols) => cols[0].map((_, i) => cols.every(c => c[i] === null) ? null : cols.reduce((a, c) => a + (c[i] || 0), 0));
   const grid = sum(s.energy_offpeak_kwh, s.energy_peak_kwh), total = sum(grid, s.energy_own_kwh);

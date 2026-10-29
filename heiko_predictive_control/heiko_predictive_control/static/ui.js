@@ -57,6 +57,19 @@ const charts = [];
 // `shown` = tablica wartości do legendy zamiast wartości serii (słupki układane jedna na drugiej).
 // Zwraca uchwyt; null, gdy brak danych (wtedy w kontenerze pojawia się wyjaśnienie).
 const byEl = new Map();
+// bands: [{ from, to, color }] — pasy w obszarze wykresu wg skali y; null = brzeg osi. Kolor: zmienna CSS ("--x") albo css.
+const drawBands = (u, bands) => {
+  if (!bands) return;
+  const { left, top, width, height } = u.bbox, bottom = top + height;
+  const pos = v => Math.min(bottom, Math.max(top, u.valToPos(v, "y", true)));
+  u.ctx.save();
+  bands.forEach(b => {
+    const y1 = b.from == null ? bottom : pos(b.from), y2 = b.to == null ? top : pos(b.to);
+    u.ctx.fillStyle = b.color.startsWith("--") ? cssVar(b.color) : b.color;
+    u.ctx.fillRect(left, Math.min(y1, y2), width, Math.abs(y1 - y2));
+  });
+  u.ctx.restore();
+};
 HPC.chart = (el, opts) => {
   if (byEl.has(el)) byEl.get(el).destroy();                // nowy wykres w tym samym miejscu zastępuje stary
   if (typeof uPlot === "undefined" || !opts.data || !opts.data[0] || opts.data[0].length < 2) {
@@ -74,7 +87,10 @@ HPC.chart = (el, opts) => {
       if (s.dash) out.dash = s.dash;
       if (s.kind === "bars") { out.fill = color + "cc"; out.paths = uPlot.paths.bars({ size: [0.8, 40] }); }
       else if (s.kind === "step") out.paths = uPlot.paths.stepped({ align: 1 });
-      if (s.fill) out.fill = color + "22";
+      if (s.fill) out.fill = s.gradient
+        ? u => { const g = u.ctx.createLinearGradient(0, u.bbox.top, 0, u.bbox.top + u.bbox.height);   // pionowy: 35% krycia u góry, 0% na dole
+            g.addColorStop(0, color + "59"); g.addColorStop(1, color + "00"); return g; }
+        : color + "22";
       if (s.shown) out.value = (u, v, si, i) => (i == null || s.shown[i] == null) ? "—" : String(Math.round(s.shown[i] * 100) / 100);
       return out;
     })];
@@ -84,6 +100,7 @@ HPC.chart = (el, opts) => {
       width: el.clientWidth || 600, height: opts.height || 220,
       cursor: { drag: { x: false, y: false } }, legend: { live: true },
       scales: { x: { time: true }, y: { range: opts.yRange || undefined }, ...(hasY2 ? { y2: {} } : {}) },
+      hooks: { drawClear: [u => drawBands(u, opts.bands)] },
       axes: [{ values: timeTicks, stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, font: "11px system-ui" },
         axis("y", opts.unit || "", 3), ...(hasY2 ? [axis("y2", opts.unit2 || "", 1)] : [])],
       series,
