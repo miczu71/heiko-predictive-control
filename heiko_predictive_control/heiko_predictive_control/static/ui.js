@@ -88,7 +88,9 @@ HPC.chart = (el, opts) => {
       if (s.kind === "bars") { out.fill = color + "cc"; out.paths = uPlot.paths.bars({ size: [0.8, 40] }); }
       else if (s.kind === "step") out.paths = uPlot.paths.stepped({ align: 1 });
       if (s.fill) out.fill = s.gradient
-        ? u => { const g = u.ctx.createLinearGradient(0, u.bbox.top, 0, u.bbox.top + u.bbox.height);   // pionowy: 35% krycia u góry, 0% na dole
+        ? u => { const b = u.bbox;
+            if (!b || !Number.isFinite(b.top + b.height)) return color + "59";   // uPlot woła fill też dla znacznika legendy, zanim policzy obszar wykresu
+            const g = u.ctx.createLinearGradient(0, b.top, 0, b.top + b.height);   // pionowy: 35% krycia u góry, 0% na dole
             g.addColorStop(0, color + "59"); g.addColorStop(1, color + "00"); return g; }
         : color + "22";
       if (s.shown) out.value = (u, v, si, i) => (i == null || s.shown[i] == null) ? "—" : String(Math.round(s.shown[i] * 100) / 100);

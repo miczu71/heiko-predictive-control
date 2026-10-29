@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.1 — poprawka: Statystyki nie ładowały się („Błąd wczytywania statystyk”)
+
+- Wykres komfortu (linia „Na zewnątrz” z gradientem) wywoływał `createLinearGradient` z niepoliczonym obszarem wykresu, bo uPlot woła `fill` także dla znacznika legendy; cała strona Statystyki pokazywała błąd. Gradient wraca teraz do jednolitego koloru, gdy obszar nie jest jeszcze znany.
+
 ## 0.17.0 — taryfa z pv_roi, strona CWU, sugestie slotu 52, czytelny wykres komfortu
 
 Wymaga pv_roi_tracker 0.55.1+ (encja `sensor.pv_roi_tracker_pv_tariff_zone`); bez niej działa zapas G12w z plakietką.
