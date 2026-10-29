@@ -1,5 +1,6 @@
-"""Harmonogram taryfy G12w — deterministyczny, znany z wyprzedzeniem (nie
-trzeba go prognozować, w przeciwieństwie do cen giełdowych). Replikuje logikę
+"""ZAPAS: harmonogram taryfy G12w na sztywno. Od 0.17.0 cena, strefa i „szczyt” godziny pochodzą z
+harmonogramu pv_roi (`tariff_feed.TariffFeed`); ten moduł działa tylko przy braku danych z feedu
+(`fallback_hour`) oraz jako baza historyczna G12w (KPI udziału szczytu). Replikuje logikę
 `sensor.power_tauron_g12w_current_tariff` z packages/energy_simulation.yaml
 tego configu — ta sama definicja szczytu, żeby projekcja kosztu na resztę dnia
 się zgadzała z tym, co user widzi w HA."""
@@ -14,6 +15,11 @@ PEAK_WINDOWS: tuple[tuple[int, int], ...] = ((6, 13), (15, 22))
 
 DEFAULT_PEAK_PRICE_PLN = 1.2304
 DEFAULT_OFFPEAK_PRICE_PLN = 0.6306
+
+
+def default_is_workday(d) -> bool:
+    """Dzień roboczy bez wiedzy o świętach (pn–pt) — domyślnik, gdy nie ma `binary_sensor.workday`."""
+    return d.weekday() < 5
 
 
 def is_peak_hour(hour: int, is_workday: bool) -> bool:
@@ -64,3 +70,15 @@ def peak_offpeak_hour_counts(from_dt: datetime, hours_ahead: int,
     slots = schedule(from_dt, hours_ahead, is_workday_fn)
     peak = sum(1 for s in slots if s.is_peak)
     return peak, hours_ahead - peak
+
+
+def fallback_hour(dt: datetime, is_workday: bool) -> HourSlot:
+    """Zapas G12w dla godziny `dt` (czas lokalny), gdy feed z pv_roi nie ma danych."""
+    peak = is_peak_hour(dt.hour, bool(is_workday))
+    return HourSlot(hour_start=dt.replace(minute=0, second=0, microsecond=0), is_workday=bool(is_workday),
+                    is_peak=peak, price_pln_kwh=price_for(peak))
+
+
+def fallback_prices(dt: datetime) -> tuple[float, float]:
+    """(cena szczytu, cena poza szczytem) zapasu G12w — gdy brakuje feedu."""
+    return price_for(True), price_for(False)

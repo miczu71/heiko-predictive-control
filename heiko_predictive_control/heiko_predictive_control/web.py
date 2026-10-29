@@ -12,9 +12,10 @@ from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, dhw_model, experiments, floor_learn,
-               ha_client, layout, live, rooms, stats, tariff, telemetry)
+               ha_client, layout, live, rooms, stats, tariff_feed, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
+from .tariff import default_is_workday
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def create_app(db_path: str,
                get_states: Callable[[], list[dict] | None] = ha_client.get_all_states,
                compute_report: Callable = analysis.compute_report,
                replay_winter: Callable = advisor.replay_winter,
-               is_workday: Callable[[date], bool] = lambda d: d.weekday() < 5,
+               is_workday: Callable[[date], bool] = default_is_workday,
                ) -> Flask:
     app = Flask(__name__)
     app.jinja_env.filters["temp"] = live.fmt_temp
@@ -83,6 +84,24 @@ def create_app(db_path: str,
             reduced_switch["eid"] = None
         return live.reduced_enabled_label((state or {}).get("state"))
 
+    def tariff_status(conn=None) -> dict:
+        """Źródło taryfy (feed z pv_roi albo zapas G12w) — dla plakietki w UI i `/api/live`."""
+        own = conn is None
+        conn = conn or db_conn()
+        try:
+            return tariff_feed.for_settings(conn, get_settings(), is_workday).status()
+        finally:
+            if own:
+                conn.close()
+
+    @app.context_processor
+    def inject_tariff_source():
+        try:
+            return {"tariff_source": tariff_status()["source"]}
+        except Exception:                                   # plakietka nie może wywrócić strony
+            logger.exception("Stan taryfy nieczytelny")
+            return {"tariff_source": "fallback"}
+
     def live_data(settings: dict) -> dict:
         """live.collect + stan sterowania poddaszem (z bazy) — ten sam słownik
         dla renderu strony i /api/live."""
@@ -93,8 +112,11 @@ def create_app(db_path: str,
             row = dbm.latest_cycle(conn, "attic")
             totals = dbm.attic_today_totals(conn, date.today().isoformat())
             heiko_row = dbm.latest_cycle(conn, "heiko")
+            status = tariff_feed.for_settings(conn, settings, is_workday).status()
         finally:
             conn.close()
+        data["tariff_source"] = status["source"]
+        data["tariff_status"] = status
         if heiko_row is not None:
             data["heiko"]["reduced"] = live.reduced_label(heiko_row["reduced_active"], heiko_row["curve_on"])
         # from_dict: przy braku utrwalonego stanu (dry-run) pokazuje domyślne wartości
@@ -232,6 +254,7 @@ def create_app(db_path: str,
         baseline = settings.get("peak_baseline")
         try:
             recent = kpi.recent_kpi(conn, datetime.now(), baseline)
+            status = tariff_feed.for_settings(conn, settings, is_workday).status()
             errs = [r["model_err_c"] for r in conn.execute(
                 "SELECT model_err_c FROM cycles WHERE loop = 'heiko' AND model_err_c IS NOT NULL "
                 "ORDER BY id DESC LIMIT 96")]
@@ -245,6 +268,9 @@ def create_app(db_path: str,
             "live_rmse_c": None if live_rmse is None else round(live_rmse, 3),
             "live_samples": len(errs),
             "kpi": recent,
+            # Baza historyczna zostaje G12w; bieżące dni liczone są szczytem z taryfy z feedu (jeśli jest).
+            "peak_basis": "G12w" if status["source"] != "feed" else (status["tariff"] or "G12w"),
+            "peak_baseline_basis": "G12w",
             "kpi_baseline": None if not baseline else {k: baseline.get(k) for k in ("overall", "hours", "kwh", "at")},
         })
 
@@ -302,12 +328,12 @@ def create_app(db_path: str,
         conn = db_conn()
         try:
             cycles = dhw_cycles.load_cycles(conn, days)
+            feed = tariff_feed.for_settings(conn, get_settings(), is_workday)
+            tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
+            model = dhw_model.fit_model(cycles)
+            ah = dhw_model.summarize(cycles, model, lambda t: feed.price(t.replace(tzinfo=None)), tz)
         finally:
             conn.close()
-        tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
-        model = dhw_model.fit_model(cycles)
-        ah = dhw_model.summarize(
-            cycles, model, lambda t: tariff.price_for(tariff.is_peak_hour(t.hour, is_workday(t.date()))), tz)
         for c in cycles[TRACE_CYCLES:]:                       # UI rysuje przebieg tylko 30 najnowszych — reszta to zbędny ładunek
             c.pop("trace", None)
         return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles), "model": model, "ah_effect": ah})

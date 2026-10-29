@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from statistics import mean
 from zoneinfo import ZoneInfo
 
-from . import catalog, comfort, floor_learn, ha_client, live, summaries
+from . import catalog, comfort, floor_learn, ha_client, live, summaries, tariff_feed
 from .cycle import curve_shift_entity
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,8 @@ NO_CONFIRMATION = "brak potwierdzenia"
 SUPERSEDED = "zastąpiony"                  # niepotwierdzony zapis, po którym przyszedł następny (np. powrót po przerwaniu)
 RUNNING, DONE, ABORTED = "w_toku", "zakończony", "przerwany"
 
-INERTIA_WINDOWS = ((6, 12), (15, 21))     # godziny −1 w dobie roboczej (skok 6 h, powrót 3 h / 9 h)
+INERTIA_WINDOWS = ((6, 12), (15, 21))     # domyślne godziny −1 w dobie roboczej (skok 6 h, powrót 3 h / 9 h) — gdy feed nie zna doby
+INERTIA_MIN_WINDOW_H = 2                  # okno z feedu: odcinek drogich godzin [s, e) -> skok o s, powrót o e−1, min. tyle godzin
 INERTIA_DAYS = 3
 
 ABORT_CONDITIONS = (
@@ -112,7 +113,15 @@ def _p0_schedule(baseline: tuple, now: datetime) -> list[dict]:
             for i, pair in enumerate([baseline, other] * (P0_DAYS // 2) + [baseline])]
 
 
-def build_schedule(kind: str, baseline, now: datetime, is_workday) -> list[dict]:
+def _inertia_windows(day, feed) -> tuple | None:
+    """Okna testu na dobę: drogie strefy (`is_peak`) z feedu taryfy; None = feed nie zna doby (okna domyślne)."""
+    runs = feed.day_peak_windows(day) if feed is not None else None
+    if runs is None:
+        return None
+    return tuple((a, b - 1) for a, b in runs if b - a >= INERTIA_MIN_WINDOW_H)
+
+
+def build_schedule(kind: str, baseline, now: datetime, is_workday, feed=None) -> list[dict]:
     """Kroki [{at, value}] od `now` (P0: też `stop`); ostatni krok zawsze wraca do wartości wyjściowej."""
     steps: list[tuple[datetime, float]] = []
     if kind == "p0_ab":
@@ -123,8 +132,9 @@ def build_schedule(kind: str, baseline, now: datetime, is_workday) -> list[dict]
     elif kind == "bezwladnosc":
         day, days = now.date(), 0
         while days < INERTIA_DAYS and day <= now.date() + timedelta(days=14):
-            if is_workday(day):
-                for start_h, end_h in INERTIA_WINDOWS:
+            windows = _inertia_windows(day, feed)
+            if windows is not None or is_workday(day):
+                for start_h, end_h in (INERTIA_WINDOWS if windows is None else windows):
                     start = datetime.combine(day, datetime.min.time()).replace(hour=start_h)
                     if start >= now + timedelta(minutes=5):
                         steps += [(start, baseline - 1), (start.replace(hour=end_h), baseline)]
@@ -159,7 +169,7 @@ def validate(schedule: list[dict], baseline) -> str | None:
 
 
 def _plan(kind: Kind, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
-          is_workday, p0: tuple | None = None, d4b_done: bool = True) -> tuple[list[dict], str | None]:
+          is_workday, p0: tuple | None = None, d4b_done: bool = True, feed=None) -> tuple[list[dict], str | None]:
     """Harmonogram i ewentualna blokada Startu — to samo dla podglądu w UI i dla samego Startu."""
     is_p0 = kind.target == "p0"
     if not settings.get("heiko_enabled"):
@@ -181,7 +191,7 @@ def _plan(kind: Kind, settings: dict, now: datetime, shift: float | None, curve_
     else:
         reason = None
     base = (p0 or P0_PAIRS[0]) if is_p0 else (shift if shift is not None else 0.0)
-    schedule = build_schedule(kind.key, base, now, is_workday)
+    schedule = build_schedule(kind.key, base, now, is_workday, feed)
     return schedule, reason or validate(schedule, base)
 
 
@@ -261,9 +271,10 @@ def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_wor
     shift, curve_on = _read(settings, get_state, get_numeric)
     p0, d4b = _read_p0(settings, get_numeric), _d4b_done(conn)
     running = running_test(conn)
+    feed = tariff_feed.for_settings(conn, settings, is_workday)
     kinds = []
     for kind in KINDS.values():
-        schedule, blocked = _plan(kind, settings, now, shift, curve_on, running, is_workday, p0, d4b)
+        schedule, blocked = _plan(kind, settings, now, shift, curve_on, running, is_workday, p0, d4b, feed)
         kinds.append({"key": kind.key, "title": kind.title, "description": kind.description, "measure": kind.measure,
                       "schedule": schedule, "blocked": blocked, "passed": _passed(conn, kind.key),
                       "abort_conditions": P0_ABORT_CONDITIONS if kind.target == "p0" else ABORT_CONDITIONS})
@@ -285,7 +296,8 @@ def start(conn, settings: dict, kind_key: str, now: datetime, get_state, get_num
     shift, curve_on = _read(settings, get_state, get_numeric)
     p0 = _read_p0(settings, get_numeric) if kind.target == "p0" else None
     with _lock:
-        schedule, reason = _plan(kind, settings, now, shift, curve_on, running_test(conn), is_workday, p0, _d4b_done(conn))
+        schedule, reason = _plan(kind, settings, now, shift, curve_on, running_test(conn), is_workday, p0, _d4b_done(conn),
+                                  tariff_feed.for_settings(conn, settings, is_workday))
         if reason:
             return {"ok": False, "error": reason}
         baseline = p0 if p0 else shift

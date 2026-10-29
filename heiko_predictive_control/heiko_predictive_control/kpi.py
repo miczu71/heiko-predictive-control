@@ -18,7 +18,7 @@ from . import db as dbm
 from . import ha_client
 from . import energy_source as es
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
-from .tariff import is_peak_hour
+from .tariff import default_is_workday, fallback_hour
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,8 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
         if utc.month not in HEATING_MONTHS or to >= HEATING_MAX_OUTDOOR_C:
             continue
         local = utc.astimezone(tz)
-        is_peak = is_peak_hour(local.hour, local.weekday() < 5)
+        # Baza historyczna zawsze wg G12w (zima sprzed feedu z pv_roi) — porównanie ma stałą miarę.
+        is_peak = fallback_hour(local, default_is_workday(local.date())).is_peak
         from_grid = es.split(e, imported[start])[0] if start in imported else e
         cls = by_class.setdefault(outdoor_class(to), [0.0, 0.0, 0])
         cls[0] += e

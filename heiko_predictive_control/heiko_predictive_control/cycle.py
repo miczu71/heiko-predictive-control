@@ -17,8 +17,8 @@ from . import floor_plan as fp
 from . import ha_client
 from .analyzers import curve as curve_analyzer
 from .profiles import AtticProfiles, HeikoProfiles
-from .tariff import (DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN,
-                     is_peak_hour, price_for)
+from . import tariff_feed
+from .tariff import default_is_workday, fallback_hour, fallback_prices, price_for
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def workday_resolver(today: date, today_workday: bool | None, check):
     def resolve(d: date) -> bool:
         if d not in cache:
             value = today_workday if (d == today and today_workday is not None) else check(d.isoformat())
-            cache[d] = (d.weekday() < 5) if value is None else bool(value)
+            cache[d] = default_is_workday(d) if value is None else bool(value)
         return cache[d]
     return resolve
 
@@ -167,10 +167,22 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     indoor_c = average_temp([t for t, _ in rooms])
     min_room = min(min_rooms) if min_rooms else None
     outdoor_c = get_numeric(settings.get("outdoor_temp_entity", ""))
-    is_peak = get_bool(settings.get("tariff_state_entity", ""))
-    price = get_numeric(settings.get("tariff_price_entity", ""))
-    if price is None:
-        price = price_for(bool(is_peak), DEFAULT_PEAK_PRICE_PLN, DEFAULT_OFFPEAK_PRICE_PLN)
+    workday = workday_resolver(now.date(), get_bool("binary_sensor.workday"), check_workday)
+    # Taryfa: harmonogram z pv_roi (tariff_hours). Bez świeżych danych: encje z Opcji, a przy ich braku zapas G12w
+    # (stan widać w status() -> /api/live, plakietka w UI).
+    feed = tariff_feed.for_settings(conn, settings, workday)
+    feed.refresh(now, get_state=get_state)
+    row = feed.at(now) if feed.status(now)["source"] == "feed" else None
+    if row is not None:
+        is_peak, price = row.is_peak, row.gross
+    else:
+        is_peak = get_bool(settings.get("tariff_state_entity", ""))
+        price = get_numeric(settings.get("tariff_price_entity", ""))
+        slot = fallback_hour(now, workday(now.date()))
+        if is_peak is None:
+            is_peak = slot.is_peak
+        if price is None:
+            price = price_for(bool(is_peak))
     energy_now = get_numeric(settings.get("pump_energy_entity", ""))
     water_temp = get_numeric(settings.get("heiko_water_temp_entity") or _DEFAULT_WATER_TEMP)
     mode = (get_state(settings.get("heiko_working_mode_entity") or _DEFAULT_MODE) or {}).get("state")
@@ -233,7 +245,8 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         tw = water_temp if water_temp is not None else (curve_now if curve_now is not None else outdoor_c + 10)
         heat_kw = fm.measured_heat_kw(energy_kwh, dt_h, outdoor_c, tw) if heating_step else 0.0
     result["energy_kwh"], result["heat_kw"] = energy_kwh, heat_kw
-    result.update(_energy_sources(conn, settings, get_numeric, energy_now, energy_kwh is not None, price))
+    result.update(_energy_sources(conn, settings, get_numeric, energy_now, energy_kwh is not None, price,
+                                    feed.offpeak_price(now)))
 
     fstate = dbm.get_setting(conn, "floor_state") or {}
     qf_now, model_err = (heat_kw or 0.0), None
@@ -260,11 +273,14 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
         return result
 
     # Plan: oba profile na tym samym modelu i tej samej osi czasu.
-    workday = workday_resolver(now.date(), get_bool("binary_sensor.workday"), check_workday)
     day_start = int(settings.get("heiko_day_start_hour", 6))
     day_end = int(settings.get("heiko_day_end_hour", 22))
-    blocks = fp.build_blocks(t0, n, workday, day_start, day_end,
-                              DEFAULT_PEAK_PRICE_PLN, DEFAULT_OFFPEAK_PRICE_PLN)
+    peak_const, offpeak_price = fallback_prices(now)
+    hour_fn = None
+    if row is not None:
+        offpeak_price = feed.offpeak_price(now)
+        hour_fn = lambda t: (feed.is_peak(t), feed.price(t))      # noqa: E731
+    blocks = fp.build_blocks(t0, n, workday, day_start, day_end, peak_const, offpeak_price, hour_fn=hour_fn)
     target = float(settings.get("heiko_room_target_c", 20.6))
     room_min = float(settings.get("heiko_room_min_c", 18.5))
     fuse = min_room is not None and min_room[0] < room_min
@@ -275,7 +291,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
                   blocks=blocks, target_c=target, fuse_active=fuse,
                   water_min_c=float(settings.get("heiko_water_min_c", 20.0)),
                   water_max_c=float(settings.get("heiko_water_max_c", 32.0)),
-                  offpeak_price=DEFAULT_OFFPEAK_PRICE_PLN)
+                  offpeak_price=offpeak_price)
     inputs = {name: fp.PlanInputs(bands=b, **common) for name, b in bands.items()}
     base = fp.baseline(inputs["komfort"])
     plans = {name: fp.optimize(inp) for name, inp in inputs.items()}
@@ -296,7 +312,7 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
 
 
 def _energy_sources(conn, settings: dict, get_numeric, energy_now: float | None, step_ok: bool,
-                    price: float) -> dict:
+                    price: float, offpeak_price: float) -> dict:
     """Podział energii pompy z kroku na sieć/baterię/PV i jej koszt (moduł `energy_source`).
     Licznik pompy jest w tym samym zestawie co liczniki sieci i baterii: brak któregokolwiek pomija
     krok w całości, więc kolejny krok liczy wszystkie przyrosty z tego samego przedziału.
@@ -315,7 +331,7 @@ def _energy_sources(conn, settings: dict, get_numeric, energy_now: float | None,
         return {}                                      # reset licznika albo błędny odczyt
     battery_cost = dbm.get_setting(conn, "battery_cost_pln_kwh")
     if battery_cost is None:
-        battery_cost = DEFAULT_OFFPEAK_PRICE_PLN
+        battery_cost = offpeak_price
     step = es.Step(load_kwh=deltas["pump"], import_kwh=deltas["grid_import"],
                    charge_kwh=deltas["battery_charge"], discharge_kwh=deltas["battery_discharge"],
                    soc_kwh=soc / 100.0 * capacity_wh / 1000.0, grid_price=price, rce_price=rce)
@@ -445,10 +461,11 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
     if prev_ts is not None and now > prev_ts:
         dt_h = min((now - prev_ts).total_seconds() / 3600.0, 0.5)
     energy_kwh = (power_w or 0.0) / 1000.0 * dt_h
-    price = get_numeric(settings.get("tariff_price_entity", ""))
+    feed = tariff_feed.for_settings(conn, settings, lambda d: bool(is_workday))
+    row = feed.at(now) if feed.status(now)["source"] == "feed" else None
+    price = row.gross if row is not None else get_numeric(settings.get("tariff_price_entity", ""))
     if price is None:
-        price = price_for(is_peak_hour(now.hour, bool(is_workday)),
-                          DEFAULT_PEAK_PRICE_PLN, DEFAULT_OFFPEAK_PRICE_PLN)
+        price = fallback_hour(now, bool(is_workday)).price_pln_kwh
 
     profiles = AtticProfiles.from_settings(settings)
     show_targets = decision.phase not in ("poza_oknem", "czeka", "przekazanie")

@@ -96,7 +96,7 @@ def test_uniform_effects_cheaper_and_colder_when_water_setpoint_lowered():
     n = int(36 / fp.STEP_H)
     blocks = fp.build_blocks(t0, n, lambda d: d.weekday() < 5, 6, 22, 1.2304, 0.6306)
     inp = fp.PlanInputs(model=FloorModel(), tr0_c=20.8, qf0_kw=1.0, t_out_c=[2.0] * n, base_c=[26.0] * n, blocks=blocks,
-                        bands=[(19.6, 21.6)] * n, target_c=20.6)
+                        bands=[(19.6, 21.6)] * n, target_c=20.6, offpeak_price=0.6306)
     eff = curve.uniform_effects(inp)
     assert eff["-1"]["energy_day_delta_kwh"] < 0 < eff["+1"]["energy_day_delta_kwh"]
     assert eff["-1"]["cost_day_delta_pln"] < 0 < eff["+1"]["cost_day_delta_pln"]
@@ -114,7 +114,7 @@ def test_uniform_effects_price_the_heat_debt_so_saving_is_not_overstated():
 
     def effects(out_c, base_c):
         inp = fp.PlanInputs(model=model, tr0_c=21.5, qf0_kw=max(0.0, model.c * (21.5 - out_c) / model.g), t_out_c=[out_c] * n,
-                            base_c=[base_c] * n, blocks=blocks, bands=[(19.6, 21.6)] * n, target_c=20.6)
+                            base_c=[base_c] * n, blocks=blocks, bands=[(19.6, 21.6)] * n, target_c=20.6, offpeak_price=0.6306)
         return curve.uniform_effects(inp)["-1"]
     mild, cold = effects(8.0, 23.5), effects(-5.0, 26.5)
     for eff in (mild, cold):

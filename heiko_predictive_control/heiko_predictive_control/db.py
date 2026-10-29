@@ -151,6 +151,18 @@ CREATE TABLE IF NOT EXISTS pump_writes (
     ok INTEGER NOT NULL,             -- HA przyjęło wywołanie usługi
     confirmed_at TEXT
 );
+
+-- 0.17.0: harmonogram taryfy z pv_roi (godzina lokalna 'YYYY-MM-DDTHH'); zostają też godziny przeszłe.
+CREATE TABLE IF NOT EXISTS tariff_hours (
+    hour TEXT PRIMARY KEY,
+    tariff TEXT,
+    zone TEXT,
+    is_peak INTEGER NOT NULL,
+    level TEXT,
+    gross REAL NOT NULL,
+    confidence TEXT,
+    fetched_at TEXT NOT NULL
+);
 """
 
 

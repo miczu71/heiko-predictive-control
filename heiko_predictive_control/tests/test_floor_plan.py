@@ -76,7 +76,7 @@ def _inputs(t0=WED_3AM, band_day=1.5, band_night=2.0, fuse=False, t_out=0.0,
     return fp.PlanInputs(
         model=model, tr0_c=tr0, qf0_kw=q_ss, t_out_c=[t_out] * n, base_c=[base] * n,
         blocks=_blocks(t0), bands=fp.step_bands(t0, n, 20.6, band_day, band_night, 6, 22),
-        target_c=20.6, water_min_c=20.0, water_max_c=32.0, fuse_active=fuse)
+        target_c=20.6, offpeak_price=0.6306, water_min_c=20.0, water_max_c=32.0, fuse_active=fuse)
 
 
 def test_baseline_at_steady_state_holds_temperature():

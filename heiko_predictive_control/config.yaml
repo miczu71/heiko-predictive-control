@@ -31,6 +31,9 @@ options:
   solcast_remaining_today_entity: "sensor.solcast_pv_forecast_forecast_remaining_today"
   tariff_state_entity: "sensor.power_tauron_g12w_current_tariff"
   tariff_price_entity: "sensor.power_tauron_g12w_current_price"
+  # Harmonogram taryfy z pv_roi (atrybut `schedule`): cena, strefa i szczyt każdej godziny. Dwie powyższe encje
+  # służą tylko jako zapas, gdy harmonogramu brak albo jest starszy niż 3 h.
+  tariff_schedule_entity: "sensor.pv_roi_tracker_pv_tariff_zone"
   pump_energy_entity: "sensor.energia_pompa_ciepla_energy"
   # A2: energia grzałki AH — faza C licznika pompy (jedyna faza, którą AH obciąża; potwierdzone A0)
   ah_energy_entity: "sensor.energia_pompa_ciepla_energy_c"
@@ -109,6 +112,7 @@ schema:
   solcast_remaining_today_entity: str?
   tariff_state_entity: str
   tariff_price_entity: str?
+  tariff_schedule_entity: str?
   pump_energy_entity: str
   ah_energy_entity: str?
   grid_power_entity: str?

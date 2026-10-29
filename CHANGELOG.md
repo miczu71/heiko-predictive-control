@@ -1,5 +1,18 @@
 # Changelog
 
+## Nieopublikowane — taryfa z harmonogramu pv_roi zamiast G12w na sztywno
+
+- **Cena, strefa i „szczyt” godziny** pochodzą z atrybutu `schedule` encji `tariff_schedule_entity` (domyślnie
+  `sensor.pv_roi_tracker_pv_tariff_zone`), zapisywanego co cykl (nie częściej niż co 5 min) w nowej tabeli `tariff_hours`.
+  Święta i taryfy inne niż G12w (np. G13) wynikają z harmonogramu. Cykle, streszczenia dób, cykle CWU, plan blokowy,
+  doradca i okna testu Bezwładność używają tej ceny; historia sprzed zmiany zostaje wyceniona zegarowo (bez przeliczania).
+- **Zapas**: brak encji, `unavailable`, niepoprawny harmonogram albo dane starsze niż 3 h — używane są najpierw
+  `tariff_state_entity`/`tariff_price_entity`, potem stałe G12w (`tariff.py`). Ostrzeżenie w logu raz na godzinę,
+  stan w `/api/live` (`tariff_source`) i plakietka „taryfa: zapas G12w — brak danych z pv_roi” w nagłówku UI.
+- **KPI udziału szczytu**: baza z zimy zostaje liczona wg G12w; `/api/plan` zwraca `peak_basis` (taryfa bieżących dni),
+  a opis KPI na pulpicie mówi, względem czego porównujemy.
+- Nowa opcja `tariff_schedule_entity`.
+
 ## 0.16.0 — Doradca: test A/B pompy obiegowej P0 (1/6 vs 5/5) i propozycje nastawy
 
 Cel: sprawdzić pomiarem, czy P0 5/5 wyrównuje temperatury pokoi lepiej niż 1/6 (kosztuje ok. 15 W). Zapis do pompy

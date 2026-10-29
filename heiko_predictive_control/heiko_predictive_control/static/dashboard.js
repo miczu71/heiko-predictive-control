@@ -139,7 +139,8 @@ function renderKpi(data) {
   if (!b) {
     return `<p class="note">Baza z zimy jest jeszcze liczona (pierwsze uruchomienie, kilka minut).</p>`;
   }
-  const base = `Zima sprzed sterowania: ${pct(b.overall)} energii w szczycie (${b.hours} h danych, ${esc(b.at.slice(0, 10))}).`;
+  const basis = data.peak_basis ? `Bieżące dni: szczyt wg taryfy ${esc(data.peak_basis)}; baza z zimy zawsze wg ${esc(data.peak_baseline_basis || "G12w")}. ` : "";
+  const base = `${basis}Zima sprzed sterowania: ${pct(b.overall)} energii w szczycie (${b.hours} h danych, ${esc(b.at.slice(0, 10))}).`;
   if (!k) {
     return `<p>Za mało energii w ostatnich 7 dniach (poza sezonem grzewczym) — KPI pojawi się, gdy pompa zacznie grzać.</p>
       <p class="note">${base}</p>`;

@@ -19,6 +19,7 @@
     <a href="{{ base }}/report" {% if active == 'report' %}class="active"{% endif %}>Raport</a>
     <a href="{{ base }}/options" {% if active == 'options' %}class="active"{% endif %}>Opcje</a>
   </div>
+  {% if tariff_source == 'fallback' %}<span class="badge kind-eksperyment" id="tariff-fallback" title="Harmonogram taryfy z pv_roi jest niedostępny lub starszy niż 3 h">taryfa: zapas G12w — brak danych z pv_roi</span>{% endif %}
   <span class="nav-version">v{{ version }}</span>
 </nav>
 <main class="main">

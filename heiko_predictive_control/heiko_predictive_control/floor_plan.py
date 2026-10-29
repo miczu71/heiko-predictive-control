@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Sequence
 
 from .floor_model import FloorModel, cop
-from .tariff import is_peak_hour
+from .tariff import fallback_hour
 
 STEP_H = 0.25
 DELTA_GRID: tuple[float, ...] = (0.0, -1.0, 1.0, -2.0, 2.0, -3.0, 3.0)   # kolejność = preferencja
@@ -67,24 +67,31 @@ class Block:
 
 def build_blocks(t0: datetime, n_steps: int, is_workday: Callable[[object], bool],
                  day_start: int, day_end: int, peak_price: float, offpeak_price: float,
-                 step_h: float = STEP_H, max_len_h: float = MAX_BLOCK_H) -> list[Block]:
-    """Ciągłe odcinki o tym samym (szczyt, dzień); dłuższe niż `max_len_h` dzielone."""
+                 step_h: float = STEP_H, max_len_h: float = MAX_BLOCK_H,
+                 hour_fn: Callable[[datetime], tuple[bool, float]] | None = None) -> list[Block]:
+    """Ciągłe odcinki o tym samym (szczyt, dzień[, cena]); dłuższe niż `max_len_h` dzielone.
+    `hour_fn(t) -> (is_peak, cena)` (feed z pv_roi) ustala szczyt i cenę każdego kroku; bez niego
+    szczyt wynika z zapasu G12w, a cena z `peak_price`/`offpeak_price`."""
     max_steps = max(1, int(round(max_len_h / step_h)))
     keys = []
     for i in range(n_steps):
         t = t0 + timedelta(hours=i * step_h)
-        keys.append((is_peak_hour(t.hour, bool(is_workday(t.date()))),
-                     day_start <= t.hour < day_end))
+        if hour_fn is not None:
+            peak, price = hour_fn(t)
+        else:
+            peak = fallback_hour(t, bool(is_workday(t.date()))).is_peak
+            price = peak_price if peak else offpeak_price
+        keys.append((peak, day_start <= t.hour < day_end, price))
     blocks: list[Block] = []
     i = 0
     while i < n_steps:
         j = i + 1
         while j < n_steps and keys[j] == keys[i] and j - i < max_steps:
             j += 1
-        peak, day = keys[i]
+        peak, day, price = keys[i]
         blocks.append(Block(i0=i, i1=j, start=t0 + timedelta(hours=i * step_h),
                             end=t0 + timedelta(hours=j * step_h), is_peak=peak, is_day=day,
-                            price_pln_kwh=peak_price if peak else offpeak_price))
+                            price_pln_kwh=price))
         i = j
     return blocks
 
@@ -143,10 +150,10 @@ class PlanInputs:
     blocks: list[Block]
     bands: list[tuple[float, float]]
     target_c: float
+    offpeak_price: float                 # cena „poza szczytem” (zł/kWh) — z feedu taryfy, bez wartości domyślnej
     water_min_c: float = 20.0
     water_max_c: float = 32.0
     step_h: float = STEP_H
-    offpeak_price: float = 0.6306
     fuse_active: bool = False            # któryś pokój poniżej minimum -> δ bloku 0 nie < 0
     hold_mean_c: float | None = None     # wymuś średnią nie niższą niż ta (oszczędność z samego przesunięcia)
 

@@ -19,6 +19,7 @@ from . import (__version__, advisor, comfort, cycle, dhw_cycles, experiments, fl
                summaries, telemetry)
 from . import attic as attic_mod
 from . import db as dbm
+from .tariff import default_is_workday
 from .publisher import MQTTPublisher
 from .web import create_app
 
@@ -66,6 +67,7 @@ def _options_from_env() -> dict:
         "solcast_remaining_today_entity": _env("SOLCAST_REMAINING_TODAY_ENTITY"),
         "tariff_state_entity": _env("TARIFF_STATE_ENTITY"),
         "tariff_price_entity": _env("TARIFF_PRICE_ENTITY"),
+        "tariff_schedule_entity": _env("TARIFF_SCHEDULE_ENTITY", "sensor.pv_roi_tracker_pv_tariff_zone"),
         "pump_energy_entity": _env("PUMP_ENERGY_ENTITY"),
         "ah_energy_entity": _env("AH_ENERGY_ENTITY"),
         "grid_power_entity": _env("GRID_POWER_ENTITY", "sensor.power_meter_active_power"),
@@ -157,7 +159,7 @@ def main() -> None:
         """Dzień roboczy wg integracji workday (święta), z cache — dni się nie zmieniają, a doradca pyta o ~14 dób co godzinę."""
         if d not in workday_cache:
             verdict = ha_client.check_workday(d.isoformat())
-            workday_cache[d] = d.weekday() < 5 if verdict is None else verdict
+            workday_cache[d] = default_is_workday(d) if verdict is None else verdict
         return workday_cache[d]
 
     def run_heiko() -> None:

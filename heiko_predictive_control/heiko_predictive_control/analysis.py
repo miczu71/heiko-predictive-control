@@ -14,7 +14,7 @@ from . import catalog, ha_client, summaries, telemetry
 from .comfort import min_room_entities
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
 from .kpi import baseline_from_stats, outdoor_class
-from .tariff import PEAK_WINDOWS
+from .tariff import fallback_hour
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ def ideas(report: dict) -> list[str]:
     if ps is not None and ps > 0.35:
         out.append(f"Koszt: {ps * 100:.0f}% energii pompy zimą szło w szczycie G12w — przesunięcie grzania ma potencjał, ale zysk zależy od bezwładności (niezmierzonej).")
     p = report.get("pump_hours") or {}
-    offpeak_h = 24 - sum(b - a for a, b in PEAK_WINDOWS)
+    offpeak_h = sum(not fallback_hour(datetime(2026, 1, 14, h), True).is_peak for h in range(24))   # dzień roboczy G12w
     heavy = [(int(k), v) for k, v in (p.get("by_class") or {}).items() if v["days"] >= 3 and v["heating_h"] is not None
              and v["heating_h"] > offpeak_h]
     if heavy:

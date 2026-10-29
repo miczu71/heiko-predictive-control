@@ -24,7 +24,8 @@ from .analysis import percentile
 from .analyzers import KIND_ALERT, KIND_CHANGE, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw, p0
 from .kpi import outdoor_class
 from .profiles import HeikoProfiles
-from .tariff import DEFAULT_OFFPEAK_PRICE_PLN, DEFAULT_PEAK_PRICE_PLN, is_peak_hour
+from . import tariff_feed
+from .tariff import default_is_workday, fallback_prices
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ GRID_IMPORT_W = 500                # pobór z sieci od tylu W = CWU w szczycie n
 REPLAY_DECISION_HOUR = 7          # odtworzenie zimy: „decyzja” raz na dobę o tej godzinie
 REPLAY_MIN_HOURS = 20             # godzin z pełnymi danymi w oknie 24 h
 REPLAY_SAMPLES = 12
-_DEFAULT_WORKDAY: Callable = lambda d: d.weekday() < 5
+_DEFAULT_WORKDAY: Callable = default_is_workday
 
 
 def _split(raw) -> list[str]:
@@ -100,12 +101,14 @@ def _series(conn, key: str, since: int) -> dict[int, float]:
 
 
 def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY, days: int = DHW_PEAK_DAYS,
-                   grid_key: str | None = None) -> dict | None:
-    """Jaka część próbek trybu pracy z CWU (co 15 min) przypada na szczyt G12w i idzie z sieci.
+                   grid_key: str | None = None, feed: tariff_feed.TariffFeed | None = None) -> dict | None:
+    """Jaka część próbek trybu pracy z CWU (co 15 min) przypada na szczyt taryfy (godzina z `feed`, a bez wiersza
+    — zapas G12w) i idzie z sieci.
 
     Z `grid_key` (moc licznika sieci, W: + oddawanie, − pobór) próbka w szczycie liczy się tylko przy
     poborze ≥ GRID_IMPORT_W — CWU grzane z nadwyżki PV (automatyzacja 48→58 °C, południe = szczyt 6–13)
     albo z baterii to efekt zamierzony (`pv_covered`). Próbki bez odczytu sieci są pomijane."""
+    feed = feed or tariff_feed.for_settings(conn, {}, is_workday)
     since = int((now - timedelta(days=days)).timestamp())
     modes = _series(conn, "working_mode", since)
     grid = _series(conn, grid_key, since) if grid_key else None
@@ -117,7 +120,7 @@ def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY,
             continue
         local = datetime.fromtimestamp(ts)
         total += 1
-        if not is_peak_hour(local.hour, bool(is_workday(local.date()))):
+        if not feed.is_peak(local):
             continue
         if grid is not None and grid[ts] > -GRID_IMPORT_W:
             covered += 1
@@ -180,7 +183,8 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         model_identified=floor_learn.load_model(conn).identified, uniform=uniform, time_shift=time_shift,
         test_running=conn.execute("SELECT 1 FROM tests WHERE status = 'w_toku' LIMIT 1").fetchone() is not None,
         summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
-                                                                       grid_key=settings.get("grid_power_entity") or None),
+                                                                       grid_key=settings.get("grid_power_entity") or None,
+                                                                       feed=tariff_feed.for_settings(conn, settings, is_workday)),
         p0_verdict=p0_verdict, outdoor3d_c=outdoor3d, p0_test_ready=p0_ready, p0_change_snoozed=p0_snoozed,
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
                    if str((by_id.get(e) or {}).get("state", "")).lower() == "on"])
@@ -385,12 +389,14 @@ def _replay_effects(settings: dict, model, amb, wat, t0: datetime, hourly: dict,
     day_start, day_end = int(settings.get("heiko_day_start_hour", 6)), int(settings.get("heiko_day_end_hour", 22))
     prof = HeikoProfiles.from_settings(settings).komfort
     target = float(settings.get("heiko_room_target_c", 20.6))
-    blocks = fp.build_blocks(t0, n, _DEFAULT_WORKDAY, day_start, day_end, DEFAULT_PEAK_PRICE_PLN, DEFAULT_OFFPEAK_PRICE_PLN)
+    # Odtworzenie zimy z LTS: doby sprzed feedu, więc szczyt i ceny z zapasu G12w (jak baza KPI).
+    peak_price, offpeak_price = fallback_prices(t0)
+    blocks = fp.build_blocks(t0, n, _DEFAULT_WORKDAY, day_start, day_end, peak_price, offpeak_price)
     inp = fp.PlanInputs(
         model=model, tr0_c=avg24, qf0_kw=max(0.0, model.c * (avg24 - out_now) / max(model.g, 1e-3)), t_out_c=t_out,
         base_c=base_steps, blocks=blocks, bands=fp.step_bands(t0, n, target, prof.day_c, prof.night_c, day_start, day_end),
         target_c=target, water_min_c=float(settings.get("heiko_water_min_c", 20.0)),
-        water_max_c=float(settings.get("heiko_water_max_c", 32.0)), offpeak_price=DEFAULT_OFFPEAK_PRICE_PLN)
+        water_max_c=float(settings.get("heiko_water_max_c", 32.0)), offpeak_price=offpeak_price)
     return curve.uniform_effects(inp)
 
 

@@ -15,7 +15,8 @@ from zoneinfo import ZoneInfo
 from . import catalog
 from . import energy_source as es
 from . import ha_client
-from .tariff import is_peak_hour
+from . import tariff_feed
+from .tariff import default_is_workday, fallback_hour
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def _delta(series: Series, start: datetime, end: datetime) -> float | None:
 
 
 def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_workday: Callable[[date], bool],
-            grid: Series | None = None) -> dict | None:
+            grid: Series | None = None, feed: tariff_feed.TariffFeed | None = None) -> dict | None:
     """Energia z licznika: przyrost między kolejnymi próbkami przypisany do godziny lokalnej próbki końcowej.
     Z historią licznika poboru z sieci (`grid`) do szczytu liczy się tylko część pokryta z sieci."""
     pts = sorted((t, _num(s)) for t, s in series if _num(s) is not None and t < end)
@@ -105,7 +106,9 @@ def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_wor
             inc = v - prev
             local = t.astimezone(tz)
             total += inc
-            if is_peak_hour(local.hour, is_workday(local.date())):
+            hour_peak = (feed.is_peak(local.replace(tzinfo=None)) if feed is not None
+                         else fallback_hour(local, is_workday(local.date())).is_peak)
+            if hour_peak:
                 d = imported.delta(prev_t, t)
                 peak += inc if d is None else es.split(inc, d)[0]
         prev, prev_t = v, t
@@ -116,7 +119,8 @@ def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_wor
 
 
 def summarize_day(day: date, series: dict[str, Series], tz_name: str,
-                  is_workday: Callable[[date], bool] = lambda d: d.weekday() < 5) -> dict[str, dict]:
+                  is_workday: Callable[[date], bool] = default_is_workday,
+                  feed: tariff_feed.TariffFeed | None = None) -> dict[str, dict]:
     """Streszczenia doby per temat. `series`: role → historia: mode, freq, hbh, hwtbh, p1, energy.
     Klucz `backup`: ah_min/hbh_min/hwtbh_min (minuty). Zwraca {} gdy nie ma danych trybu ani sprężarki (doba poza zasięgiem recordera)."""
     start, end = day_bounds(day, tz_name)
@@ -153,7 +157,7 @@ def summarize_day(day: date, series: dict[str, Series], tz_name: str,
         runs = _runs(p1, lambda v: v > 0)
         out["p0"] = {"pulses": len(runs), "on_min": round(sum(runs), 1),
                      "mean_pulse_min": round(sum(runs) / len(runs), 1) if runs else None}
-    energy = _energy(series.get("energy", []), start, end, tz, is_workday, series.get("grid"))
+    energy = _energy(series.get("energy", []), start, end, tz, is_workday, series.get("grid"), feed)
     if energy:
         out["energy"] = energy
     return out
@@ -240,7 +244,8 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
     if not hist:
         return {}
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
-    summary = summarize_day(day, series, tz_name, is_workday or (lambda d: d.weekday() < 5))
+    is_workday = is_workday or default_is_workday
+    summary = summarize_day(day, series, tz_name, is_workday, tariff_feed.for_settings(conn, settings, is_workday))
     if summary:
         extra = {"setting": p0_setting(conn, end, states)}
         samples = zone_samples(conn, settings, int(start.timestamp()), int(end.timestamp()))
