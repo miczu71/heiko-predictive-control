@@ -364,7 +364,7 @@ def create_app(db_path: str,
                         "telemetry": {"rows": samples, "last_ts": last, "db_bytes": size,
                                       "db_warn": size > telemetry.DB_WARN_BYTES}})
 
-    # ── Doradca D2: propozycje (decyzje w trybie próbnym — bez zapisu do pompy) i odtworzenie zimy ──
+    # ── Doradca D2: propozycje (decyzje próbne; zapis do pompy tylko slot 52 po akceptacji, H4) i odtworzenie zimy ──
 
     @app.get("/api/proposals")
     def api_proposals():
@@ -381,7 +381,7 @@ def create_app(db_path: str,
     def api_proposal_decision(proposal_id: int):
         decision = (request.get_json(silent=True) or {}).get("decision", "")
         now = datetime.now()
-        revalidate = None
+        revalidate = apply = None
         if decision == advisor.STATUS_APPROVED:
             states = get_states()
             if not states:
@@ -391,9 +391,24 @@ def create_app(db_path: str,
                 revalidate = advisor.make_revalidator(conn, get_settings(), now, states)
             finally:
                 conn.close()
+
+            def apply(row: dict) -> tuple[bool, str]:
+                entity = catalog.resolve_params(states).get(row["param_key"])
+                if not entity:
+                    return False, "nie znajduję encji slotu 52 w HA"
+                wconn = db_conn()
+                try:
+                    ok = experiments.write_setting(wconn, entity, row["from_value"], row["to_value"], now)
+                except ValueError:
+                    return False, "zapis poza dozwolonym zakresem"
+                except RuntimeError as exc:                          # trwa test krzywej/P0
+                    return False, str(exc)
+                finally:
+                    wconn.close()
+                return (True, "") if ok else (False, "HA nie przyjęło zapisu")
         conn = db_conn()
         try:
-            result = advisor.decide(conn, proposal_id, decision, now, revalidate)
+            result = advisor.decide(conn, proposal_id, decision, now, revalidate, apply)
         finally:
             conn.close()
         return jsonify(result), (200 if result["ok"] else 409)

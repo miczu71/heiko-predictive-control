@@ -23,8 +23,11 @@ const EVIDENCE = {
   cycles_per_day: "cykli CWU na dobę", mean_cycle_min: "średni cykl (min)", peak_share: "udział szczytu w CWU",
   samples: "próbek", pv_covered: "próbek pokrytych przez PV/baterię", entity: "czujnik", day: "doba", value: "wartość",
   median: "zwykle (mediana)", limit: "próg alarmu", history_days: "dni historii",
+  pln_per_saved_min: "koszt AH za zaoszczędzoną minutę (zł/min)", ah_cycles: "cykli z grzałką AH", window_days: "okno (dni)",
+  max_pln_per_min: "próg kosztu AH (zł/min)", winter_cycles: "cykli zimowych", over_share: "udział cykli dłuższych niż opóźnienie",
+  median_deficit_c: "mediana deficytu wody w 19. min (°C)", outdoor_below_c: "zimą = zewn. poniżej (°C)",
 };
-const ANALYZER = { curve: "krzywa grzewcza", dhw: "ciepła woda", anomaly: "anomalie" };
+const ANALYZER = { curve: "krzywa grzewcza", dhw: "ciepła woda", dhw_slot: "ciepła woda — slot 52", anomaly: "anomalie" };
 const evLabel = k => EVIDENCE[k] || k;
 const evValue = v => v === true ? "tak" : v === false ? "nie" : typeof v === "number" ? num(v) : v;
 
@@ -41,11 +44,12 @@ function card(p) {
       <span class="sub">jeszcze ${p.remaining_h === null ? "—" : num(p.remaining_h, 1)} h</span></header>
     ${change}
     <p>${esc(p.reason)}</p>
+    ${p.writes ? `<p class="sub">Zapis do pompy: slot 52, krok 5 min, potwierdzenie z ramki po kilku minutach.</p>` : ""}
     ${effects ? `<ul class="effects">${effects}</ul>` : ""}
     ${evidence ? `<details><summary>Na czym to opieram</summary><ul>${evidence}</ul></details>` : ""}
     <div class="actions">
       ${isTest ? `<a class="button" href="${HPC.base}/tests#${esc((p.evidence || {}).test_kind || "")}">Przejdź do testu</a>`
-        : `<button type="button" data-decision="zatwierdzona">${alert ? "Przyjmij do wiadomości" : "Zatwierdź (próbnie)"}</button>`}
+        : `<button type="button" data-decision="zatwierdzona">${alert ? "Przyjmij do wiadomości" : p.writes ? "Zatwierdź i zapisz w pompie" : "Zatwierdź (próbnie)"}</button>`}
       <button type="button" class="secondary" data-decision="odrzucona">Odrzuć</button>
       <span class="decision-status" role="status"></span>
     </div></article>`;

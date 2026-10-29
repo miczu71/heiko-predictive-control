@@ -510,3 +510,58 @@ def test_p0_abort_finishes_test_even_when_p0_entities_are_unresolvable(conn, mon
     monkeypatch.setattr(ex.ha_client, "get_all_states", lambda: [])       # HA jeszcze się uruchamia
     out = ex.recover_on_start(conn, P0_SETTINGS, m2 + timedelta(minutes=10), writer=pump.writer, notify=pump.notify)
     assert out["status"] == ex.ABORTED and ex.running_test(conn) is None
+
+
+# ── H4: zapis slotu 52 po akceptacji propozycji Doradcy ──────────────────────
+
+SLOT52 = "number.heiko_heat_pump_backup_source_start_delay"
+
+
+@pytest.mark.parametrize("old,new", [(20, 25), (60, 55), (15, 20), (30, 30)])
+def test_slot52_write_accepted_within_allowlist_and_logged(conn, old, new):
+    pump = Pump()
+    assert ex.write_setting(conn, SLOT52, old, new, T0, pump.writer) is True
+    assert pump.calls == [("number", "set_value", {"entity_id": SLOT52, "value": new})]
+    row = conn.execute("SELECT * FROM pump_writes").fetchone()
+    assert (row["entity_id"], row["old"], row["new"], row["ok"], row["test_id"]) == (SLOT52, old, new, 1, None)
+
+
+@pytest.mark.parametrize("old,new", [(20, 30), (55, 65), (25, 22), (30, 15), (25, 0)])
+def test_slot52_write_refused_outside_allowlist(conn, old, new):
+    pump = Pump()
+    with pytest.raises(ValueError):
+        ex.write_setting(conn, SLOT52, old, new, T0, pump.writer)
+    assert pump.calls == [] and conn.execute("SELECT COUNT(*) FROM pump_writes").fetchone()[0] == 0
+
+
+def test_slot52_write_blocked_while_test_runs(conn):
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline) VALUES ('bezwladnosc', ?, ?, '[]', 0)",
+                 (ex.RUNNING, "2026-10-07T09:00:00"))
+    conn.commit()
+    pump = Pump()
+    with pytest.raises(RuntimeError):
+        ex.write_setting(conn, SLOT52, 30, 35, T0, pump.writer)
+    assert pump.calls == [] and conn.execute("SELECT COUNT(*) FROM pump_writes").fetchone()[0] == 0
+
+
+def test_slot52_write_does_not_supersede_pending_write(conn):
+    conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok) VALUES (?, NULL, 'number.x', 0, 1, 1)", (T0.isoformat(timespec="seconds"),))
+    conn.commit()
+    ex.write_setting(conn, SLOT52, 30, 35, T0, Pump().writer)
+    assert conn.execute("SELECT confirmed_at FROM pump_writes ORDER BY id").fetchone()[0] is None
+
+
+def test_slot52_unconfirmed_write_notifies_in_polish_about_slot_52(conn):
+    pump = Pump()
+    ex.write_setting(conn, SLOT52, 30, 35, T0, pump.writer)
+    out = ex.tick(conn, SETTINGS, T0 + timedelta(minutes=ex.CONFIRM_MIN + 1), lambda e: 30.0, pump.writer, pump.notify)
+    assert out is None
+    assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == ex.NO_CONFIRMATION
+    assert pump.notes == ["Pompa nie potwierdziła zapisu opóźnienia grzałki (slot 52) = 35 — sprawdź ręcznie."]
+
+
+def test_slot52_write_is_confirmed_from_frame_without_a_test(conn):
+    pump = Pump()
+    ex.write_setting(conn, SLOT52, 30, 35, T0, pump.writer)
+    ex.tick(conn, SETTINGS, T0 + timedelta(minutes=ex.FRAME_DELAY_MIN + 1), lambda e: 35.0, pump.writer, pump.notify)
+    assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == "2026-10-07T10:03:00" and pump.notes == []

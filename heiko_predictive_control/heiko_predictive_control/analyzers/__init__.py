@@ -34,11 +34,12 @@ class Snapshot:
     p0_test_ready: bool = False                       # test p0_ab można uruchomić i user go ostatnio nie odrzucił
     p0_change_snoozed: bool = False                   # user niedawno odrzucił propozycję zmiany P0
     alerts_on: list[tuple[str, str]] = field(default_factory=list)        # (entity_id, nazwa) aktywnych czujników ostrzeżeń
+    dhw_slot: dict | None = None                      # {"cycles": cykle CWU z 30 dni (dhw_cycles), "ah": dhw_model.summarize} — slot 52
 
 
 @dataclass
 class Draft:
-    analyzer: str                                     # curve | dhw | anomaly | p0
+    analyzer: str                                     # curve | dhw | dhw_slot | anomaly | p0
     dedupe_key: str                                   # ta sama para = ta sama propozycja (aktualizacja zamiast duplikatu)
     lens: str
     kind: str

@@ -6,9 +6,9 @@ import pytest
 from heiko_predictive_control import catalog
 
 
-# Dodatkowe źródła ciepła (sloty 47–52) i ograniczona nastawa (77/78) — tylko obserwacja (klasa C).
+# Dodatkowe źródła ciepła (sloty 47–51) i ograniczona nastawa (77/78) — tylko obserwacja (klasa C); slot 52 = klasa A (H4).
 SLOT_KEYS = ("backup_heating_enabled", "backup_heating_priority", "backup_dhw_enabled", "backup_heater",
-             "backup_start_dependency", "backup_start_delay", "reduced_setpoint", "reduced_setpoint_drop")
+             "backup_start_dependency", "reduced_setpoint", "reduced_setpoint_drop")
 
 
 def test_keys_unique_and_classes_valid():
@@ -46,7 +46,7 @@ def test_class_a_ranges_and_step(key, cur, new, ok):
     assert catalog.check_class_a(key, cur, new)[0] is ok
 
 
-@pytest.mark.parametrize("key", ["curve_water_1", "backup_heater", "backup_start_delay", "reduced_setpoint_drop", "working_mode",
+@pytest.mark.parametrize("key", ["curve_water_1", "backup_heater", "reduced_setpoint_drop", "working_mode",
                                   "vacation_mode", "p0_speed_heating", "nie_ma_takiego"])
 def test_non_class_a_or_non_numeric_never_passes(key):
     assert catalog.check_class_a(key, 1, 2)[0] is False
@@ -121,7 +121,7 @@ def test_slot_entities_resolve_with_area_prefix_and_alias_switch_is_ignored():
         _st("number.obszar_heiko_heat_pump_reduced_setpoint_drop_rise", "2"),
     ]
     found = catalog.resolve_params(states)
-    assert set(SLOT_KEYS) <= set(found) and len(found) == len(SLOT_KEYS)
+    assert set(SLOT_KEYS) | {"backup_start_delay"} <= set(found) and len(found) == len(SLOT_KEYS) + 1
     assert found["backup_heater"] == "select.obszar_heiko_heat_pump_backup_priority_dhw"
     assert found["reduced_setpoint"] == "switch.obszar_heiko_heat_pump_reduced_setpoint"           # nie number …_drop_rise
     assert found["reduced_setpoint_drop"] == "number.obszar_heiko_heat_pump_reduced_setpoint_drop_rise"
@@ -131,3 +131,11 @@ def test_slot_entities_resolve_with_area_prefix_and_alias_switch_is_ignored():
 def test_catalog_has_34_params_and_no_anti_legionella():
     assert len(catalog.CATALOG) == 34
     assert not [p for p in catalog.CATALOG if "anti" in p.key or "legionella" in p.suffix]
+
+
+def test_backup_start_delay_is_class_a_with_step_5():
+    p = catalog.BY_KEY["backup_start_delay"]
+    assert (p.cls, p.a_min, p.a_max, p.max_step, p.full_min, p.full_max) == ("A", 20, 60, 5, 1, 120)
+    assert catalog.check_class_a("backup_start_delay", 25, 30)[0] is True
+    assert catalog.check_class_a("backup_start_delay", 25, 35)[0] is False             # krok > 5
+    assert catalog.check_class_a("backup_start_delay", 25, 15)[0] is False             # poza zakresem A

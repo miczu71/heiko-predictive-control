@@ -2,7 +2,8 @@
 
 Start testu = zgoda usera na cały, z góry pokazany harmonogram; potem add-on sam wykonuje kroki (`tick` co 5 min).
 Twarde granice: zapis wyłącznie `number.set_value` na przesunięciu krzywej (zakres ±4, krok ≤ 1) albo — od 0.16.0 —
-na parze czas pracy/postoju pompy obiegowej P0 (tylko pary 1/6 i 5/5), jeden test naraz, główny wyłącznik `heiko_enabled`. Zabezpieczenia: potwierdzenie zapisu z ramki pompy (10 min), ręczna zmiana wygrywa
+na parze czas pracy/postoju pompy obiegowej P0 (tylko pary 1/6 i 5/5) albo — H4, poza testami, `write_setting` po akceptacji
+propozycji Doradcy — na opóźnieniu grzałki AH (slot 52: 20–60 min, wielokrotność 5, krok ≤ 5), jeden test naraz, główny wyłącznik `heiko_enabled`. Zabezpieczenia: potwierdzenie zapisu z ramki pompy (10 min), ręczna zmiana wygrywa
 (test przerwany, nic nie nadpisujemy), komfort (najzimniejszy pokój < minimum > 30 min → powrót), restart add-onu
 w trakcie testu → powrót do wartości wyjściowej. Niezależny watchdog jest w HA (heartbeat > 45 min → przesunięcie 0) tylko dla przesunięcia krzywej — zawieszone 5/5
 to ok. 15 W, bez ryzyka."""
@@ -32,6 +33,7 @@ P0_DAYS = 6                                # A B A B A B, zmiana o północy
 P0_MIN_GAIN_C = 0.3                        # 5/5 wygrywa, gdy średni rozrzut stref w standby jest niższy o tyle
 P0_AVG_TOLERANCE_C = 0.1                   # „średnia stref nie spada” z tolerancją szumu pomiaru
 P0_WEATHER_BAND_C = 3.0                    # różnica średniej temp. zewn. wariantów, powyżej której pewność jest niska
+SLOT52_SUFFIX = "backup_source_start_delay"   # H4: opóźnienie grzałki AH (slot 52), zapis tylko po akceptacji propozycji w Doradcy
 CONFIRM_MIN = 10
 # Integracja heiko_heatpump po `set_value` od razu pokazuje nową wartość (optymistycznie), a odczyt z ramki pompy
 # (`Curve_Parallel`, odpytanie co 60 s) zastępuje ją dopiero później — wcześniejsza zgodność nic nie potwierdza.
@@ -318,6 +320,7 @@ _WRITE_RULES = {
     ALLOWED_ENTITY_SUFFIX: _curve_ok,
     P0_RUN_SUFFIX: lambda old, new: new in {p[0] for p in P0_PAIRS},
     P0_STOP_SUFFIX: lambda old, new: new in {p[1] for p in P0_PAIRS} and new >= 5,
+    SLOT52_SUFFIX: lambda old, new: 20 <= new <= 60 and new % 5 == 0 and abs(new - old) <= 5,
 }
 
 
@@ -336,6 +339,15 @@ def _write(conn, settings: dict, test_id: int | None, old: float, new: float, no
     conn.commit()
     logger.info("Zapis do pompy %s: %s → %s (%s)", entity, old, new, "przyjęty" if ok else "ODRZUCONY")
     return ok
+
+
+def write_setting(conn, entity: str, old: float, new: float, now: datetime, writer=None) -> bool:
+    """Zapis jednej nastawy z allowlisty po akceptacji propozycji Doradcy (H4: slot 52), bez testu. `ValueError` przy
+    złamaniu allowlisty nie jest tu łapany. Trwający test blokuje zapis (`RuntimeError`), a `supersede=False` nie
+    unieważnia niepotwierdzonych zapisów testu. Potwierdzenie z ramki robi `tick` → `_confirm_writes`."""
+    if running_test(conn) is not None:
+        raise RuntimeError("trwa test — zatwierdź zmianę slotu 52 po jego zakończeniu")
+    return _write(conn, {}, None, old, new, now, writer, entity=entity, supersede=False)
 
 
 def _write_p0(conn, settings: dict, test_id: int | None, old: tuple, new: tuple, now: datetime, writer,
@@ -425,6 +437,10 @@ def _confirm_writes(conn, settings: dict, get_numeric, now: datetime, notify) ->
         elif w["ts"] < deadline:
             conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE id = ?", (NO_CONFIRMATION, w["id"]))
             if w["test_status"] != RUNNING:            # test w toku przerwie `tick` (z własnym powiadomieniem)
+                if w["entity_id"].endswith(SLOT52_SUFFIX):
+                    _notify(settings, f"Pompa nie potwierdziła zapisu opóźnienia grzałki (slot 52) = {w['new']:g} — sprawdź ręcznie.",
+                            notify, "Heiko Doradca: zapis slotu 52")
+                    continue
                 what = "przesunięcia" if w["entity_id"].endswith(ALLOWED_ENTITY_SUFFIX) else f"{w['entity_id']} ="
                 _notify(settings, f"Pompa nie potwierdziła przywrócenia {what} {w['new']:g} — sprawdź ręcznie.", notify,
                         _title(None) if what == "przesunięcia" else "Heiko: test pompy obiegowej P0")

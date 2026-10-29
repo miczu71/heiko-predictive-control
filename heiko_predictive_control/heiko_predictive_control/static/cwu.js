@@ -268,6 +268,61 @@ function renderDhwTrace(payload) {
   drawTrace(cycles[first], a);
 }
 
+// Sugestie Doradcy dla slotu 52 (opóźnienie grzałki AH): karta z zatwierdzeniem (zapis do pompy) i odrzuceniem.
+const SUGGESTION_EVIDENCE = {
+  pln_per_saved_min: "koszt AH za zaoszczędzoną minutę (zł/min)", ah_cycles: "cykli z grzałką AH", window_days: "okno (dni)",
+  max_pln_per_min: "próg kosztu AH (zł/min)", winter_cycles: "cykli zimowych", over_share: "udział cykli dłuższych niż opóźnienie",
+  median_deficit_c: "mediana deficytu wody w 19. min (°C)", outdoor_below_c: "zimą = zewn. poniżej (°C)",
+};
+const evTxt = v => v === true ? "tak" : v === false ? "nie" : hasVal(v) ? (typeof v === "number" ? num(v, 2) : String(v)) : "—";
+
+function suggestionCard(p) {
+  const evidence = Object.entries(p.evidence || {})
+    .map(([k, v]) => `<li>${esc(SUGGESTION_EVIDENCE[k] || k)}: ${esc(evTxt(v))}</li>`).join("");
+  return `<article class="proposal" data-id="${esc(p.id)}">
+    <header><span class="badge">Doradca</span><span class="sub">pewność: ${esc(p.confidence)}</span></header>
+    <div class="change"><strong>Opóźnienie grzałki (slot 52): z ${esc(num(p.from_value))} na ${esc(num(p.to_value))} min</strong></div>
+    <p>${esc(p.reason)}</p>
+    ${evidence ? `<details><summary>Na czym to opieram</summary><ul>${evidence}</ul></details>` : ""}
+    <p class="sub">Zapis do pompy: slot 52, krok 5 min, potwierdzenie z ramki po kilku minutach.</p>
+    <div class="actions">
+      <button type="button" data-decision="zatwierdzona">Zatwierdź i zapisz w pompie</button>
+      <button type="button" class="secondary" data-decision="odrzucona">Odrzuć</button>
+      <span class="decision-status" role="status"></span>
+    </div></article>`;
+}
+
+async function renderSuggestions() {
+  const box = document.getElementById("cwu-suggestions");
+  if (!box) return;
+  try {
+    const data = await HPC.getJSON("/api/proposals");
+    const items = (data.pending || []).filter(p => p.analyzer === "dhw_slot");
+    box.innerHTML = items.map(suggestionCard).join("");
+    box.hidden = !items.length;
+  } catch (e) { box.hidden = true; }
+}
+
+document.addEventListener("click", async ev => {
+  const btn = ev.target.closest("#cwu-suggestions button[data-decision]");
+  if (!btn) return;
+  const cardEl = btn.closest(".proposal"), status = cardEl.querySelector(".decision-status");
+  cardEl.querySelectorAll("button").forEach(b => { b.disabled = true; });
+  status.textContent = "Zapisuję…";
+  try {
+    const resp = await fetch(`${HPC.base}/api/proposals/${cardEl.dataset.id}/decision`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision: btn.dataset.decision }) });
+    const result = await resp.json();
+    if (result.ok) { await renderSuggestions(); return; }
+    status.textContent = result.error || `Błąd HTTP ${resp.status}`;
+    cardEl.querySelectorAll("button").forEach(b => { b.disabled = false; });
+  } catch (e) {
+    status.textContent = "Błąd zapisu decyzji.";
+    cardEl.querySelectorAll("button").forEach(b => { b.disabled = false; });
+  }
+});
+
 function renderCwu(payload) {
   const all = payload.cycles || [], recent = recentCycles(all), a = payload.ah_effect || {};
   renderTiles(recent);
@@ -279,6 +334,7 @@ function renderCwu(payload) {
   renderDhwCyclesTable(payload);
   renderDhwModel(payload);
   renderDhwTrace(payload);
+  renderSuggestions();
 }
 
 async function loadCwu() {

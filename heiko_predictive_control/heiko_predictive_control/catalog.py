@@ -83,7 +83,8 @@ CATALOG: tuple[Param, ...] = (
     Param("heating_curve", "heating_curve", "switch", CLASS_C, "Krzywa grzewcza (włącznik)",
           "krytyczne", note="włącza user na starcie sezonu"),
     # Menu „Dodatkowe źródła ciepła” (sloty 47–52, potwierdzone panelem 26.09) i „ograniczona nastawa” (77/78) —
-    # integracja 1.13.0. Tylko obserwacja: dziennik zmian + kontekst dla doradcy, add-on ich nie zapisuje.
+    # integracja 1.13.0. Tylko obserwacja: dziennik zmian + kontekst dla doradcy, add-on ich nie zapisuje
+    # (wyjątek: slot 52 `backup_start_delay` — klasa A, zapis po akceptacji w Doradcy, H4).
     # Slot 50 ma w HA dwie encje: ten select (kanoniczny) i alias switch `backup_heater_hbh` (ON = „Niższe”);
     # do katalogu trafia tylko select, żeby jedna zmiana dawała jeden wpis w dzienniku.
     Param("backup_heater", "backup_priority_dhw", "select", CLASS_C, "CWU: priorytet HWTBH względem AH (slot 50)",
@@ -102,8 +103,9 @@ CATALOG: tuple[Param, ...] = (
           note="1 = włączone (decyzja usera 26.09: zostaje)"),
     _n("backup_start_dependency", "backup_source_start_dependency", CLASS_C,
        "Zależność temp. ↔ czas startu źródła (slot 51)", "kiedy dochodzi grzałka rezerwowa", "", (0, 600)),
-    _n("backup_start_delay", "backup_source_start_delay", CLASS_C,
-       "Czas do uruchomienia dodatkowego źródła (slot 52)", "po ilu minutach cyklu dochodzi grzałka AH", "min", (1, 120)),
+    _n("backup_start_delay", "backup_source_start_delay", CLASS_A,
+       "Czas do uruchomienia dodatkowego źródła (slot 52)", "po ilu minutach cyklu dochodzi grzałka AH", "min", (1, 120),
+       (20, 60), 5, "zapis tylko przez Doradcę po akceptacji (H4), krok 5 min"),
     Param("reduced_setpoint", "reduced_setpoint", "switch", CLASS_C, "Ograniczona nastawa: funkcja włączona (slot 77)",
           "cel wody obniżony wg zegara panelu",
           note="oznacza „funkcja włączona”, nie „aktywna teraz” — to zależy od zegara panelu, którego nie ma w ramkach"),

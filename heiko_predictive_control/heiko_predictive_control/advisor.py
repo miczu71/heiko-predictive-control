@@ -1,7 +1,8 @@
 """Silnik doradcy (D2): migawka danych -> analizatory -> propozycje w bazie -> powiadomienie.
 
-WYŁĄCZNIE odczyt z HA i zapis do własnej bazy. W D2 „zatwierdź” zapisuje tylko decyzję (trial=1) — nic nie
-trafia do pompy (pierwszy zapis dopiero w D3, za osobną zgodą, z własnym wykonawcą i allowlistą).
+Odczyt z HA i zapis do własnej bazy. „Zatwierdź” zapisuje decyzję (trial=1) — do pompy trafia tylko parametr
+z `WRITABLE_KEYS` (slot 52, H4), i to wyłącznie przez wstrzyknięty `apply` (web → `experiments.write_setting`
+z allowlistą); sam `advisor` nie woła usług HA.
 
 Zasady (wywiad 26.09): ta sama propozycja nie dubluje się, tylko odświeża (rolling TTL); zmiana wartości =
 poprzednia „zastąpiona”; ustanie warunków = „wygasła”; jeden aktywny eksperyment naraz; powiadomienie raz na
@@ -17,11 +18,11 @@ from statistics import mean
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from . import catalog, comfort, cycle, floor_learn, ha_client, summaries
+from . import catalog, comfort, cycle, dhw_cycles, dhw_model, floor_learn, ha_client, summaries
 from . import db as dbm
 from . import floor_plan as fp
 from .analysis import percentile
-from .analyzers import KIND_ALERT, KIND_CHANGE, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw, p0
+from .analyzers import KIND_ALERT, KIND_CHANGE, KIND_TEST, Draft, Snapshot, anomalies, curve, dhw, dhw_slot, p0
 from .kpi import outdoor_class
 from .profiles import HeikoProfiles
 from . import tariff_feed
@@ -29,10 +30,13 @@ from .tariff import default_is_workday, fallback_prices
 
 logger = logging.getLogger(__name__)
 
-ANALYZERS: tuple[Callable[[Snapshot], list[Draft]], ...] = (curve.analyze, dhw.analyze, anomalies.analyze, p0.analyze)
+ANALYZERS: tuple[Callable[[Snapshot], list[Draft]], ...] = (curve.analyze, dhw.analyze, dhw_slot.analyze, anomalies.analyze, p0.analyze)
 STATUS_PENDING, STATUS_APPROVED, STATUS_REJECTED = "oczekuje", "zatwierdzona", "odrzucona"
 STATUS_EXPIRED, STATUS_SUPERSEDED = "wygasła", "zastąpiona"
 LENS_OFF = "żaden"
+WRITABLE_KEYS = frozenset({"backup_start_delay"})      # jedyne parametry, które „Zatwierdź” zapisuje do pompy (H4: slot 52)
+REJECT_COOLDOWN_DAYS = 7          # tyle dni po „Odrzuć” ta sama propozycja (te same from/to) nie wraca; nie dotyczy anomaly i p0
+COOLDOWN_EXEMPT = frozenset({"anomaly", "p0"})        # alarmy zawsze wracają; P0 ma własne wyciszenie (P0_SNOOZE_DAYS)
 WINDOW_H = 24                     # okno statystyk komfortu dla analizatora krzywej
 MIN_WINDOW_SAMPLES = 24           # próbek co 15 min (6 h) — poniżej nie oceniamy komfortu
 SUMMARY_DAYS = 15
@@ -159,6 +163,19 @@ def _plan_inputs(conn, now: datetime) -> tuple[dict | None, dict | None]:
     return plan.get("uniform_shift"), shift or None
 
 
+def dhw_slot_inputs(conn, settings: dict, is_workday: Callable = _DEFAULT_WORKDAY) -> dict | None:
+    """Cykle CWU z 30 dni + wycena grzałki AH (jak `web.api_dhw_cycles`) dla analizatora slotu 52; błąd → None."""
+    try:
+        cycles = dhw_cycles.load_cycles(conn, dhw_slot.WINDOW_DAYS)
+        feed = tariff_feed.for_settings(conn, settings, is_workday)
+        tz = ZoneInfo(settings.get("timezone") or "Europe/Warsaw")
+        ah = dhw_model.summarize(cycles, dhw_model.fit_model(cycles), lambda t: feed.price(t.replace(tzinfo=None)), tz)
+        return {"cycles": cycles, "ah": ah}
+    except Exception:
+        logger.exception("Dane slotu 52 (cykle CWU, model AH) niedostępne")
+        return None
+
+
 def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
                    is_workday: Callable = _DEFAULT_WORKDAY) -> Snapshot:
     by_id = {s.get("entity_id"): s for s in states}
@@ -186,6 +203,7 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
                                                                        grid_key=settings.get("grid_power_entity") or None,
                                                                        feed=tariff_feed.for_settings(conn, settings, is_workday)),
         p0_verdict=p0_verdict, outdoor3d_c=outdoor3d, p0_test_ready=p0_ready, p0_change_snoozed=p0_snoozed,
+        dhw_slot=dhw_slot_inputs(conn, settings, is_workday),
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
                    if str((by_id.get(e) or {}).get("state", "")).lower() == "on"])
 
@@ -235,6 +253,13 @@ def sync(conn, drafts: list[Draft], now: datetime) -> list[int]:
                          (ts, expires, d.lens, d.from_value, d.reason, json.dumps(d.evidence), json.dumps(d.effects),
                           d.confidence, cur["id"]))
             continue
+        if d.analyzer not in COOLDOWN_EXEMPT and conn.execute(
+                "SELECT 1 FROM proposals WHERE analyzer = ? AND dedupe_key = ? AND status = ? AND decided_at >= ? "
+                "AND from_value IS ? AND to_value IS ? LIMIT 1",
+                (d.analyzer, d.dedupe_key, STATUS_REJECTED, _iso(now - timedelta(days=REJECT_COOLDOWN_DAYS)),
+                 d.from_value, d.to_value)).fetchone():
+            seen.discard(key)                               # oczekująca o innej wartości wygaśnie jak przy ustaniu warunków
+            continue                                        # niedawno odrzucona, warunki bez zmian — nie wracamy do tematu
         if cur is not None:
             conn.execute("UPDATE proposals SET status = ?, updated = ? WHERE id = ?", (STATUS_SUPERSEDED, ts, cur["id"]))
         cursor = conn.execute(
@@ -317,8 +342,11 @@ def make_revalidator(conn, settings: dict, now: datetime, states: list[dict],
 
 
 def decide(conn, proposal_id: int, decision: str, now: datetime,
-           revalidate: Callable[[dict], tuple[bool, str]] | None = None) -> dict:
-    """Zapisuje decyzję usera. W D2 to wyłącznie zmiana statusu (trial=1) — bez zapisu do pompy."""
+           revalidate: Callable[[dict], tuple[bool, str]] | None = None,
+           apply: Callable[[dict], tuple[bool, str]] | None = None) -> dict:
+    """Zapisuje decyzję usera. Zwykle to wyłącznie zmiana statusu (trial=1) — bez zapisu do pompy. Wyjątek: zatwierdzenie
+    zmiany parametru z `WRITABLE_KEYS` z podanym `apply` (po `revalidate`) — `apply(row)` zapisuje do pompy;
+    `(False, powód)` zostawia propozycję `oczekuje`, `(True, _)` daje status zatwierdzona z trial=0."""
     if decision not in (STATUS_APPROVED, STATUS_REJECTED):
         return {"ok": False, "error": "decyzja: zatwierdzona albo odrzucona"}
     row = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
@@ -338,6 +366,15 @@ def decide(conn, proposal_id: int, decision: str, now: datetime,
             conn.execute("UPDATE proposals SET status = ?, updated = ? WHERE id = ?", (STATUS_SUPERSEDED, _iso(now), proposal_id))
             conn.commit()
             return {"ok": False, "error": why}
+    if (decision == STATUS_APPROVED and apply is not None and row["kind"] == KIND_CHANGE
+            and row["param_key"] in WRITABLE_KEYS and row["to_value"] is not None):
+        ok, why = apply(dict(row))
+        if not ok:
+            return {"ok": False, "error": why}
+        conn.execute("UPDATE proposals SET status = ?, decided_at = ?, updated = ?, trial = 0 WHERE id = ?",
+                     (decision, _iso(now), _iso(now), proposal_id))
+        conn.commit()
+        return {"ok": True, "status": decision, "trial": False, "written": True}
     conn.execute("UPDATE proposals SET status = ?, decided_at = ?, updated = ?, trial = 1 WHERE id = ?",
                  (decision, _iso(now), _iso(now), proposal_id))
     conn.commit()
@@ -347,6 +384,7 @@ def decide(conn, proposal_id: int, decision: str, now: datetime,
 def _as_dict(row, now: datetime) -> dict:
     out = dict(row)
     out["evidence"], out["effects"] = json.loads(row["evidence"]), json.loads(row["effects"])
+    out["writes"] = row["param_key"] in WRITABLE_KEYS and row["kind"] == KIND_CHANGE
     out["label"] = catalog.BY_KEY[row["param_key"]].label if row["param_key"] in catalog.BY_KEY else None
     out["unit"] = catalog.BY_KEY[row["param_key"]].unit if row["param_key"] in catalog.BY_KEY else ""
     try:

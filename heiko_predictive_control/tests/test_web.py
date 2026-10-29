@@ -624,3 +624,80 @@ def test_dhw_cycles_api_sends_trace_only_for_newest_cycles(tmp_path):
     cycles = client.get("/api/dhw_cycles").get_json()["cycles"]
     assert len(cycles) == 32
     assert all("trace" in c for c in cycles[:30]) and all("trace" not in c for c in cycles[30:])
+
+
+# ── H4: zatwierdzenie propozycji slotu 52 zapisuje do pompy (wstrzyknięty zapis) ──────────────────
+
+SLOT52_ENTITY = "number.heiko_heat_pump_backup_source_start_delay"
+
+
+def _slot_states(value="30"):
+    return [{"entity_id": SLOT52_ENTITY, "state": value}]
+
+
+def _insert_slot_proposal(db_path, frm=30.0, to=35.0):
+    conn = dbm.get_conn(db_path)
+    conn.execute("INSERT INTO proposals (created, updated, analyzer, dedupe_key, lens, kind, param_key, from_value, to_value, "
+                 "reason, evidence, effects, confidence, expires, status) VALUES ('2026-09-26T10:00:00', '2026-09-26T10:00:00', "
+                 "'dhw_slot', 'dhw_slot:backup_start_delay', 'ekonomia', 'zmiana', 'backup_start_delay', ?, ?, 'x', '{}', '{}', "
+                 "'niska', '2999-01-01T00:00:00', 'oczekuje')", (frm, to))
+    conn.commit()
+    conn.close()
+
+
+def _force_draft(monkeypatch, to=35.0, frm=30.0):
+    from heiko_predictive_control import advisor
+    from heiko_predictive_control.analyzers import Draft
+    monkeypatch.setattr(advisor, "ANALYZERS", (lambda snap: [Draft(
+        analyzer="dhw_slot", dedupe_key="dhw_slot:backup_start_delay", lens="ekonomia", kind="zmiana", reason="x",
+        confidence="niska", ttl_h=72, param_key="backup_start_delay", from_value=frm, to_value=to)],))
+
+
+def test_approving_slot52_proposal_calls_injected_write_once(tmp_path, monkeypatch):
+    from heiko_predictive_control import experiments
+    calls = []
+    monkeypatch.setattr(experiments, "write_setting", lambda conn, entity, old, new, now, writer=None: calls.append((entity, old, new)) or True)
+    _force_draft(monkeypatch)
+    client, db_path = _proposal_client(tmp_path, states=_slot_states())
+    _insert_slot_proposal(db_path)
+    resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert resp.status_code == 200 and resp.get_json() == {"ok": True, "status": "zatwierdzona", "trial": False, "written": True}
+    assert calls == [(SLOT52_ENTITY, 30.0, 35.0)]
+
+
+def test_approving_slot52_without_entity_is_409_and_stays_pending(tmp_path, monkeypatch):
+    from heiko_predictive_control import experiments
+    calls = []
+    monkeypatch.setattr(experiments, "write_setting", lambda *a, **k: calls.append(a) or True)
+    from heiko_predictive_control import advisor
+    monkeypatch.setattr(advisor, "make_revalidator", lambda *a, **k: (lambda row: (True, "")))     # sprawdzamy gałąź apply, nie rewalidację
+    client, db_path = _proposal_client(tmp_path, states=[{"entity_id": "sensor.cokolwiek", "state": "1"}])
+    _insert_slot_proposal(db_path)
+    resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert resp.status_code == 409 and calls == [] and "slotu 52" in resp.get_json()["error"]
+    assert client.get("/api/proposals").get_json()["pending"][0]["status"] == "oczekuje"
+
+
+def test_slot52_write_rejected_by_ha_or_allowlist_is_409_and_stays_pending(tmp_path, monkeypatch):
+    from heiko_predictive_control import experiments
+    _force_draft(monkeypatch)
+    client, db_path = _proposal_client(tmp_path, states=_slot_states())
+    _insert_slot_proposal(db_path)
+    monkeypatch.setattr(experiments, "write_setting", lambda *a, **k: False)
+    resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert resp.status_code == 409 and resp.get_json()["error"] == "HA nie przyjęło zapisu"
+
+    def refuse(*a, **k):
+        raise ValueError("poza granicami")
+    monkeypatch.setattr(experiments, "write_setting", refuse)
+    resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert resp.status_code == 409 and resp.get_json()["error"] == "zapis poza dozwolonym zakresem"
+    assert client.get("/api/proposals").get_json()["pending"][0]["status"] == "oczekuje"
+
+
+def test_rejecting_slot52_proposal_never_writes(tmp_path, monkeypatch):
+    from heiko_predictive_control import experiments
+    monkeypatch.setattr(experiments, "write_setting", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    client, db_path = _proposal_client(tmp_path, states=_slot_states())
+    _insert_slot_proposal(db_path)
+    assert client.post("/api/proposals/1/decision", json={"decision": "odrzucona"}).get_json()["trial"] is True

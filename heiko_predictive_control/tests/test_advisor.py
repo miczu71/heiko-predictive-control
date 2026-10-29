@@ -380,3 +380,67 @@ def test_p0_rejected_change_proposal_snoozes_changes_but_not_tests(conn):
     _, _, test_ready, change_snoozed = advisor.p0_inputs(conn, NOW)
     assert change_snoozed and not test_ready                              # test: brak D4b w tym teście
     assert advisor.p0_inputs(conn, NOW + timedelta(days=15))[3] is False
+
+
+# ── H4: cooldown po „Odrzuć” i zapis po akceptacji (slot 52) ─────────────────
+
+def _reject(conn, d, when):
+    (pid,) = advisor.sync(conn, [d], when)
+    assert advisor.decide(conn, pid, "odrzucona", when)["ok"]
+
+
+def slot_draft(to=35.0, frm=30.0):
+    return draft(to=to, frm=frm, key="dhw_slot:backup_start_delay", analyzer="dhw_slot", param="backup_start_delay", ttl=72)
+
+
+def test_sync_cooldown_skips_recently_rejected_identical_proposal(conn):
+    _reject(conn, slot_draft(), NOW)
+    assert advisor.sync(conn, [slot_draft()], NOW + timedelta(days=6)) == []
+    assert [r["status"] for r in rows(conn)] == ["odrzucona"]
+
+
+def test_sync_cooldown_does_not_apply_for_other_values_or_after_seven_days(conn):
+    _reject(conn, slot_draft(), NOW)
+    assert len(advisor.sync(conn, [slot_draft(to=25.0)], NOW + timedelta(days=1))) == 1        # inne to_value
+    conn.execute("DELETE FROM proposals WHERE status = 'oczekuje'")
+    assert len(advisor.sync(conn, [slot_draft(frm=35.0, to=40.0)], NOW + timedelta(days=1))) == 1   # inne from_value
+    conn.execute("DELETE FROM proposals WHERE status = 'oczekuje'")
+    assert len(advisor.sync(conn, [slot_draft()], NOW + timedelta(days=8))) == 1               # po 7 dniach wraca
+
+
+def test_sync_cooldown_exempts_anomaly_and_p0(conn):
+    for analyzer, key in (("anomaly", "anomaly:x"), ("p0", "p0:x")):
+        d = draft(analyzer=analyzer, key=key, kind="alert", param=None, to=None, frm=None)
+        _reject(conn, d, NOW)
+        assert len(advisor.sync(conn, [d], NOW + timedelta(days=1))) == 1
+
+
+def test_decide_with_apply_writes_and_marks_not_trial(conn):
+    (pid,) = advisor.sync(conn, [slot_draft()], NOW)
+    seen = []
+    out = advisor.decide(conn, pid, "zatwierdzona", NOW, apply=lambda row: seen.append(row) or (True, ""))
+    assert out == {"ok": True, "status": "zatwierdzona", "trial": False, "written": True}
+    assert len(seen) == 1 and (seen[0]["from_value"], seen[0]["to_value"]) == (30.0, 35.0)
+    assert rows(conn)[0]["trial"] == 0 and rows(conn)[0]["status"] == "zatwierdzona"
+
+
+def test_decide_with_failing_apply_keeps_proposal_pending(conn):
+    (pid,) = advisor.sync(conn, [slot_draft()], NOW)
+    out = advisor.decide(conn, pid, "zatwierdzona", NOW, apply=lambda row: (False, "HA nie przyjęło zapisu"))
+    assert out == {"ok": False, "error": "HA nie przyjęło zapisu"}
+    assert rows(conn)[0]["status"] == "oczekuje"
+
+
+def test_decide_without_apply_or_for_other_params_stays_trial(conn):
+    (a, b) = advisor.sync(conn, [slot_draft(), draft()], NOW)
+    assert advisor.decide(conn, a, "zatwierdzona", NOW)["trial"] is True                       # brak apply — jak dotąd
+    boom = lambda row: (_ for _ in ()).throw(AssertionError)
+    assert advisor.decide(conn, b, "zatwierdzona", NOW, apply=boom) == {"ok": True, "status": "zatwierdzona", "trial": True}
+    (c,) = advisor.sync(conn, [slot_draft(to=25.0)], NOW + timedelta(days=1))
+    assert advisor.decide(conn, c, "odrzucona", NOW + timedelta(days=1), apply=boom)["trial"] is True    # odrzucenie nie zapisuje
+
+
+def test_as_dict_marks_writable_changes(conn):
+    advisor.sync(conn, [slot_draft(), draft()], NOW)
+    by = {p["analyzer"]: p for p in advisor.list_proposals(conn, NOW)["pending"]}
+    assert by["dhw_slot"]["writes"] is True and by["curve"]["writes"] is False
