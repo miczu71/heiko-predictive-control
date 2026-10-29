@@ -156,6 +156,10 @@ def create_app(db_path: str,
     def page_report():
         return render_template("report.html", base=base(), active="report")
 
+    @app.get("/cwu")
+    def page_cwu():
+        return render_template("cwu.html", base=base(), active="cwu")
+
     @app.get("/advisor")
     def page_advisor():
         return render_template("advisor.html", base=base(), active="advisor", settings=get_settings())
@@ -332,11 +336,17 @@ def create_app(db_path: str,
             tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
             model = dhw_model.fit_model(cycles)
             ah = dhw_model.summarize(cycles, model, lambda t: feed.price(t.replace(tzinfo=None)), tz)
+            today = datetime.now(tz).date()
+            hour_levels = []                                  # strefy taryfy dla tła wykresu startów wg godziny (dziś)
+            for h in range(24):
+                row = feed.at(datetime(today.year, today.month, today.day, h))
+                hour_levels.append({"hour": h, "level": row.level if row else None})
         finally:
             conn.close()
         for c in cycles[TRACE_CYCLES:]:                       # UI rysuje przebieg tylko 30 najnowszych — reszta to zbędny ładunek
             c.pop("trace", None)
-        return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles), "model": model, "ah_effect": ah})
+        return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles), "model": model, "ah_effect": ah,
+                        "hour_levels": hour_levels})
 
     @app.get("/api/changes")
     def api_changes():

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Ciepła woda{% endblock %}
+{% block content %}
+<section class="stats report">
+  <h2>Ciepła woda</h2>
+  <p class="sub">Okno: ostatnie 30 dni. Tylko odczyt. Koszt grzałki liczony z licznika energii pompy, nie z minut × moc nominalna.</p>
+  <div id="cwu-tiles" class="cwu-tiles">ładowanie…</div>
+
+  <h3>Runy wg godziny doby</h3>
+  <figure class="plan-chart" id="chart-runs-hour"></figure>
+
+  <h3>Czas runu a temperatura zewnętrzna</h3>
+  <figure class="plan-chart" id="chart-duration"></figure>
+
+  <h3>Czy grzałka się opłaca?</h3>
+  <figure class="plan-chart" id="chart-ah-value"></figure>
+  <div id="ah-verdict"></div>
+
+  <section id="cwu-suggestions" hidden></section>
+
+  <h3>Cykle CWU</h3>
+  <p class="sub">„Konfiguracja” to ustawienia slotów 49, 50 i 52 w chwili startu cyklu; „?” = sprzed dziennika zmian (od 26.09).</p>
+  <div id="dhw-cycles" class="history-table"></div>
+
+  <h3>Przebieg cyklu</h3>
+  <p class="trace-pick"><label for="dhw-pick">Przebieg cyklu:</label> <select id="dhw-pick"></select></p>
+  <div id="dhw-trace" class="chart"></div>
+  <p class="sub" id="dhw-trace-note"></p>
+
+  <details class="fold">
+    <summary>Szczegóły dla dociekliwych: model grzania i tabela wycen</summary>
+    <p class="sub">Model uczy się z odcinków, na których grzeje sama sprężarka (od 5. minuty cyklu do wejścia grzałki):
+      tempo grzania wody i moc zależnie od temperatury zewnętrznej i wody. Dla cykli z grzałką liczy, ile ta sama zmiana
+      temperatury kosztowałaby samą sprężarką. Czujnik wody jest na pompie, nie w zasobniku, więc tempo służy do
+      porównań między cyklami.</p>
+    <div id="dhw-model" class="history-table model-table">ładowanie…</div>
+    <figure class="plan-chart" id="dhw-model-chart"></figure>
+    <div id="dhw-ah-effect" class="history-table model-table"></div>
+  </details>
+
+  <details class="fold">
+    <summary>Grupy wg ustawień grzałki</summary>
+    <div id="dhw-groups" class="history-table">ładowanie…</div>
+  </details>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/cwu.js?v={{ version }}"></script>
+{% endblock %}

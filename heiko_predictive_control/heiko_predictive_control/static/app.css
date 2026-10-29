@@ -17,6 +17,9 @@
   --band-cold: rgba(179, 38, 30, .12);
   --band-warn: rgba(224, 160, 40, .14);
   --band-ok: rgba(46, 125, 79, .10);
+  --band-cheap: rgba(46, 125, 79, .12);
+  --band-mid: rgba(224, 160, 40, .12);
+  --band-expensive: rgba(179, 38, 30, .12);
 
   --wall-light: #ece8e1;
   --wall-dark: #ddd7cd;
@@ -70,6 +73,9 @@
     --band-cold: rgba(255, 143, 134, .16);
     --band-warn: rgba(240, 190, 80, .16);
     --band-ok: rgba(121, 201, 154, .12);
+    --band-cheap: rgba(121, 201, 154, .14);
+    --band-mid: rgba(240, 190, 80, .14);
+    --band-expensive: rgba(255, 143, 134, .16);
 
     --wall-light: #3a3733;
     --wall-dark: #2f2c29;
@@ -467,3 +473,14 @@ img { max-width: 100%; }
 .bar-key-3 { background: var(--muted); opacity: .45; }
 .trace-pick { margin: 8px 0; font-size: 14px; }
 .trace-pick select { font: inherit; max-width: 100%; }
+
+/* Strona Ciepła woda (CWU): kafle 30 dni i tła stref taryfy w wykresie startów wg godziny. */
+.cwu-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+@media (min-width: 860px) { .cwu-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.cwu-tile { background: var(--card-bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.cwu-tile-value { display: block; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cwu-tile-label { display: block; font-size: 12px; color: var(--muted); }
+.cwu-tile-note { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.zone-cheap { fill: var(--band-cheap); }
+.zone-mid { fill: var(--band-mid); }
+.zone-expensive { fill: var(--band-expensive); }

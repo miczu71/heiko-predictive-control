@@ -299,7 +299,26 @@ def test_report_page_and_nav(tmp_path):
     client, _ = _advisor_client(tmp_path)
     html = client.get("/report").get_data(as_text=True)
     assert 'href="/report"' in html
-    assert all(f'data-tab="{t}"' in html for t in ("cwu", "ogrzewanie", "energia", "pompa"))
+    assert all(f'data-tab="{t}"' in html for t in ("ogrzewanie", "energia", "pompa"))
+    assert 'data-tab="cwu"' not in html
+
+
+def test_cwu_page_and_nav(tmp_path):
+    client, _ = _advisor_client(tmp_path)
+    resp = client.get("/cwu")
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert 'href="/cwu"' in html
+    ids = ["cwu-tiles", "chart-runs-hour", "chart-duration", "chart-ah-value", "ah-verdict", "cwu-suggestions",
+           "dhw-cycles", "dhw-pick", "dhw-trace", "dhw-trace-note", "dhw-model", "dhw-model-chart", "dhw-ah-effect", "dhw-groups"]
+    assert all(f'id="{i}"' in html for i in ids)
+    assert "cwu.js" in html
+
+
+def test_dhw_cycles_api_returns_24_hour_levels(tmp_path):
+    client, _ = _advisor_client(tmp_path)
+    levels = client.get("/api/dhw_cycles").get_json()["hour_levels"]
+    assert [h["hour"] for h in levels] == list(range(24))
 
 
 def test_catalog_api_marks_automation_managed(tmp_path):
