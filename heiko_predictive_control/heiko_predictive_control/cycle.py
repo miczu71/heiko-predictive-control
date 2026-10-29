@@ -1,7 +1,7 @@
 """Rdzeń cyklu decyzyjnego — funkcje czyste (testowalne bez HA) + cienkie
 orkiestratory I/O. Pętla A (Heiko, od 0.6.0 plan blokowy na modelu podłogówki)
-jest nadal WYŁĄCZNIE obserwacją: `run_heiko_cycle` nigdy nie woła `call_service`.
-Pętla B (AC poddasza, od 0.4.0) zapisuje do klimatyzatora tylko przez
+jest nadal WYŁĄCZNIE obserwacją: `run_heiko_cycle` nigdy nie woła `call_service` (zapis do pompy robią tylko testy
+usera i akceptacja propozycji slotu 52 — `experiments`). Pętla B (AC poddasza, od 0.4.0) zapisuje do klimatyzatora tylko przez
 `run_attic_cycle`, i tylko gdy `attic_enabled`."""
 from __future__ import annotations
 

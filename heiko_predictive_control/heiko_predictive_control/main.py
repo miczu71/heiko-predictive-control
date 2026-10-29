@@ -4,7 +4,7 @@ Pętla A (Heiko) jest nadal WYŁĄCZNIE obserwacją (od 0.6.0 plan blokowy na mo
 podłogówki) — `cycle.run_heiko_cycle` nigdy nie woła `ha_client.call_service`. Od 0.8.0 (Doradca, D1)
 dochodzi telemetria pompy, dziennik zmian parametrów i dobowe streszczenia — wyłącznie odczyt; od 0.9.0 doradca
 (`advisor.run`, D2) liczy propozycje do własnej bazy — też bez zapisu do pompy. Od 0.12.0 (D3a) jedynym zapisem do pompy są
-kroki testów uruchomionych przez usera (`experiments.tick`, tylko przesunięcie krzywej). Pętla B (AC poddasza, od 0.4.0) zapisuje do
+kroki testów uruchomionych przez usera (`experiments.tick`, tylko przesunięcie krzywej) oraz — od 0.17.0 — slot 52 po ręcznej akceptacji propozycji Doradcy (`experiments.write_setting`). Pętla B (AC poddasza, od 0.4.0) zapisuje do
 klimatyzatora w `cycle.run_attic_cycle`, tylko przy `attic_enabled`. Obie pętle
 mają osobne zadania harmonogramu (A: `cycle_interval_min`, B: `attic_cycle_interval_min`)."""
 from __future__ import annotations

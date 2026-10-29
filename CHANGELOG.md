@@ -1,6 +1,17 @@
 # Changelog
 
-## Nieopublikowane — taryfa z harmonogramu pv_roi zamiast G12w na sztywno
+## 0.17.0 — taryfa z pv_roi, strona CWU, sugestie slotu 52, czytelny wykres komfortu
+
+Wymaga pv_roi_tracker 0.55.1+ (encja `sensor.pv_roi_tracker_pv_tariff_zone`); bez niej działa zapas G12w z plakietką.
+
+- **Strona CWU** (`/cwu`, także przeniesione z Raportu: tabela cykli, przebieg, model): kafle 30 dni (runy, mediana czasu, kWh, zł, zł/run, udział AH i PV), runy wg godziny na tle stref taryfy, czas runu a temperatura zewnętrzna, opłacalność grzałki w zł za zaoszczędzoną minutę; „Grupy wg ustawień grzałki” zwinięte na dole.
+- **Koszt cyklu CWU** (`cost_pln`, `pv_share`, `zone`) z podziałem źródeł; stare cykle bez kosztu pokazują „—”.
+- **Doradca: slot 52** (opóźnienie grzałki AH, 20–60 min, krok 5): propozycje na danych CWU; zapis do pompy dopiero po ręcznym „Zatwierdź i zapisz w pompie”, z allowlistą, blokadą przy trwającym teście i potwierdzeniem z ramki. Odrzucona propozycja milczy 7 dni (dotyczy też analizatorów curve i dhw).
+- **Wykres „Czy w domu było ciepło?”**: pasy tła (poniżej minimum / minimum…cel / powyżej celu), pas od najzimniejszego pokoju do średniej, osobny odcień temperatury zewnętrznej.
+- Harmonogram z pv_roi starszy niż 3 h (`generated_at`) jest odrzucany, więc nie udaje świeżego.
+- Uwaga: w trybie zapasu pętla A liczy zegarem G12w (nie pomija cyklu); zapis slotu 52 nie sprawdza `heiko_enabled` (wymaga ręcznej akceptacji).
+
+### Szczegóły taryfy z harmonogramu pv_roi zamiast G12w na sztywno
 
 - **Cena, strefa i „szczyt” godziny** pochodzą z atrybutu `schedule` encji `tariff_schedule_entity` (domyślnie
   `sensor.pv_roi_tracker_pv_tariff_zone`), zapisywanego co cykl (nie częściej niż co 5 min) w nowej tabeli `tariff_hours`.

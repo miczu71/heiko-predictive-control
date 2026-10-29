@@ -1,8 +1,8 @@
 """Dostęp do Home Assistant przez Supervisor API (SUPERVISOR_TOKEN).
 
 Odczyt (get_state, get_all_states, get_history, get_logbook, get_forecast, check_workday, get_statistics, get_mqtt_service)
-oraz zapis (call_service, notify). Zapis do urządzeń woła dziś wyłącznie pętla B (cycle.run_attic_cycle,
-klimatyzacja poddasza); pętla A (Heiko) nadal niczego nie zapisuje."""
+oraz zapis (call_service, notify). Zapis do urządzeń woła pętla B (cycle.run_attic_cycle,
+klimatyzacja poddasza) oraz `experiments._write` (testy usera, akceptacja slotu 52); pętla A (Heiko) niczego nie zapisuje."""
 from __future__ import annotations
 
 import json
