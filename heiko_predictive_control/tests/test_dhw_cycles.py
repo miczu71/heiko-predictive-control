@@ -87,13 +87,11 @@ def _bath_entry(when, **ctx):
 
 def test_bath_trigger_source_pv_manual_and_unknown():
     start = z(10, 30)
-    pv = [_bath_entry(z(10, 28), context_entity_id=dc.PV_AUTOMATION)]
+    pv = [_bath_entry(z(10, 28), context_domain="notify", context_service="family", context_event_type="call_service")]
     assert dc.bath_trigger_source(pv, start) == "pv"
     user = [_bath_entry(z(10, 28), context_user_id="abc123")]
     assert dc.bath_trigger_source(user, start) == "manual"
-    other = [_bath_entry(z(10, 28), context_entity_id="automation.cos_innego")]
-    assert dc.bath_trigger_source(other, start) is None
-    old = [_bath_entry(z(9, 0), context_entity_id=dc.PV_AUTOMATION)]
+    old = [_bath_entry(z(9, 0), context_domain="notify")]
     assert dc.bath_trigger_source(old, start) is None                  # włączenie dawno przed startem
     off = [{**_bath_entry(z(10, 28), context_user_id="abc123"), "state": "off"}]
     assert dc.bath_trigger_source(off, start) is None
@@ -108,7 +106,7 @@ def test_classify_splits_target_change_by_bath_source():
     def kind(entries):
         return dc.extract_cycles(s, z(0), z(23, 59), TZ, bath_entries=entries)[0]["type"]
 
-    assert kind([_bath_entry(z(10, 28), context_entity_id=dc.PV_AUTOMATION)]) == "nadwyżka PV"
+    assert kind([_bath_entry(z(10, 28), context_domain="notify")]) == "nadwyżka PV"
     assert kind([_bath_entry(z(10, 28), context_user_id="abc123")]) == "ręcznie (kąpiel)"
     assert kind(None) == "zmiana celu"
 
@@ -187,7 +185,7 @@ def test_store_cycles_persists_complete_cycles_only_and_is_idempotent(conn):
 
 def test_bath_trigger_source_accepts_naive_when():
     entry = {"when": "2026-09-21T08:28:00", "entity_id": dc.BATH_BOOLEAN, "state": "on",
-             "context_entity_id": dc.PV_AUTOMATION}                        # bez strefy = UTC
+             "context_domain": "notify"}                        # bez strefy = UTC
     assert dc.bath_trigger_source([entry], z(10, 30)) == "pv"
 
 
@@ -205,7 +203,7 @@ def _store_bath_cycle(conn, get_logbook):
 
 
 def test_store_cycles_classifies_bath_from_logbook(conn):
-    c = _store_bath_cycle(conn, lambda *a: [_bath_entry(z(10, 28), context_entity_id=dc.PV_AUTOMATION)])
+    c = _store_bath_cycle(conn, lambda *a: [_bath_entry(z(10, 28), context_domain="notify")])
     assert c["type"] == "nadwyżka PV" and c["v"] == dc.DATA_VERSION
 
 
@@ -268,7 +266,7 @@ def test_cycle_record_has_minute_trace_and_v4():
     water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
-    assert dc.DATA_VERSION == 5 and c["v"] == 5
+    assert dc.DATA_VERSION == 6 and c["v"] == 6
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
 

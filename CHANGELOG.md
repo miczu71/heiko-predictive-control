@@ -1,9 +1,14 @@
 # Changelog
 
+## 0.17.3 — poprawka: rozpoznanie „nadwyżka PV” / „ręcznie (kąpiel)” działa na prawdziwym logbooku
+
+- Logbook HA nie podaje `entity_id` automatyzacji, która włączyła przełącznik kąpieli (tylko kontekst jej pierwszej akcji), więc 0.17.2 nie rozpoznawał żadnego cyklu. Teraz: włączenie przez użytkownika HA (`context_user_id`) = **„ręcznie (kąpiel)”**, każde inne = **„nadwyżka PV”** (jedyna automatyzacja włączająca ten przełącznik to „Grzej wodę przy nadwyżce z PV v2”). Brak wpisu w oknie 10 min przed startem zostawia „zmiana celu”.
+- Rekordy cykli mają `v: 6` — backfill przelicza ostatnie 7 dni (zasięg recordera i logbooka), także cykle zapisane przez 0.17.2.
+
 ## 0.17.2 — CWU: typ cyklu „nadwyżka PV” i „ręcznie (kąpiel)” zamiast „zmiana celu”
 
 - Cykl CWU, który startuje po zmianie celu na 58°C, jest teraz rozpoznawany po tym, kto włączył `input_boolean.temperatura_do_kapieli` (wpis logbooka HA): automatyzacja nadwyżki PV → **„nadwyżka PV”**, użytkownik (przycisk „podgrzej do kąpieli”) → **„ręcznie (kąpiel)”**. Inny autor albo brak wpisu zostawia dotychczasowe „zmiana celu”.
-- Rekordy cykli mają `v: 5` — backfill przelicza ostatnie 7 dni (zasięg recordera i logbooka); starsze cykle zostają z typem „zmiana celu”.
+
 
 ## 0.17.1 — poprawka: Statystyki nie ładowały się („Błąd wczytywania statystyk”)
 

@@ -29,13 +29,12 @@ CLOCK_HOURS = (4, 8)               # godziny startu „zegarowego” pompy (pane
 CLOCK_TOLERANCE_S = 60
 TARGET_LOOKBACK_MIN = 5            # zmiana celu tuż przed startem = „zmiana celu” (np. kąpiel 58°C)
 BATH_BOOLEAN = "input_boolean.temperatura_do_kapieli"     # on → automatyzacja ustawia cel CWU 58°C
-PV_AUTOMATION = "automation.grzej_wode_przy_nadwyzce_z_pv_v2"   # włącza przełącznik przy nadwyżce PV
 BATH_LOOKBACK_MIN = 10             # włączenie przełącznika nie wcześniej niż tyle przed startem cyklu
 BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-DATA_VERSION = 5                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie — backfill je przelicza
+DATA_VERSION = 6                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie, v5 z błędną atrybucją — backfill je przelicza
 TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0
 MIN_HP_SEG_MIN = 5.0
@@ -117,8 +116,10 @@ def _trace(water_times: list[datetime], water_values: list[float | None],
 
 
 def bath_trigger_source(entries: list[dict] | None, start: datetime) -> str | None:
-    """Kto włączył `BATH_BOOLEAN` tuż przed startem cyklu (wpisy logbooka): „pv” (automatyzacja
-    `PV_AUTOMATION`), „manual” (użytkownik HA) albo None (brak wpisu, inny autor, błąd logbooka)."""
+    """Kto włączył `BATH_BOOLEAN` tuż przed startem cyklu (wpisy logbooka): „manual” (użytkownik HA,
+    `context_user_id`), „pv” (włączenie bez użytkownika — jedyną automatyzacją, która go włącza, jest
+    „Grzej wodę przy nadwyżce z PV v2”; logbook nie podaje jej `context_entity_id`, tylko kontekst
+    pierwszej akcji, np. `notify.family`) albo None (brak wpisu w oknie, błąd logbooka)."""
     best = None
     for e in entries or []:
         if e.get("entity_id") != BATH_BOOLEAN or e.get("state") != "on":
@@ -135,11 +136,7 @@ def bath_trigger_source(entries: list[dict] | None, start: datetime) -> str | No
     if best is None:
         return None
     e = best[1]
-    if e.get("context_entity_id") == PV_AUTOMATION:
-        return "pv"
-    if e.get("context_user_id"):
-        return "manual"
-    return None
+    return "manual" if e.get("context_user_id") else "pv"
 
 
 _BATH_TYPES = {"pv": "nadwyżka PV", "manual": "ręcznie (kąpiel)"}
