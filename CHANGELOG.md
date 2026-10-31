@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.2 — CWU: typ cyklu „nadwyżka PV” i „ręcznie (kąpiel)” zamiast „zmiana celu”
+
+- Cykl CWU, który startuje po zmianie celu na 58°C, jest teraz rozpoznawany po tym, kto włączył `input_boolean.temperatura_do_kapieli` (wpis logbooka HA): automatyzacja nadwyżki PV → **„nadwyżka PV”**, użytkownik (przycisk „podgrzej do kąpieli”) → **„ręcznie (kąpiel)”**. Inny autor albo brak wpisu zostawia dotychczasowe „zmiana celu”.
+- Rekordy cykli mają `v: 5` — backfill przelicza ostatnie 7 dni (zasięg recordera i logbooka); starsze cykle zostają z typem „zmiana celu”.
+
 ## 0.17.1 — poprawka: Statystyki nie ładowały się („Błąd wczytywania statystyk”)
 
 - Wykres komfortu (linia „Na zewnątrz” z gradientem) wywoływał `createLinearGradient` z niepoliczonym obszarem wykresu, bo uPlot woła `fill` także dla znacznika legendy; cała strona Statystyki pokazywała błąd. Gradient wraca teraz do jednolitego koloru, gdy obszar nie jest jeszcze znany.

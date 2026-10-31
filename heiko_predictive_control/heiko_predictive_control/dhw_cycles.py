@@ -28,11 +28,14 @@ DEFICIT_AT_MIN = 19.0
 CLOCK_HOURS = (4, 8)               # godziny startu „zegarowego” pompy (panel), z tolerancją
 CLOCK_TOLERANCE_S = 60
 TARGET_LOOKBACK_MIN = 5            # zmiana celu tuż przed startem = „zmiana celu” (np. kąpiel 58°C)
+BATH_BOOLEAN = "input_boolean.temperatura_do_kapieli"     # on → automatyzacja ustawia cel CWU 58°C
+PV_AUTOMATION = "automation.grzej_wode_przy_nadwyzce_z_pv_v2"   # włącza przełącznik przy nadwyżce PV
+BATH_LOOKBACK_MIN = 10             # włączenie przełącznika nie wcześniej niż tyle przed startem cyklu
 BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-DATA_VERSION = 4                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu — backfill je przelicza
+DATA_VERSION = 5                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie — backfill je przelicza
 TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0
 MIN_HP_SEG_MIN = 5.0
@@ -113,10 +116,40 @@ def _trace(water_times: list[datetime], water_values: list[float | None],
     return out
 
 
+def bath_trigger_source(entries: list[dict] | None, start: datetime) -> str | None:
+    """Kto włączył `BATH_BOOLEAN` tuż przed startem cyklu (wpisy logbooka): „pv” (automatyzacja
+    `PV_AUTOMATION`), „manual” (użytkownik HA) albo None (brak wpisu, inny autor, błąd logbooka)."""
+    best = None
+    for e in entries or []:
+        if e.get("entity_id") != BATH_BOOLEAN or e.get("state") != "on":
+            continue
+        try:
+            when = datetime.fromisoformat(str(e.get("when")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        age = (start - when).total_seconds()
+        if -60 <= age <= BATH_LOOKBACK_MIN * 60 and (best is None or when > best[0]):
+            best = (when, e)
+    if best is None:
+        return None
+    e = best[1]
+    if e.get("context_entity_id") == PV_AUTOMATION:
+        return "pv"
+    if e.get("context_user_id"):
+        return "manual"
+    return None
+
+
+_BATH_TYPES = {"pv": "nadwyżka PV", "manual": "ręcznie (kąpiel)"}
+
+
 def _classify(start: datetime, target_times: list[datetime], target_values: list[float | None],
-              tz: ZoneInfo) -> str:
+              tz: ZoneInfo, bath_entries: list[dict] | None = None) -> str:
     """„zegar” (start ±60 s od 04:00/08:00 lokalnie), „zmiana celu” (dhw_setpoint zmieniony
-    tuż przed startem — kąpiel/PV), reszta „zapotrzebowanie”. Heurystyka pomocnicza — zegar panelu
+    tuż przed startem), reszta „zapotrzebowanie”. Zmianę celu rozpoznajemy dalej po tym, kto włączył
+    przełącznik kąpieli (`bath_trigger_source`): „nadwyżka PV” albo „ręcznie (kąpiel)”. Heurystyka pomocnicza — zegar panelu
     jest niepełny (`docs/HEIKO_AH_cost_report.md` §9.2), surowe dane cyklu zostają zawsze widoczne."""
     local = start.astimezone(tz)
     for h in CLOCK_HOURS:
@@ -126,7 +159,7 @@ def _classify(start: datetime, target_times: list[datetime], target_values: list
     target = _value_at(target_times, target_values, start)
     before = _value_at(target_times, target_values, start - timedelta(minutes=TARGET_LOOKBACK_MIN))
     if target is not None and before is not None and target != before:
-        return "zmiana celu"
+        return _BATH_TYPES.get(bath_trigger_source(bath_entries, start), "zmiana celu")
     return "zapotrzebowanie"
 
 
@@ -174,7 +207,8 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
                     peak_price: float | None = None,
                     offpeak_price: float | None = None,
                     battery_cost_at: Callable[[datetime], float | None] = lambda t: None,
-                    feed: tariff_feed.TariffFeed | None = None) -> list[dict]:
+                    feed: tariff_feed.TariffFeed | None = None,
+                    bath_entries: list[dict] | None = None) -> list[dict]:
     """Cykle CWU (`working_mode` w DHW_CODES) w [window_start, window_end). `series`: mode, water,
     target (dhw_setpoint), ah (ah_working_time), energy_c, outdoor oraz do kosztu wg źródła: grid
     (pobór z sieci), discharge (rozładowanie baterii), rce. Cykl wciąż trwający na prawej
@@ -244,7 +278,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
             "hp_water_mid_c": hp and hp["mid"], "hp_seg_min": hp and hp["minutes"],
             "ah_rate_c_min": ah_seg and ah_seg["rate"], "ah_total_kw": ah_seg and ah_seg["kw"],
             "ah_water_mid_c": ah_seg and ah_seg["mid"], "ah_seg_min": ah_seg and ah_seg["minutes"],
-            "duration_min": duration_min, "type": _classify(start, target_times, target_values, tz),
+            "duration_min": duration_min, "type": _classify(start, target_times, target_values, tz, bath_entries),
             "target_c": target, "water_start_c": water_start, "water_min19_c": water_min19,
             "deficit_c": deficit,
             "outdoor_c": _value_at(outdoor_times, outdoor_values, start),
@@ -318,7 +352,7 @@ def group_by_config(cycles: list[dict]) -> list[dict]:
 
 
 def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datetime,
-                 get_history=ha_client.get_history,
+                 get_history=ha_client.get_history, get_logbook=ha_client.get_logbook,
                  is_workday: Callable[[date], bool] | None = None) -> int:
     """Pobiera historię doby (z zapasem `DEFICIT_AT_MIN` + kilku godzin wstecz, żeby złapać cykle
     zaczęte tuż przed północą) i zapisuje kompletne cykle (INSERT OR REPLACE po `start`). Cykle wciąż
@@ -351,7 +385,8 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
          day_end.astimezone(tz).replace(tzinfo=None).isoformat())))
     is_workday = is_workday or default_is_workday
     feed = tariff_feed.for_settings(conn, settings, is_workday)
-    cycles = extract_cycles(series, fetch_start, day_end, tz, is_workday,
+    bath_entries = get_logbook(BATH_BOOLEAN, fetch_start.isoformat(), day_end.isoformat())
+    cycles = extract_cycles(series, fetch_start, day_end, tz, is_workday, bath_entries=bath_entries,
                             offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)), feed=feed,
                             battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)))
     stored = 0
@@ -359,6 +394,8 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
         if not c["complete"]:
             continue
         cfg = config_at(conn, datetime.fromisoformat(c["start"]))
+        if bath_entries is None and c["type"] == "zmiana celu":
+            c["v"] = DATA_VERSION - 1      # logbook niedostępny: backfill ponowi dobę, zamiast utrwalić gorszy typ
         row = {**c, "cfg_49": cfg["49"], "cfg_50": cfg["50"], "cfg_52": cfg["52"]}
         conn.execute("INSERT OR REPLACE INTO dhw_cycles (start, end, data) VALUES (?, ?, ?)",
                      (c["start"], c["end"], json.dumps(row)))

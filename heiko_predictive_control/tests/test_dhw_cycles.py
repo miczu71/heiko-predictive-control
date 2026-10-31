@@ -81,6 +81,38 @@ def test_classify_clock_target_change_and_demand():
     assert dc.extract_cycles({"mode": mode_demand, "target": target_flat}, z(0), z(23, 59), TZ)[0]["type"] == "zapotrzebowanie"
 
 
+def _bath_entry(when, **ctx):
+    return {"when": when.isoformat(), "entity_id": dc.BATH_BOOLEAN, "state": "on", **ctx}
+
+
+def test_bath_trigger_source_pv_manual_and_unknown():
+    start = z(10, 30)
+    pv = [_bath_entry(z(10, 28), context_entity_id=dc.PV_AUTOMATION)]
+    assert dc.bath_trigger_source(pv, start) == "pv"
+    user = [_bath_entry(z(10, 28), context_user_id="abc123")]
+    assert dc.bath_trigger_source(user, start) == "manual"
+    other = [_bath_entry(z(10, 28), context_entity_id="automation.cos_innego")]
+    assert dc.bath_trigger_source(other, start) is None
+    old = [_bath_entry(z(9, 0), context_entity_id=dc.PV_AUTOMATION)]
+    assert dc.bath_trigger_source(old, start) is None                  # włączenie dawno przed startem
+    off = [{**_bath_entry(z(10, 28), context_user_id="abc123"), "state": "off"}]
+    assert dc.bath_trigger_source(off, start) is None
+    assert dc.bath_trigger_source(None, start) is None
+
+
+def test_classify_splits_target_change_by_bath_source():
+    mode = series((z(0), "0"), (z(10, 30), "1"), (z(11, 0), "0"))
+    target = series((z(0), "48"), (z(10, 28), "58"))
+    s = {"mode": mode, "target": target}
+
+    def kind(entries):
+        return dc.extract_cycles(s, z(0), z(23, 59), TZ, bath_entries=entries)[0]["type"]
+
+    assert kind([_bath_entry(z(10, 28), context_entity_id=dc.PV_AUTOMATION)]) == "nadwyżka PV"
+    assert kind([_bath_entry(z(10, 28), context_user_id="abc123")]) == "ręcznie (kąpiel)"
+    assert kind(None) == "zmiana celu"
+
+
 @pytest.fixture
 def conn(tmp_path):
     c = dbm.get_conn(str(tmp_path / "t.db"))
@@ -143,14 +175,44 @@ def test_store_cycles_persists_complete_cycles_only_and_is_idempotent(conn):
 
     day = date(2026, 9, 21)
     now = datetime(2026, 9, 22, 0, 20)
-    stored = dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, day, states, now, get_history=fake_history)
+    stored = dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, day, states, now, get_history=fake_history, get_logbook=lambda *a: None)
     assert stored == 1
     loaded = dc.load_cycles(conn)
     assert len(loaded) == 1 and loaded[0]["duration_min"] == 25.0
 
-    stored_again = dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, day, states, now, get_history=fake_history)
+    stored_again = dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, day, states, now, get_history=fake_history, get_logbook=lambda *a: None)
     assert stored_again == 1
     assert len(dc.load_cycles(conn)) == 1                          # INSERT OR REPLACE — bez duplikatu
+
+
+def test_bath_trigger_source_accepts_naive_when():
+    entry = {"when": "2026-09-21T08:28:00", "entity_id": dc.BATH_BOOLEAN, "state": "on",
+             "context_entity_id": dc.PV_AUTOMATION}                        # bez strefy = UTC
+    assert dc.bath_trigger_source([entry], z(10, 30)) == "pv"
+
+
+def _store_bath_cycle(conn, get_logbook):
+    states = [{"entity_id": "sensor.heiko_heat_pump_working_mode", "state": "0"},
+              {"entity_id": "number.heiko_heat_pump_dhw_setpoint", "state": "48"}]
+
+    def fake_history(entities, start, end):
+        return {"sensor.heiko_heat_pump_working_mode": series((z(0), "0"), (z(10, 30), "1"), (z(11, 0), "0")),
+                "number.heiko_heat_pump_dhw_setpoint": series((z(0), "48"), (z(10, 28), "58"))}
+
+    dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, date(2026, 9, 21), states, datetime(2026, 9, 22, 0, 20),
+                    get_history=fake_history, get_logbook=get_logbook)
+    return dc.load_cycles(conn)[0]
+
+
+def test_store_cycles_classifies_bath_from_logbook(conn):
+    c = _store_bath_cycle(conn, lambda *a: [_bath_entry(z(10, 28), context_entity_id=dc.PV_AUTOMATION)])
+    assert c["type"] == "nadwyżka PV" and c["v"] == dc.DATA_VERSION
+
+
+def test_store_cycles_retries_day_when_logbook_unavailable(conn):
+    c = _store_bath_cycle(conn, lambda *a: None)
+    assert c["type"] == "zmiana celu" and c["v"] < dc.DATA_VERSION
+    assert date(2026, 9, 21) in dc.missing_days(conn, datetime(2026, 9, 22, 0, 20), back_days=3)
 
 
 def test_missing_days(conn):
@@ -206,7 +268,7 @@ def test_cycle_record_has_minute_trace_and_v4():
     water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
-    assert dc.DATA_VERSION == 4 and c["v"] == 4
+    assert dc.DATA_VERSION == 5 and c["v"] == 5
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
 
@@ -268,7 +330,7 @@ def test_store_cycles_prices_battery_part_with_battery_cost_from_pump_cycles(con
 
     settings = {"timezone": "Europe/Warsaw", "ah_energy_entity": "sensor.ah"}
     assert dc.store_cycles(conn, settings, date(2026, 9, 21), states, datetime(2026, 9, 22, 0, 20),
-                           get_history=fake_history) == 1
+                           get_history=fake_history, get_logbook=lambda *a: None) == 1
     assert {"sensor.power_meter_consumption", "sensor.battery_total_discharge",
             "sensor.current_rce_price_kwh"} <= set(asked)
     assert dc.load_cycles(conn)[0]["ah_pln"] == pytest.approx(0.2)                     # 0,4 kWh z baterii × 0,5
