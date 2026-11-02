@@ -108,6 +108,9 @@
       <label>Sensor urlopu (włączony = AC nie grzeje)
         <input type="text" name="attic_vacation_entity" value="{{ settings.attic_vacation_entity or '' }}"
                placeholder="binary_sensor.…"></label>
+      <label>Licznik energii AC, kWh (energia z różnicy stanu; puste = całka mocy)
+        <input type="text" name="attic_energy_entity" value="{{ settings.attic_energy_entity or '' }}"
+               placeholder="sensor.…"></label>
       <label>Czujniki okien poddasza (po przecinku; otwarte &gt;2 min = pauza)
         <input type="text" name="attic_window_entities" value="{{ settings.attic_window_entities or '' }}"
                placeholder="binary_sensor.…, binary_sensor.…"></label>

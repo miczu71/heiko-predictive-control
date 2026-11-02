@@ -218,6 +218,39 @@ def test_energy_gap_is_capped_to_half_hour():
     assert abs(row["attic_energy_kwh"] - 0.5) < 1e-9
 
 
+ENERGY_SETTINGS = {**SETTINGS, "attic_energy_entity": "sensor.energy"}
+
+
+def _two_cycles(first, second, gap_min=5, power=1200.0):
+    conn, env = make_conn(), Env(ac="heat", temp=22.0, power=power, price=0.5)
+    env.numeric["sensor.energy"] = first
+    env.run(conn, ENERGY_SETTINGS, at(12, 0))
+    env.numeric["sensor.energy"] = second
+    return env.run(conn, ENERGY_SETTINGS, at(12, 0).replace(minute=gap_min % 60,
+                                                            hour=12 + gap_min // 60))
+
+
+def test_energy_from_meter_delta():
+    row = _two_cycles(0.10, 0.13)
+    assert abs(row["attic_energy_kwh"] - 0.03) < 1e-9
+    assert abs(row["attic_cost_pln"] - 0.015) < 1e-9
+
+
+def test_energy_meter_unavailable_falls_back_to_power_integral():
+    row = _two_cycles(0.10, None)
+    assert abs(row["attic_energy_kwh"] - 0.1) < 1e-9
+
+
+def test_energy_meter_reset_falls_back_to_power_integral():
+    row = _two_cycles(0.50, 0.02)
+    assert abs(row["attic_energy_kwh"] - 0.1) < 1e-9
+
+
+def test_energy_meter_gap_over_30_min_falls_back_to_power_integral():
+    row = _two_cycles(0.10, 0.13, gap_min=45)
+    assert abs(row["attic_energy_kwh"] - 0.6) < 1e-9       # 1,2 kW * 0,5 h (limit)
+
+
 def test_price_falls_back_to_schedule_when_entity_missing():
     conn, env = make_conn(), Env(temp=22.0)
     env.numeric.pop("sensor.price")

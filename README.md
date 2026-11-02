@@ -59,6 +59,7 @@ fundament, **bez żadnego zapisu do pompy**:
 |---|---|
 | `comfort_min_entities` | strefy liczone do minimum komfortu; puste = wszystkie |
 | `grid_power_entity` | moc na liczniku sieci, W (+ oddawanie, − pobór; domyślnie `sensor.power_meter_active_power`). Wskazówka „CWU w szczycie” liczy próbkę w szczycie G12w tylko przy poborze z sieci ≥ 500 W — CWU z nadwyżki PV albo z baterii to efekt zamierzony (0.11.2) |
+| `attic_energy_entity` | licznik energii AC poddasza, kWh (np. `total_increasing`); energia cyklu pętli B = różnica stanu licznika (przy braku, niedostępności, resecie lub przerwie >30 min — całka mocy `attic_power_entity`) |
 | `advisor_lens` | wyróżniona soczewka i powiadomienia: `żaden` / `komfort` / `ekonomia` |
 | `advisor_notify_service` | usługa `notify` telefonu, na który idą powiadomienia doradcy |
 | `advisor_link_path` | ścieżka linku w powiadomieniu (otwiera add-on w aplikacji HA) |

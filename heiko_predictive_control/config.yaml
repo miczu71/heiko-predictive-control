@@ -70,6 +70,8 @@ options:
   attic_temp_entity: "sensor.poddasze_temperature"
   attic_door_entity: ""
   attic_power_entity: ""
+  # Licznik energii AC, kWh (total_increasing); energia cyklu = różnica stanu, brak = całka mocy
+  attic_energy_entity: ""
   # Okna poddasza (lista po przecinku) — otwarte >2 min = pauza grzania; brak = bez pauzy
   attic_window_entities: ""
   # Encja „urlop” (binary_sensor, on = urlop, AC nie startuje); brak = ignorowane
@@ -142,6 +144,7 @@ schema:
   attic_temp_entity: str
   attic_door_entity: str?
   attic_power_entity: str?
+  attic_energy_entity: str?
   attic_window_entities: str?
   attic_vacation_entity: str?
   attic_pause_entity: str?

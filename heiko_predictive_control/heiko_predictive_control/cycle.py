@@ -404,6 +404,7 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
     door_raw = str((get_state(settings.get("attic_door_entity", "")) or {}).get("state", "")).lower()
     door_open = {"on": 1, "off": 0}.get(door_raw)
     power_w = get_numeric(settings.get("attic_power_entity", ""))
+    energy_now = get_numeric(settings.get("attic_energy_entity", ""))
 
     # Ręczny przełącznik pauzy (np. input_boolean): brak encji/niedostępny = brak pauzy.
     pause_raw = str((get_state(settings.get("attic_pause_entity", "")) or {}).get("state", "")).lower()
@@ -454,13 +455,22 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
     if not decision.dry_run and not failed:
         dbm.set_setting(conn, "attic_ctrl_state", decision.state.as_dict())
 
-    # Energia i koszt AC — całkowanie mocy chwilowej od poprzedniego cyklu.
+    # Energia i koszt AC — różnica stanu licznika energii; bez niego (brak, niedostępny,
+    # reset, przerwa >30 min) całkowanie mocy chwilowej od poprzedniego cyklu.
     prev = dbm.latest_cycle(conn, "attic")
     prev_ts = _parse_ts(prev["ts"]) if prev else None
     dt_h = 0.0
     if prev_ts is not None and now > prev_ts:
         dt_h = min((now - prev_ts).total_seconds() / 3600.0, 0.5)
     energy_kwh = (power_w or 0.0) / 1000.0 * dt_h
+    last_energy = dbm.get_setting(conn, "attic_last_energy") or {}
+    if energy_now is not None:
+        last_ts = _parse_ts(last_energy.get("ts"))
+        last_val = last_energy.get("value")
+        if (isinstance(last_val, (int, float)) and last_ts is not None and now > last_ts
+                and (now - last_ts).total_seconds() <= 1800 and energy_now >= last_val):
+            energy_kwh = energy_now - last_val
+        dbm.set_setting(conn, "attic_last_energy", {"value": energy_now, "ts": now.isoformat()})
     feed = tariff_feed.for_settings(conn, settings, lambda d: bool(is_workday))
     row = feed.at(now) if feed.status(now)["source"] == "feed" else None
     price = row.gross if row is not None else get_numeric(settings.get("tariff_price_entity", ""))

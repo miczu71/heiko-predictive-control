@@ -89,6 +89,7 @@ def _options_from_env() -> dict:
         "attic_pause_entity": _env("ATTIC_PAUSE_ENTITY"),
         "attic_presence_entity": _env("ATTIC_PRESENCE_ENTITY"),
         "attic_power_entity": _env("ATTIC_POWER_ENTITY"),
+        "attic_energy_entity": _env("ATTIC_ENERGY_ENTITY"),
         "attic_active_profile": _env("ATTIC_ACTIVE_PROFILE", "ekonomia"),
         "notify_service": _env("NOTIFY_SERVICE"),
         "comfort_min_entities": _env("COMFORT_MIN_ENTITIES"),
