@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.4 — poddasze: węższe pasmo AC, energia z licznika, dziennik runów; slot 52: próg deficytu 8 °C
+
+- **Pasmo AC poddasza:** klimatyzacja wyłączana, gdy temperatura przekroczy cel o **0,5 °C** (było 0,7); dolna granica (−0,3 °C) bez zmian. Wcześniej poddasze trzymało 21,2–21,7 °C przy celu 21,0.
+- **Doradca, slot 52 (opóźnienie grzałki AH):** propozycja „skróć” wymaga mediany zimowego deficytu **8 °C** (było 3 °C) — próg 3 °C odpalałby już przy pierwszych łagodnych chłodach, a nie przy mrozie.
+- **Energia AC z licznika (A1):** nowa opcja `attic_energy_entity` (licznik kWh). Energia cyklu pętli B to różnica stanu licznika; przy braku encji, niedostępności, resecie licznika lub przerwie >30 min — całka mocy `attic_power_entity` jak dotąd.
+- **Dziennik runów AC (A2):** każdy run klimatyzacji (start, czas, kWh, koszt wg strefy taryfy, temperatury, ΔT, °C/h, kWh/°C, temperatura zewnętrzna) zapisywany nocą o 00:30 i po starcie z recordera HA (ostatnie 7 dni); sekcja „Runy klimatyzacji poddasza” w Statystykach, `GET /api/attic_runs?days=60`. Tylko odczyt — add-on niczego nie zapisuje do klimatyzacji.
+- Wymaga ustawionego `attic_power_entity` (od 02.11: `sensor.miernik_energii_klimatyzacje_power_b`); `attic_energy_entity` opcjonalne.
+
 ## 0.17.3 — poprawka: rozpoznanie „nadwyżka PV” / „ręcznie (kąpiel)” działa na prawdziwym logbooku
 
 - Logbook HA nie podaje `entity_id` automatyzacji, która włączyła przełącznik kąpieli (tylko kontekst jej pierwszej akcji), więc 0.17.2 nie rozpoznawał żadnego cyklu. Teraz: włączenie przez użytkownika HA (`context_user_id`) = **„ręcznie (kąpiel)”**, każde inne = **„nadwyżka PV”** (jedyna automatyzacja włączająca ten przełącznik to „Grzej wodę przy nadwyżce z PV v2”). Brak wpisu w oknie 10 min przed startem zostawia „zmiana celu”.
