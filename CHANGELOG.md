@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.5 — poddasze: koszt runu AC wg źródła energii (sieć / bateria / PV)
+
+- **Koszt runu klimatyzacji wg źródła:** run z licznikiem energii (`attic_energy_entity`) jest wyceniany tak jak cykl CWU — przyrost licznika dzielony na pobór z sieci (po taryfie), rozładowanie baterii (po średnim koszcie energii w baterii) i PV (po bieżącej RCE). AC grzeje w dzień roboczy 08–16, gdy działa PV, więc wcześniejsza wycena zegarowa zawyżała koszt.
+- **Nowe pola runu:** `pv_share` (udział PV w energii runu) i `split_complete`. W Statystykach: kolumna i kafelek „PV %” (średnia ważona energią), a przy kosztach bez pełnego podziału dopisek „(przybl.)” — brak licznika, brak którejś serii źródeł albo rekord sprzed 0.17.5.
+- Rekordy runów mają `v: 2` — backfill (00:30 i po starcie) przelicza ostatnie 7 dni z recordera HA; starsze rekordy zostają z kosztem zegarowym.
+- Bez zmian po stronie sterowania: add-on nadal niczego nie zapisuje do klimatyzacji ani pompy.
+
 ## 0.17.4 — poddasze: węższe pasmo AC, energia z licznika, dziennik runów; slot 52: próg deficytu 8 °C
 
 - **Pasmo AC poddasza:** klimatyzacja wyłączana, gdy temperatura przekroczy cel o **0,5 °C** (było 0,7); dolna granica (−0,3 °C) bez zmian. Wcześniej poddasze trzymało 21,2–21,7 °C przy celu 21,0.
