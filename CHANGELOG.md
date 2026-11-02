@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.0 — podłogówka: dziennik runów, kafel „Doba” na pulpicie i strona /ogrzewanie
+
+- **Kafel „Doba” na stronie głównej:** dziś (na żywo) i wczoraj — podłogówka, CWU i klimatyzacja poddasza: kWh, koszt, rozkład na strefy taryfy i udział PV. Bez zapisów do pompy i klimatyzacji.
+- **Nowa strona /ogrzewanie:** doba → strefy taryfy → pojedyncze runy podłogówki (kWh, zł, PV %, T zewn., T wody). Run = ciągłe `working_mode = 2`, przerwy ≤ 10 min scalane. Zapis nocą 00:30 i po starcie (backfill 7 dni); runy przez północ są kompletne dzięki 12-godzinnemu zapasowi okna.
+- **Strefy taryfy w kosztach CWU i AC** (`zones`); rekordy CWU v7, AC v3 — backfill przelicza ostatnie 7 dni.
+- **Poprawka:** brak serii rozładowania baterii nie jest już liczony jako PV — koszt wg taryfy i `split_complete: false`.
+- API: `GET /api/day_summary?day=today|yesterday`, `GET /api/heating_runs?days=` (walidacja parametru).
+
 ## 0.17.5 — poddasze: koszt runu AC wg źródła energii (sieć / bateria / PV)
 
 - **Koszt runu klimatyzacji wg źródła:** run z licznikiem energii (`attic_energy_entity`) jest wyceniany tak jak cykl CWU — przyrost licznika dzielony na pobór z sieci (po taryfie), rozładowanie baterii (po średnim koszcie energii w baterii) i PV (po bieżącej RCE). AC grzeje w dzień roboczy 08–16, gdy działa PV, więc wcześniejsza wycena zegarowa zawyżała koszt.
