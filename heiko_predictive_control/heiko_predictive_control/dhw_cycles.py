@@ -14,6 +14,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import catalog
+from . import db
 from . import energy_source as es
 from . import ha_client
 from .summaries import DHW_CODES, day_bounds
@@ -464,9 +465,7 @@ def load_cycles(conn, days: int = 60) -> list[dict]:
 
 def load_range(conn, start_utc: datetime, end_utc: datetime) -> list[dict]:
     """Zapisy ze `start` w [start_utc, end_utc) (UTC, `start` zapisany jako UTC ISO), rosnąco. Tylko odczyt."""
-    rows = conn.execute("SELECT data FROM dhw_cycles WHERE start >= ? AND start < ? ORDER BY start",
-                        (start_utc.isoformat(), end_utc.isoformat())).fetchall()
-    cycles = [json.loads(r["data"]) for r in rows]
+    cycles = db.load_json_range(conn, "dhw_cycles", start_utc, end_utc)
     for c in cycles:
         c["cfg_50"] = normalize_slot50(c.get("cfg_50"))
     return cycles

@@ -3,7 +3,6 @@ attic_runs) zagregowane w koszyki doba / tydzień ISO / miesiąc, z porównaniem
 Rekord należy do doby lokalnej swojego startu. **Tylko odczyt**: zero zapisów do pompy, HA i bazy."""
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timedelta
 from typing import Callable
 
@@ -17,9 +16,10 @@ AUTO_WEEK_MAX = 182                    # ≤ 182 dni -> tygodnie, dalej miesiąc
 FETCH_MARGIN = timedelta(hours=12)
 ZONES_MIN_VERSION = 7                  # `v` cyklu CWU od wersji ze strefami taryfy (`dhw_cycles.DATA_VERSION` = 7)
 OUTDOOR_KEY = "ambient_air_temperature"
-COMPONENTS = (("floor", heating_runs, "energy_kwh", "heating_runs"),
-              ("dhw", dhw_cycles, "kwh_total", "dhw_cycles"),
-              ("ac", attic_runs, "energy_kwh", "attic_runs"))
+COMPONENTS = (("floor", heating_runs, "energy_kwh"),
+              ("dhw", dhw_cycles, "kwh_total"),
+              ("ac", attic_runs, "energy_kwh"))
+NAMES = tuple(c[0] for c in COMPONENTS)
 
 
 def _resolve_group(group: str, days: int) -> str:
@@ -50,8 +50,8 @@ def _with_unsplit(agg: dict) -> dict:
 
 def _publish(parts: dict[str, dict]) -> dict:
     """floor/dhw/ac + total (public + unsplit_kwh) z agregatów składników."""
-    out = {name: _with_unsplit(parts[name]) for name in ("floor", "dhw", "ac")}
-    out["total"] = _with_unsplit(combine([parts["floor"], parts["dhw"], parts["ac"]]))
+    out = {name: _with_unsplit(parts[name]) for name in NAMES}
+    out["total"] = _with_unsplit(combine([parts[name] for name in NAMES]))
     return out
 
 
@@ -72,7 +72,7 @@ def _load_records(conn, tz_name: str, tz, start: date, end: date) -> dict[str, d
     lo = day_bounds(start, tz_name)[0] - FETCH_MARGIN
     hi = day_bounds(end, tz_name)[1]
     out: dict[str, dict[date, list[dict]]] = {}
-    for name, module, _, _ in COMPONENTS:
+    for name, module, _ in COMPONENTS:
         by_day: dict[date, list[dict]] = {}
         for r in module.load_range(conn, lo, hi):
             d = local_date(r["start"], tz)
@@ -108,11 +108,9 @@ def _coverage(conn, tz) -> dict:
         row = conn.execute(f"SELECT MIN(start) AS s FROM {table}").fetchone()
         return local_date(row["s"], tz).isoformat() if row and row["s"] else None
 
-    zones_from = None
-    for r in conn.execute("SELECT start, data FROM dhw_cycles ORDER BY start"):
-        if (json.loads(r["data"]).get("v") or 0) >= ZONES_MIN_VERSION:
-            zones_from = local_date(r["start"], tz).isoformat()
-            break
+    row = conn.execute("SELECT start FROM dhw_cycles WHERE json_extract(data, '$.v') >= ? ORDER BY start LIMIT 1",
+                       (ZONES_MIN_VERSION,)).fetchone()
+    zones_from = local_date(row["start"], tz).isoformat() if row else None
     return {"floor": {"oldest": oldest("heating_runs")},
             "dhw": {"oldest": oldest("dhw_cycles"), "zones_from": zones_from},
             "ac": {"oldest": oldest("attic_runs")}}
@@ -122,13 +120,13 @@ def _totals(conn, tz_name: str, tz, start: date, end: date) -> dict:
     """Sumy zapisanych rekordów okresu (bez „dziś”) — do okresu poprzedniego."""
     records = _load_records(conn, tz_name, tz, start, end)
     parts = {name: aggregate([r for day in sorted(records[name]) for r in records[name][day]], kwh_key)
-             for name, _, kwh_key, _ in COMPONENTS}
+             for name, _, kwh_key in COMPONENTS}
     return _publish(parts)
 
 
 def _delta(cur: dict, prev: dict) -> dict:
     out = {}
-    for name in ("floor", "dhw", "ac", "total"):
+    for name in (*NAMES, "total"):
         c, p = cur[name], prev[name]
         pp = None if c["pv_share"] is None or p["pv_share"] is None else round((c["pv_share"] - p["pv_share"]) * 100, 1)
         out[name] = {"pln": round(c["pln"] - p["pln"], 2), "kwh": round(c["kwh"] - p["kwh"], 3), "pv_share_pp": pp}
@@ -149,42 +147,36 @@ def build(conn, settings: dict, start: date, end: date, now: datetime, group: st
     today_parts = None
     if use_today:
         res = today_fn()
-        today_parts = {name: _from_public(res.get(name) or {}) for name, *_ in COMPONENTS}
+        today_parts = {name: _from_public(res.get(name) or {}) for name in NAMES}
 
     records = _load_records(conn, tz_name, tz, start, end)
     outdoor = _outdoor_telemetry(conn, tz_name, tz, start, end, group)
-    order: list[str] = []
-    labels: dict[str, str] = {}
-    recs: dict[str, dict[str, list[dict]]] = {}
-    in_progress: dict[str, bool] = {}
+    grouped: dict[str, dict] = {}          # klucz koszyka -> {label, in_progress, recs}; kolejność wstawiania = chronologia
     for i in range(days):
         day = start + timedelta(days=i)
         key, label = _bucket(day, group)
-        if key not in labels:
-            order.append(key)
-            labels[key] = label
-            recs[key] = {name: [] for name, *_ in COMPONENTS}
-            in_progress[key] = False
+        b = grouped.setdefault(key, {"label": label, "in_progress": False, "recs": {name: [] for name in NAMES}})
         if use_today and day == today:
-            in_progress[key] = True
+            b["in_progress"] = True
             continue                       # dzisiejsze rekordy ignorujemy na rzecz `today_fn`
-        for name, *_ in COMPONENTS:
-            recs[key][name].extend(records[name].get(day, []))
+        for name in NAMES:
+            b["recs"][name].extend(records[name].get(day, []))
 
     buckets, bucket_parts = [], []
-    for key in order:
-        parts = {name: aggregate(recs[key][name], kwh_key) for name, _, kwh_key, _ in COMPONENTS}
+    for key, b in grouped.items():
+        recs = b["recs"]
+        parts = {name: aggregate(recs[name], kwh_key) for name, _, kwh_key in COMPONENTS}
         if use_today and _bucket(today, group)[0] == key:
             parts = {name: combine([parts[name], today_parts[name]]) for name in parts}
         bucket_parts.append(parts)
-        fallback = [r["outdoor_c"] for name, *_ in COMPONENTS for r in recs[key][name] if r.get("outdoor_c") is not None]
+        fallback = [r["outdoor_c"] for name in NAMES for r in recs[name] if r.get("outdoor_c") is not None]
         temp = outdoor.get(key)
         if temp is None and fallback:
             temp = sum(fallback) / len(fallback)
-        buckets.append({"key": key, "label": labels[key], "in_progress": in_progress[key],
+        buckets.append({"key": key, "label": b["label"], "in_progress": b["in_progress"],
                         "outdoor_c": None if temp is None else round(temp, 1), **_publish(parts)})
 
-    totals = _publish({name: combine([p[name] for p in bucket_parts]) for name, *_ in COMPONENTS})
+    totals = _publish({name: combine([p[name] for p in bucket_parts]) for name in NAMES})
     prev_start = start - timedelta(days=days)
     prev_end = start - timedelta(days=1)
     prev_totals = _totals(conn, tz_name, tz, prev_start, prev_end)

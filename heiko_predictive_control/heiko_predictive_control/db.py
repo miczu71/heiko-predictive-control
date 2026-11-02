@@ -354,3 +354,11 @@ def attic_today_totals(conn: sqlite3.Connection, day_prefix: str) -> dict[str, f
         "COALESCE(SUM(attic_cost_pln), 0) AS pln "
         "FROM cycles WHERE loop = 'attic' AND ts LIKE ?", (f"{day_prefix}%",)).fetchone()
     return {"kwh": float(row["kwh"]), "pln": float(row["pln"])}
+
+
+def load_json_range(conn, table: str, start_utc, end_utc) -> list[dict]:
+    """Rekordy JSON (`data`) z `table` ze `start` w [start_utc, end_utc) (UTC ISO), rosnąco. Tylko odczyt;
+    `table` to stała modułu wywołującego."""
+    rows = conn.execute(f"SELECT data FROM {table} WHERE start >= ? AND start < ? ORDER BY start",
+                        (start_utc.isoformat(), end_utc.isoformat())).fetchall()
+    return [json.loads(r["data"]) for r in rows]

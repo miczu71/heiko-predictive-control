@@ -11,6 +11,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import catalog
+from . import db
 from . import energy_source as es
 from . import ha_client
 from . import tariff_feed
@@ -211,6 +212,4 @@ def load_runs(conn, days: int = 60) -> list[dict]:
 
 def load_range(conn, start_utc: datetime, end_utc: datetime) -> list[dict]:
     """Zapisy ze `start` w [start_utc, end_utc) (UTC, `start` zapisany jako UTC ISO), rosnąco. Tylko odczyt."""
-    rows = conn.execute("SELECT data FROM attic_runs WHERE start >= ? AND start < ? ORDER BY start",
-                        (start_utc.isoformat(), end_utc.isoformat())).fetchall()
-    return [json.loads(r["data"]) for r in rows]
+    return db.load_json_range(conn, "attic_runs", start_utc, end_utc)
