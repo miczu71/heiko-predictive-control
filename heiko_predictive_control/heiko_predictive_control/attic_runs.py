@@ -87,8 +87,9 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
     outdoor oraz do kosztu wg źródła: grid, discharge, rce. Run dotykający granic okna (start = początek okna
     z mocą przeniesioną z poprzedzającej doby albo koniec w odległości ≤ `MERGE_GAP_MIN` od końca okna) dostaje
     `complete: False` — wołający go pomija, okno kolejnej doby złapie go w całości. Cena godziny z `feed`, bez
-    niego zapas G12w. Koszt z licznika dzielony wg źródła jak w cyklach CWU (`pv_share`); bez serii —
-    koszt zegarowy z `split_complete: False`."""
+    niego zapas G12w. Koszt z licznika dzielony wg źródła jak w cyklach CWU (`pv_share`); gdy brakuje serii
+    źródeł, podział jest niepełny (`split_complete: False`, część energii po taryfie), a bez licznika
+    koszt zegarowy z całki mocy (też `split_complete: False`)."""
     default_peak, default_offpeak = fallback_prices()
     peak_price = default_peak if peak_price is None else peak_price
     offpeak_price = default_offpeak if offpeak_price is None else offpeak_price
@@ -96,9 +97,9 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
     e_times, e_values = _points(series.get("energy", []))
     t_times, t_values = _points(series.get("temp", []))
     o_times, o_values = _points(series.get("outdoor", []))
-    sources = {k: es.Counter((t, catalog.to_number(s)) for t, s in series.get(k, [])) for k in ("grid", "discharge", "rce")}
     if not p_times:
         return []
+    sources = {k: es.Counter((t, catalog.to_number(s)) for t, s in series.get(k, [])) for k in ("grid", "discharge", "rce")}
 
     def price_at(local: datetime) -> float:
         if feed is not None:
@@ -124,12 +125,9 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
                                                  or int_kwh > 0 and abs(meter - int_kwh) / int_kwh <= ENERGY_CHECK_TOLERANCE)
         split = None if meter is None else _cost(e_times, e_values, start, end, tz, is_workday, peak_price,
                                                  offpeak_price, battery_cost_at=battery_cost_at, feed=feed, **sources)
-        if split is not None:
-            cost_pln = split["pln"]
-            split_complete = split["split_complete"]
-            pv_share = round(split["pv_kwh"] / split["kwh"], 3) if split_complete and split["kwh"] > 0 else None
-        else:
-            cost_pln, pv_share, split_complete = round(pln, 2), None, False
+        cost_pln = split["pln"] if split else round(pln, 2)
+        split_complete = bool(split and split["split_complete"])
+        pv_share = round(split["pv_kwh"] / split["kwh"], 3) if split_complete and split["kwh"] > 0 else None
         in_run = [v for t, v in zip(p_times, p_values) if start <= t < end and v is not None]
         t0, t1 = _value_at(t_times, t_values, start), _value_at(t_times, t_values, end)
         delta = None if t0 is None or t1 is None else t1 - t0
@@ -179,7 +177,7 @@ def store_runs(conn, settings: dict, day: date, states: list[dict],
     battery = es.Counter((datetime.fromisoformat(r["ts"]), r["battery_cost_pln_kwh"]) for r in conn.execute(
         "SELECT ts, battery_cost_pln_kwh FROM cycles WHERE loop = 'heiko' AND ts >= ? AND ts <= ?",
         ((fetch_start - timedelta(hours=1)).astimezone(tz).replace(tzinfo=None).isoformat(),
-         day_end.astimezone(tz).replace(tzinfo=None).isoformat())))
+         day_end.astimezone(tz).replace(tzinfo=None).isoformat()))) if roles.get("energy") else es.Counter([])
     is_workday = is_workday or default_is_workday
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     stored = 0
