@@ -6,6 +6,7 @@ import pytest
 
 from heiko_predictive_control import attic_runs as ar
 from heiko_predictive_control import db as dbm
+from heiko_predictive_control import energy_source as es
 from heiko_predictive_control import tariff
 from heiko_predictive_control.tariff_feed import TariffFeed
 
@@ -113,6 +114,30 @@ def test_store_missing_days_and_load(tmp_path):
     assert ar.store_runs(conn, {}, datetime(2026, 10, 27).date(), [], get_history=lambda *a: hist) == 0
     runs = ar.load_runs(conn, 36500)
     assert len(runs) == 1 and runs[0]["duration_min"] == 30.0
+
+
+def test_store_runs_wires_source_entities_and_stores_split(tmp_path):
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    dbm.migrate(conn)
+    settings = {"attic_power_entity": "sensor.ac_power", "attic_energy_entity": "sensor.ac_energy",
+                "timezone": "Europe/Warsaw"}
+    ent = es.entities(settings)
+    hist = {"sensor.ac_power": power_series(12, 0, 30),
+            "sensor.ac_energy": [(z(11, 55), "5.00"), (z(12, 30), "5.60")],
+            ent["grid_import"]: [(z(11, 50), "100.0"), (z(12, 40), "100.0")],
+            ent["battery_discharge"]: [(z(11, 50), "50.0"), (z(12, 40), "50.0")],
+            ent["rce_price"]: [(z(11, 50), "0.30")]}
+    asked = []
+
+    def fake_history(ents, a, b):
+        asked.extend(ents)
+        return hist
+
+    assert ar.store_runs(conn, settings, datetime(2026, 10, 27).date(), [], get_history=fake_history) == 1
+    assert {ent["grid_import"], ent["battery_discharge"], ent["rce_price"]} <= set(asked)
+    run = ar.load_runs(conn, 36500)[0]
+    assert run["v"] == ar.DATA_VERSION and run["split_complete"] is True
+    assert run["pv_share"] == pytest.approx(1.0)
 
 
 def _meter_base():

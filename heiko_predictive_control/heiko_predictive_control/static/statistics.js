@@ -100,7 +100,7 @@ async function renderRuns() {
     ].join("");
     $("attic-runs").innerHTML = HPC.collapsibleTable(["Start", "Czas min", "kWh", "Zł", "PV %", "Średnia W", "Szczyt W", "Strefa", "T start °C", "T koniec °C", "ΔT °C", "°C/godz.", "kWh na °C", "Zewn. °C"],
       d.runs.map(r => [when(r.start), v(r.duration_min), r.energy_check === false ? `${v(r.energy_kwh)} (?)` : v(r.energy_kwh),
-        r.split_complete === false ? `${v(r.cost_pln)} (przybl.)` : v(r.cost_pln), r.pv_share == null ? "—" : num(r.pv_share * 100, 0), v(r.avg_w), v(r.peak_w),
+        r.split_complete !== true ? `${v(r.cost_pln)} (przybl.)` : v(r.cost_pln), r.pv_share == null ? "—" : num(r.pv_share * 100, 0), v(r.avg_w), v(r.peak_w),
         ZONES[r.zone] || v(r.zone), v(r.temp_start_c), v(r.temp_end_c), v(r.delta_c), v(r.rate_c_h), v(r.kwh_per_c), v(r.outdoor_c)]),
       { empty: "Brak zapisanych runów — pojawią się po ustawieniu encji mocy klimatyzacji i nocnym zapisie." });
   } catch (e) { $("attic-runs").textContent = "Błąd wczytywania runów klimatyzacji."; }
