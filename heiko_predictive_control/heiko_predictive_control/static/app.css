@@ -498,6 +498,9 @@ img { max-width: 100%; }
 .day-table tr.total th, .day-table tr.total td { font-weight: 700; border-bottom: 0; }
 .muted { color: var(--muted); }
 .day-table td.muted { text-align: left; }
+.day-table tr.zones-row td { padding: 0 6px 8px; white-space: normal; text-align: left; font-weight: 400; }
+.day-table .zonebar { height: 6px; margin: 2px 0 4px; }
+.day-table .zonelegend { font-size: 12px; gap: 2px 12px; margin: 0; }
 .approx { text-decoration: none; cursor: help; color: var(--muted); }
 .notice-inline { margin: 8px 0; padding: 8px 12px; background: var(--accent-light); border-radius: 8px; font-size: 14px; }
 .zonebar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 12px 0 6px; background: var(--line); gap: 2px; }

@@ -10,7 +10,8 @@ let current = "today";
 function row(label, d, total) {
   if (d.configured === false) return `<tr><th scope="row">${esc(label)}</th><td colspan="3" class="muted">nie skonfigurowano</td></tr>`;
   const approx = d.approx ? `<abbr class="approx" title="Wartość przybliżona: brak części danych o źródle energii lub run w toku">≈</abbr> ` : "";
-  return `<tr${total ? ' class="total"' : ""}><th scope="row">${esc(label)}</th><td>${approx}${nf(d.kwh)} kWh</td><td>${nf(d.pln)} zł</td><td>${HPC.pct(d.pv_share)}</td></tr>`;
+  const bar = d.kwh > 0 ? `<tr class="zones-row"><td colspan="4">${HPC.zoneBarWithRest(d.zones, d.kwh)}</td></tr>` : "";
+  return `<tr${total ? ' class="total"' : ""}><th scope="row">${esc(label)}</th><td>${approx}${nf(d.kwh)} kWh</td><td>${nf(d.pln)} zł</td><td>${HPC.pct(d.pv_share)}</td></tr>${bar}`;
 }
 
 function render(d) {
@@ -18,7 +19,7 @@ function render(d) {
   const live = d.in_progress ? `<p class="sub">Doba trwa — runy w toku liczone do tej chwili.</p>` : "";
   const rows = ROWS.map(([k, l]) => row(l, d[k] || { configured: false })).join("") + row("Razem", d.total, true);
   body.innerHTML = `${notice}<table class="day-table"><thead><tr><th></th><th>Energia</th><th>Koszt</th><th>Z PV</th></tr></thead><tbody>${rows}</tbody></table>`
-    + (d.total && d.total.kwh > 0 ? HPC.zoneBar(d.total.zones) : `<p class="sub">Brak zużycia w tej dobie.</p>`) + live;
+    + (d.total && d.total.kwh > 0 ? "" : `<p class="sub">Brak zużycia w tej dobie.</p>`) + live;
 }
 
 async function load(day) {

@@ -29,13 +29,17 @@ HPC.zoneEntries = zones => Object.entries(zones || {}).sort((a, b) => {
   return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
 });
 // Pasek udziału stref w energii: segmenty szerokością ∝ kWh, opis tekstem pod paskiem (nie tylko kolor).
-HPC.zoneBar = zones => {
-  const rows = HPC.zoneEntries(zones).filter(([, z]) => z.kwh > 0);
-  const total = rows.reduce((a, [, z]) => a + z.kwh, 0);
+// `totalKwh` (opcjonalnie): energia bez podziału na strefy (rekordy sprzed stref) trafia do szarego segmentu „bez podziału”.
+HPC.zoneBarWithRest = (zones, totalKwh) => {
+  const rows = HPC.zoneEntries(zones).filter(([, z]) => z.kwh > 0).map(([n, z]) => ({ n, label: HPC.zoneLabel(n), cls: HPC.zoneClass(n), kwh: z.kwh, pln: z.pln }));
+  const rest = totalKwh > 0 ? totalKwh - rows.reduce((a, r) => a + r.kwh, 0) : 0;
+  if (rest > 0.005) rows.push({ n: "rest", label: "bez podziału", cls: "zone-other", kwh: rest, pln: null });
+  const total = rows.reduce((a, r) => a + r.kwh, 0);
   if (!total) return "";
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const seg = rows.map(([n, z]) => `<i class="${HPC.zoneClass(n)}" style="flex:${z.kwh}" title="${esc(HPC.zoneLabel(n))}: ${HPC.nf(z.kwh)} kWh"></i>`).join("");
-  const legend = rows.map(([n, z]) => `<span><i class="sw ${HPC.zoneClass(n)}"></i>${esc(HPC.zoneLabel(n))} ${HPC.nf(z.kwh)} kWh · ${HPC.nf(z.pln)} zł</span>`).join("");
+  const seg = rows.map(r => `<i class="${r.cls}" style="flex:${r.kwh}" title="${esc(r.label)}: ${HPC.nf(r.kwh)} kWh"></i>`).join("");
+  const legend = rows.map(r => `<span><i class="sw ${r.cls}"></i>${esc(r.label)} ${HPC.nf(r.kwh)} kWh${r.pln === null ? "" : ` · ${HPC.nf(r.pln)} zł`}</span>`).join("");
   return `<div class="zonebar" role="img" aria-label="Energia wg stref taryfy">${seg}</div><p class="zonelegend">${legend}</p>`;
 };
+HPC.zoneBar = zones => HPC.zoneBarWithRest(zones, 0);
 
