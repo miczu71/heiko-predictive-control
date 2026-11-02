@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Koszty{% endblock %}
+{% block content %}
+<section class="stats report koszty">
+  <h2>Koszty: podłoga, ciepła woda, klimatyzacja</h2>
+  <p class="sub">Z zapisanych runów i cykli (historia rośnie od wdrożenia). Doba liczona wg czasu lokalnego początku runu. Tylko odczyt.</p>
+  <div class="k-controls">
+    <div class="range-switch" id="k-presets" role="group" aria-label="Zakres dat">
+      <button type="button" data-preset="7">7 dni</button>
+      <button type="button" data-preset="30">30 dni</button>
+      <button type="button" data-preset="month">Ten miesiąc</button>
+      <button type="button" data-preset="prev-month">Poprzedni miesiąc</button>
+      <button type="button" data-preset="season">Sezon od 1.10</button>
+    </div>
+    <div class="k-dates">
+      <label>Od <input type="date" id="k-from"></label>
+      <label>Do <input type="date" id="k-to"></label>
+      <label>Grupuj <select id="k-group">
+        <option value="auto">automatycznie</option><option value="day">dzień</option>
+        <option value="week">tydzień</option><option value="month">miesiąc</option></select></label>
+    </div>
+  </div>
+  <p id="k-note" class="sub"></p>
+  <div id="k-error" class="notice-inline" hidden></div>
+  <div id="k-kpi" class="cwu-tiles" aria-live="polite"></div>
+  <table class="day-table k-comp" id="k-comp"></table>
+  <h3>Koszt w czasie</h3>
+  <div class="range-switch" id="k-metric" role="group" aria-label="Wielkość na wykresie">
+    <button type="button" data-metric="pln" aria-pressed="true">zł</button>
+    <button type="button" data-metric="kwh" aria-pressed="false">kWh</button>
+  </div>
+  <div id="k-chart" class="chart"></div>
+  <h3>Strefy taryfy</h3>
+  <p class="sub">Energia i koszt wg stref w całym zakresie. „Bez podziału” to rekordy sprzed zapisu stref.</p>
+  <div class="k-scroll"><table class="day-table k-zones" id="k-zones"></table></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/koszty.js?v={{ version }}"></script>
+{% endblock %}

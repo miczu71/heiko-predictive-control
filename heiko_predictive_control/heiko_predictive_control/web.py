@@ -165,6 +165,10 @@ def create_app(db_path: str,
     def page_ogrzewanie():
         return render_template("ogrzewanie.html", base=base(), active="ogrzewanie")
 
+    @app.get("/koszty")
+    def page_koszty():
+        return render_template("koszty.html", base=base(), active="koszty")
+
     @app.get("/advisor")
     def page_advisor():
         return render_template("advisor.html", base=base(), active="advisor", settings=get_settings())

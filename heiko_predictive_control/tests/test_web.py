@@ -303,6 +303,15 @@ def test_report_page_and_nav(tmp_path):
     assert 'data-tab="cwu"' not in html
 
 
+def test_koszty_page_and_nav(tmp_path):
+    client, _ = _advisor_client(tmp_path)
+    resp = client.get("/koszty")
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert 'href="/koszty" class="active"' in html
+    assert all(i in html for i in ("k-presets", "k-from", "k-to", "k-group", "k-kpi", "k-chart", "k-zones", "static/koszty.js"))
+
+
 def test_cwu_page_and_nav(tmp_path):
     client, _ = _advisor_client(tmp_path)
     resp = client.get("/cwu")

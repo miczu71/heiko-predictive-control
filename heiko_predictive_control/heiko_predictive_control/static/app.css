@@ -520,3 +520,17 @@ img { max-width: 100%; }
 .hd-body { padding: 0 12px 10px; }
 .heat-summary .stat-strip { margin-bottom: 8px; }
 .day-tile a { color: var(--accent); }
+
+/* Zakładka „Koszty” */
+.k-controls { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-end; margin: 8px 0; }
+.k-controls .range-switch { flex-wrap: wrap; margin: 0; }
+.k-dates { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 13px; color: var(--muted); }
+.k-dates label { display: inline-flex; align-items: center; gap: 6px; }
+.k-dates input, .k-dates select { font: inherit; font-size: 13px; color: var(--text); background: var(--card-bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: auto; }
+.k-dates input:focus-visible, .k-dates select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#k-metric { margin: 4px 0 8px; }
+.cwu-tile-delta { display: block; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.k-comp td.delta, .k-comp .delta { color: var(--muted); font-size: 12px; }
+.k-zones tr.zones-row td { padding-top: 0; }
+.k-scroll { overflow-x: auto; max-width: 100%; }
+.k-scroll .zonelegend { white-space: normal; }
