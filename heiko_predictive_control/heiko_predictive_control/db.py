@@ -92,6 +92,13 @@ CREATE TABLE IF NOT EXISTS dhw_cycles (
     data TEXT NOT NULL
 );
 
+-- Runy klimatyzacji na poddaszu (attic_runs.py): jeden wiersz na run, dane jako JSON (jak dhw_cycles).
+CREATE TABLE IF NOT EXISTS attic_runs (
+    start TEXT PRIMARY KEY,
+    end TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
 -- Ostatni policzony raport analizy (analysis.py), do pokazania bez ponownego liczenia LTS.
 CREATE TABLE IF NOT EXISTS report_cache (
     name TEXT PRIMARY KEY,

@@ -76,6 +76,31 @@ async function renderTables() {
   } catch (e) { $("heiko-history").textContent = "Błąd wczytywania tabel."; }
 }
 
+// Runy klimatyzacji (A2): kafle z ostatnich 30 dni + tabela runów; null to brak danych, nie zero.
+const has = x => x !== null && x !== undefined;
+const sumKey = (rows, k) => { const xs = rows.map(r => r[k]).filter(has); return xs.length ? xs.reduce((a, b) => a + b, 0) : null; };
+const ZONES = { cheap: "tania", mid: "średnia", expensive: "droga" };
+const tileHtml = (label, value) => `<div class="cwu-tile"><span class="cwu-tile-value">${value}</span><span class="cwu-tile-label">${HPC.esc(label)}</span></div>`;
+
+async function renderRuns() {
+  try {
+    const d = await HPC.getJSON("/api/attic_runs?days=60");
+    const since = Date.now() - 30 * 86400e3;
+    const recent = d.runs.filter(r => Date.parse(r.start) >= since);
+    const kwhSum = sumKey(recent, "energy_kwh"), plnSum = sumKey(recent, "cost_pln"), min = sumKey(recent, "duration_min");
+    $("attic-runs-tiles").innerHTML = [
+      tileHtml("runy", String(recent.length)),
+      tileHtml("godziny pracy", min === null ? "—" : num(min / 60, 1)),
+      tileHtml("kWh (suma)", kwhSum === null ? "—" : kwh(kwhSum)),
+      tileHtml("zł (suma)", plnSum === null ? "—" : zl(plnSum)),
+    ].join("");
+    $("attic-runs").innerHTML = HPC.collapsibleTable(["Start", "Czas min", "kWh", "Zł", "Średnia W", "Szczyt W", "Strefa", "T start °C", "T koniec °C", "ΔT °C", "°C/godz.", "kWh na °C", "Zewn. °C"],
+      d.runs.map(r => [when(r.start), v(r.duration_min), r.energy_check === false ? `${v(r.energy_kwh)} (?)` : v(r.energy_kwh), v(r.cost_pln), v(r.avg_w), v(r.peak_w),
+        ZONES[r.zone] || v(r.zone), v(r.temp_start_c), v(r.temp_end_c), v(r.delta_c), v(r.rate_c_h), v(r.kwh_per_c), v(r.outdoor_c)]),
+      { empty: "Brak zapisanych runów — pojawią się po ustawieniu encji mocy klimatyzacji i nocnym zapisie." });
+  } catch (e) { $("attic-runs").textContent = "Błąd wczytywania runów klimatyzacji."; }
+}
+
 let loadSeq = 0;
 async function load() {
   const seq = ++loadSeq;                                        // szybkie przełączanie zakresu: liczy się tylko ostatnie żądanie
@@ -99,4 +124,5 @@ document.querySelector(".range-switch").addEventListener("click", ev => {
 });
 load();
 renderTables();
+renderRuns();
 })();

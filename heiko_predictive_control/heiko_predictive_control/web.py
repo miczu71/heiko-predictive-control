@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request
 
-from . import (__version__, advisor, analysis, attic, catalog, comfort, dhw_cycles, dhw_model, experiments, floor_learn,
+from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, layout, live, rooms, stats, tariff_feed, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
@@ -347,6 +347,18 @@ def create_app(db_path: str,
             c.pop("trace", None)
         return jsonify({"cycles": cycles, "groups": dhw_cycles.group_by_config(cycles), "model": model, "ah_effect": ah,
                         "hour_levels": hour_levels})
+
+    @app.get("/api/attic_runs")
+    def api_attic_runs():
+        """Dziennik runów klimatyzacji na poddaszu (A2) + podsumowanie doby — tylko odczyt. `?days=` (domyślnie 60)."""
+        days = min(int(request.args.get("days", 60)), 365)
+        tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
+        conn = db_conn()
+        try:
+            runs = attic_runs.load_runs(conn, days)
+        finally:
+            conn.close()
+        return jsonify({"runs": runs, "days": attic_runs.summarize(runs, tz)})
 
     @app.get("/api/changes")
     def api_changes():
