@@ -4,11 +4,14 @@ Rekord należy do doby lokalnej swojego startu. **Tylko odczyt**: zero zapisów 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import logging
 from typing import Callable
 
 from . import attic_runs, dhw_cycles, heating_runs
 from .day_summary import _tz, aggregate, combine, local_date, public
 from .summaries import day_bounds
+
+logger = logging.getLogger(__name__)
 
 GROUPS = ("auto", "day", "week", "month")
 AUTO_DAY_MAX = 62                      # ≤ 62 dni -> doby
@@ -146,8 +149,12 @@ def build(conn, settings: dict, start: date, end: date, now: datetime, group: st
     use_today = today_fn is not None and start <= today <= end
     today_parts = None
     if use_today:
-        res = today_fn()
-        today_parts = {name: _from_public(res.get(name) or {}) for name in NAMES}
+        try:
+            res = today_fn()
+            today_parts = {name: _from_public(res.get(name) or {}) for name in NAMES}
+        except Exception:                  # HA/stany niedostępne: koszty historyczne działają z zapisanych rekordów
+            logger.warning("costs: doba „dziś” z build_today niedostępna, liczę z zapisanych rekordów", exc_info=True)
+            use_today = False
 
     records = _load_records(conn, tz_name, tz, start, end)
     outdoor = _outdoor_telemetry(conn, tz_name, tz, start, end, group)

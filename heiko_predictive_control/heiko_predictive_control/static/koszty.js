@@ -23,16 +23,8 @@ function presetRange(p) {
   return null;
 }
 
-// Klucz koszyka → moment (s) na osi czasu: dzień = południe, tydzień ISO = poniedziałek, miesiąc = 1. dnia.
-function bucketTime(key) {
-  let m;
-  if ((m = /^(\d{4})-W(\d{2})$/.exec(key))) {
-    const jan4 = new Date(+m[1], 0, 4), mon = addDays(jan4, 1 - (jan4.getDay() || 7));
-    return addDays(mon, (+m[2] - 1) * 7 + 3).setHours(12, 0, 0, 0) / 1000;
-  }
-  if ((m = /^(\d{4})-(\d{2})$/.exec(key))) return new Date(+m[1], +m[2] - 1, 15, 12).getTime() / 1000;
-  return new Date(`${key}T12:00:00`).getTime() / 1000;
-}
+// Klucz koszyka z backendu to zawsze data ISO (doba, poniedziałek tygodnia albo 1. dzień miesiąca) → południe tego dnia (s).
+const bucketTime = key => new Date(`${key}T12:00:00`).getTime() / 1000;
 
 const sign = v => v > 0 ? "+" : v < 0 ? "−" : "";
 const delta = (v, unit, d = 2) => v == null ? "" : `${sign(v)}${nf(Math.abs(v), d)} ${unit}`;
@@ -105,14 +97,17 @@ async function load() {
     const resp = await fetch(`${HPC.base}/api/costs?from=${state.from}&to=${state.to}&group=${state.group}`, { headers: { Accept: "application/json" } });
     const d = await resp.json();
     if (my !== seq) return;
-    if (!resp.ok) { err.textContent = d.error || `Błąd ${resp.status}`; err.hidden = false; return; }
+    if (!resp.ok) { clearView(); err.textContent = d.error || `Błąd ${resp.status}`; err.hidden = false; return; }
     err.hidden = true; window.__costs = d;
     renderKpi(d); renderChart(d); renderZones(d); renderNote(d);
   } catch (e) {
     console.error(e);
-    if (my === seq) { err.textContent = "Nie udało się wczytać kosztów."; err.hidden = false; }
+    if (my === seq) { clearView(); err.textContent = "Nie udało się wczytać kosztów."; err.hidden = false; }
   }
 }
+
+// Po błędzie nie zostawiamy liczb z poprzedniego zakresu obok komunikatu.
+function clearView() { ["k-kpi", "k-chart", "k-zones"].forEach(id => { $(id).innerHTML = ""; }); }
 
 function applyPreset(p) {
   const r = presetRange(p);
@@ -130,5 +125,8 @@ const custom = () => { state.preset = ""; state.from = $("k-from").value; state.
 ["k-from", "k-to", "k-group"].forEach(id => $(id).addEventListener("change", custom));
 $("k-to").max = iso(new Date());
 
-if (!/^\d{4}-\d{2}-\d{2}$/.test(state.from) || !/^\d{4}-\d{2}-\d{2}$/.test(state.to)) applyPreset("30"); else load();
+// Preset liczymy od nowa (zapisane daty po dniach są nieaktualne); zapisane od–do tylko dla zakresu własnego.
+if (presetRange(state.preset)) applyPreset(state.preset);
+else if (!/^\d{4}-\d{2}-\d{2}$/.test(state.from) || !/^\d{4}-\d{2}-\d{2}$/.test(state.to)) applyPreset("30");
+else load();
 })();

@@ -220,6 +220,16 @@ def test_today_injected_and_marked_in_progress(conn):
     assert res["totals"]["floor"]["kwh"] == 3.0 and res["totals"]["total"]["runs"] == 2
 
 
+def test_today_fn_failure_falls_back_to_stored_records(conn):
+    insert(conn, "heating_runs", loc(11, 2, 6), 4.0)
+
+    def boom():
+        raise RuntimeError("HA niedostępne")
+    res = build(conn, date(2026, 11, 1), date(2026, 11, 2), today_fn=boom)
+    assert not any(b["in_progress"] for b in res["buckets"])
+    assert res["buckets"][1]["floor"]["kwh"] == 4.0
+
+
 def test_today_fn_not_called_when_range_ends_before_today(conn):
     def boom():
         raise AssertionError("today_fn nie powinno być wołane")
