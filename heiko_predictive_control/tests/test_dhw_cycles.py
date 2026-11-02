@@ -5,6 +5,7 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import dhw_cycles as dc
+from heiko_predictive_control import energy_source as es
 
 TZ = ZoneInfo("Europe/Warsaw")
 
@@ -334,13 +335,56 @@ def test_store_cycles_prices_battery_part_with_battery_cost_from_pump_cycles(con
     assert dc.load_cycles(conn)[0]["ah_pln"] == pytest.approx(0.2)                     # 0,4 kWh z baterii × 0,5
 
 
-def test_ah_cost_without_battery_history_still_splits_grid_and_pv():
+def test_ah_cost_without_battery_history_is_priced_by_tariff_and_not_split():
+    """Brak serii rozładowania baterii: nie wiadomo, ile spoza sieci to PV, więc cały przyrost po taryfie."""
     mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
     s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
          "energy_c": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
          "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
-    assert c["ah_pln"] == pytest.approx(round(0.1 * 2.0 + 0.3 * 0.25, 2))
+    assert c["ah_pln"] == pytest.approx(0.8)                            # 0,4 kWh × 2,0 (szczyt)
+
+
+def test_total_cycle_without_discharge_history_has_no_pv_share():
+    mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
+    s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
+         "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
+         "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    assert c["cost_pln"] == pytest.approx(0.8) and c["pv_share"] is None
+
+
+def test_source_counters_wraps_series_and_tolerates_missing():
+    counters = dc.source_counters({"grid": series((z(11), "500.0")), "rce": series((z(11), "0.25"))})
+    assert set(counters) == {"grid", "discharge", "rce"}
+    assert counters["grid"].at(z(12)) == 500.0 and counters["discharge"].at(z(12)) is None
+
+
+def test_source_roles_uses_default_and_overridden_entities():
+    roles = dc.source_roles({"grid_import_entity": "sensor.moj_licznik"})
+    assert roles == {"grid": "sensor.moj_licznik", "discharge": es.ENTITIES["battery_discharge"],
+                     "rce": es.ENTITIES["rce_price"]}
+
+
+@pytest.mark.parametrize("cost, expected", [
+    (None, None),
+    ({"kwh": 0.4, "pv_kwh": 0.2, "split_complete": False}, None),
+    ({"kwh": 0.0, "pv_kwh": 0.0, "split_complete": True}, None),
+    ({"kwh": 0.4, "pv_kwh": 0.2, "split_complete": True}, 0.5),
+])
+def test_pv_share_of(cost, expected):
+    assert dc.pv_share_of(cost) == expected
+
+
+def test_battery_counter_reads_heiko_cycles_in_window(conn):
+    conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, battery_cost_pln_kwh) "
+                 "VALUES (?, 'heiko', 'ekonomia', 0, ?)",
+                 ("2026-09-21T12:00:00", 0.42))
+    conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, battery_cost_pln_kwh) "
+                 "VALUES (?, 'attic', 'ekonomia', 0, ?)",
+                 ("2026-09-21T12:05:00", 9.9))
+    counter = dc.battery_counter(conn, TZ, z(0), z(23, 59))
+    assert counter.at(datetime(2026, 9, 21, 13, 0)) == 0.42
 
 
 def test_total_cycle_cost_prices_grid_battery_and_pv_parts_separately():

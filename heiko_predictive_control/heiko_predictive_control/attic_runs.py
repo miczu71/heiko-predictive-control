@@ -14,7 +14,8 @@ from . import catalog
 from . import energy_source as es
 from . import ha_client
 from . import tariff_feed
-from .dhw_cycles import _cost, _delta, _minutes, _points, _value_at
+from .dhw_cycles import (_cost, _delta, _minutes, _points, _value_at, battery_counter, pv_share_of,
+                         source_counters, source_roles)
 from .stats import AC_ON_MIN_W
 from .summaries import day_bounds
 from .tariff import default_is_workday, fallback_hour, fallback_prices, price_for
@@ -99,7 +100,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
     o_times, o_values = _points(series.get("outdoor", []))
     if not p_times:
         return []
-    sources = {k: es.Counter((t, catalog.to_number(s)) for t, s in series.get(k, [])) for k in ("grid", "discharge", "rce")}
+    sources = source_counters(series)
 
     def price_at(local: datetime) -> float:
         if feed is not None:
@@ -127,7 +128,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
                                                  offpeak_price, battery_cost_at=battery_cost_at, feed=feed, **sources)
         cost_pln = split["pln"] if split else round(pln, 2)
         split_complete = bool(split and split["split_complete"])
-        pv_share = round(split["pv_kwh"] / split["kwh"], 3) if split_complete and split["kwh"] > 0 else None
+        pv_share = pv_share_of(split)
         in_run = [v for t, v in zip(p_times, p_values) if start <= t < end and v is not None]
         t0, t1 = _value_at(t_times, t_values, start), _value_at(t_times, t_values, end)
         delta = None if t0 is None or t1 is None else t1 - t0
@@ -162,8 +163,7 @@ def store_runs(conn, settings: dict, day: date, states: list[dict],
              "temp": settings.get("attic_temp_entity") or None,
              "outdoor": tel.get("ambient_air_temperature")}
     if settings.get("attic_energy_entity"):            # koszt runu wg źródła energii (jak cykle CWU)
-        ent = es.entities(settings)
-        roles.update(grid=ent["grid_import"], discharge=ent["battery_discharge"], rce=ent["rce_price"])
+        roles.update(source_roles(settings))
     entities = [e for e in roles.values() if e]
     tz_name = settings.get("timezone") or "Europe/Warsaw"
     tz = ZoneInfo(tz_name)
@@ -173,11 +173,7 @@ def store_runs(conn, settings: dict, day: date, states: list[dict],
     if not hist:
         return 0
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
-    # Średni koszt energii w baterii zapisują cykle pętli A (czas lokalny bez strefy).
-    battery = es.Counter((datetime.fromisoformat(r["ts"]), r["battery_cost_pln_kwh"]) for r in conn.execute(
-        "SELECT ts, battery_cost_pln_kwh FROM cycles WHERE loop = 'heiko' AND ts >= ? AND ts <= ?",
-        ((fetch_start - timedelta(hours=1)).astimezone(tz).replace(tzinfo=None).isoformat(),
-         day_end.astimezone(tz).replace(tzinfo=None).isoformat()))) if roles.get("energy") else es.Counter([])
+    battery = battery_counter(conn, tz, fetch_start, day_end) if roles.get("energy") else es.Counter([])
     is_workday = is_workday or default_is_workday
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     stored = 0

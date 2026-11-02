@@ -155,6 +155,12 @@ def test_cost_by_source_with_rce_in_midday():
     assert r["cost_pln"] < clock["cost_pln"]
 
 
+def test_missing_discharge_series_is_not_counted_as_pv():
+    s = {**_meter_base(), "grid": [(z(11, 50), "100.0"), (z(12, 40), "100.0")], "rce": [(z(11, 50), "0.30")]}
+    r = ar.extract_runs(s, z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5)[0]
+    assert r["split_complete"] is False and r["pv_share"] is None
+
+
 def test_missing_source_series_is_clock_cost():
     r = ar.extract_runs(_meter_base(), z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5)[0]
     price = tariff.price_for(tariff.fallback_hour(datetime(2026, 10, 27, 12, 30), True).is_peak, 1.0, 0.5)
