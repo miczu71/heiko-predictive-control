@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS attic_runs (
     data TEXT NOT NULL
 );
 
+-- Runy podłogówki (heating_runs.py): jeden wiersz na run (working_mode == 2), dane jako JSON (jak attic_runs).
+CREATE TABLE IF NOT EXISTS heating_runs (
+    start TEXT PRIMARY KEY,
+    end TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
 -- Ostatni policzony raport analizy (analysis.py), do pokazania bez ponownego liczenia LTS.
 CREATE TABLE IF NOT EXISTS report_cache (
     name TEXT PRIMARY KEY,

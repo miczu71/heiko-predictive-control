@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import (__version__, advisor, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, ha_client, kpi, layout,
+from . import (__version__, advisor, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, ha_client, heating_runs, kpi, layout,
                summaries, telemetry)
 from . import attic as attic_mod
 from . import db as dbm
@@ -288,6 +288,21 @@ def main() -> None:
         finally:
             c.close()
 
+    def heating_runs_backfill() -> None:
+        """Dziennik runów podłogówki (E2) — brakujące doby z zasięgu recordera (7 dni), zapis trwały."""
+        c = dbm.get_conn(db_path)
+        try:
+            now = datetime.now()
+            settings = dbm.get_all_settings(c)
+            states = ha_client.get_all_states() or []
+            for day in heating_runs.missing_days(c, now):
+                stored = heating_runs.store_runs(c, settings, day, states, is_workday=is_workday)
+                logger.info("Runy ogrzewania doby %s: zapisano %d", day, stored)
+        except Exception:
+            logger.exception("Dziennik runów ogrzewania nieudany")
+        finally:
+            c.close()
+
     def run_advisor() -> None:
         """Doradca D2: analizatory -> propozycje w bazie -> powiadomienie. Tylko odczyt z HA, zero zapisów do pompy."""
         c = dbm.get_conn(db_path)
@@ -374,6 +389,8 @@ def main() -> None:
     scheduler.add_job(dhw_cycles_backfill, "date", run_date=datetime.now() + timedelta(seconds=90))
     scheduler.add_job(attic_runs_backfill, "cron", hour=0, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(attic_runs_backfill, "date", run_date=datetime.now() + timedelta(seconds=120))
+    scheduler.add_job(heating_runs_backfill, "cron", hour=0, minute=30, max_instances=1, coalesce=True)
+    scheduler.add_job(heating_runs_backfill, "date", run_date=datetime.now() + timedelta(seconds=120))
     scheduler.add_job(run_advisor, "interval", hours=1, next_run_time=datetime.now() + timedelta(seconds=120),
                        max_instances=1, coalesce=True)
     scheduler.add_job(run_advisor, "cron", hour=0, minute=30, max_instances=1, coalesce=True)   # po streszczeniach dobowych
