@@ -193,8 +193,3 @@ def build_today(conn, settings: dict, states: list[dict], now: datetime,
         cache[key] = (now, result)
     return result
 
-
-def build(day_name: str, conn, settings: dict, states: list[dict], now: datetime, **kw) -> dict:
-    if day_name == "yesterday":
-        return build_yesterday(conn, settings, now)
-    return build_today(conn, settings, states, now, **kw)
