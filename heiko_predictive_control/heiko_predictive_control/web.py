@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request
 
-from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, dhw_cycles, dhw_model, experiments, floor_learn,
+from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, layout, live, rooms, stats, tariff_feed, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
@@ -358,6 +358,25 @@ def create_app(db_path: str,
         finally:
             conn.close()
         return jsonify({"runs": runs})
+
+    @app.get("/api/day_summary")
+    def api_day_summary():
+        """Podsumowanie doby (E3): kWh / zł / udział PV — podłoga, CWU, AC. `?day=today|yesterday`. Tylko odczyt."""
+        day = request.args.get("day", "today")
+        if day not in ("today", "yesterday"):
+            return jsonify({"error": "day musi być 'today' albo 'yesterday'"}), 400
+        settings = get_settings()
+        now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw"))
+        conn = db_conn()
+        try:
+            if day == "yesterday":
+                data = day_summary.build_yesterday(conn, settings, now)
+            else:
+                data = day_summary.build_today(conn, settings, get_states() or [], now,
+                                               is_workday=is_workday, cache=day_summary.CACHE)
+        finally:
+            conn.close()
+        return jsonify(data)
 
     @app.get("/api/changes")
     def api_changes():
