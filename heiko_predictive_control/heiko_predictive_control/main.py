@@ -281,7 +281,7 @@ def main() -> None:
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             for day in attic_runs.missing_days(c, now):
-                stored = attic_runs.store_runs(c, settings, day, states, now, is_workday=is_workday)
+                stored = attic_runs.store_runs(c, settings, day, states, is_workday=is_workday)
                 logger.info("Runy AC doby %s: zapisano %d", day, stored)
         except Exception:
             logger.exception("Dziennik runów AC nieudany")

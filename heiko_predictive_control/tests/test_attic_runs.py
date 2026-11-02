@@ -100,21 +100,16 @@ def test_feed_price_and_zone():
     assert r["cost_pln"] == pytest.approx(0.55 * 0.4, abs=0.03)
 
 
-def test_store_missing_days_load_and_summarize(tmp_path):
+def test_store_missing_days_and_load(tmp_path):
     conn = dbm.get_conn(str(tmp_path / "t.db"))
     dbm.migrate(conn)
     settings = {"attic_power_entity": "sensor.ac_power", "timezone": "Europe/Warsaw"}
     hist = {"sensor.ac_power": power_series(10, 0, 30)}
     now = z(12, d=28).replace(tzinfo=None)
-    assert ar.store_runs(conn, settings, datetime(2026, 10, 27).date(), [], now,
+    assert ar.store_runs(conn, settings, datetime(2026, 10, 27).date(), [],
                          get_history=lambda ents, a, b: hist) == 1
     assert datetime(2026, 10, 27).date() not in ar.missing_days(conn, now)
     assert datetime(2026, 10, 26).date() in ar.missing_days(conn, now)
-    assert ar.store_runs(conn, {}, datetime(2026, 10, 27).date(), [], now, get_history=lambda *a: hist) == 0
+    assert ar.store_runs(conn, {}, datetime(2026, 10, 27).date(), [], get_history=lambda *a: hist) == 0
     runs = ar.load_runs(conn, 36500)
     assert len(runs) == 1 and runs[0]["duration_min"] == 30.0
-    days = ar.summarize(runs, TZ)
-    assert days[0]["day"] == "2026-10-27" and days[0]["runs"] == 1
-    assert days[0]["hours"] == pytest.approx(0.5) and days[0]["kwh"] == pytest.approx(runs[0]["energy_kwh"])
-    assert days[0]["pln"] == pytest.approx(runs[0]["cost_pln"])
-    assert json.dumps(days)

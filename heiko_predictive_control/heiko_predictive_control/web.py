@@ -350,15 +350,14 @@ def create_app(db_path: str,
 
     @app.get("/api/attic_runs")
     def api_attic_runs():
-        """Dziennik runów klimatyzacji na poddaszu (A2) + podsumowanie doby — tylko odczyt. `?days=` (domyślnie 60)."""
+        """Dziennik runów klimatyzacji na poddaszu (A2) — tylko odczyt. `?days=` (domyślnie 60)."""
         days = min(int(request.args.get("days", 60)), 365)
-        tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
         conn = db_conn()
         try:
             runs = attic_runs.load_runs(conn, days)
         finally:
             conn.close()
-        return jsonify({"runs": runs, "days": attic_runs.summarize(runs, tz)})
+        return jsonify({"runs": runs})
 
     @app.get("/api/changes")
     def api_changes():

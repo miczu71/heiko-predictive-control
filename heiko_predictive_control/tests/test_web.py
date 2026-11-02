@@ -321,9 +321,9 @@ def test_dhw_cycles_api_returns_24_hour_levels(tmp_path):
     assert [h["hour"] for h in levels] == list(range(24))
 
 
-def test_attic_runs_api_returns_runs_and_daily_summary(tmp_path):
+def test_attic_runs_api_returns_runs(tmp_path):
     client, db_path = _advisor_client(tmp_path)
-    assert client.get("/api/attic_runs").get_json() == {"runs": [], "days": []}
+    assert client.get("/api/attic_runs").get_json() == {"runs": []}
     st = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0)
     row = {"v": 1, "start": st.isoformat(), "end": (st + timedelta(minutes=30)).isoformat(), "duration_min": 30.0,
            "energy_kwh": 0.6, "cost_pln": 0.4, "complete": True}
@@ -333,8 +333,6 @@ def test_attic_runs_api_returns_runs_and_daily_summary(tmp_path):
     conn.close()
     data = client.get("/api/attic_runs?days=5").get_json()
     assert data["runs"][0]["energy_kwh"] == 0.6
-    day = data["days"][0]
-    assert set(day) >= {"day", "kwh", "pln", "runs", "hours"} and day["runs"] == 1 and day["kwh"] == 0.6
 
 
 def test_catalog_api_marks_automation_managed(tmp_path):

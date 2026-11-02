@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from . import catalog
 from . import ha_client
 from . import tariff_feed
+from .dhw_cycles import _delta, _minutes, _points, _value_at
 from .stats import AC_ON_MIN_W
 from .summaries import day_bounds
 from .tariff import default_is_workday, fallback_hour, fallback_prices, price_for
@@ -25,21 +26,6 @@ MERGE_GAP_MIN = 10.0               # przerwa krótsza/równa = ta sama praca spr
 ENERGY_CHECK_TOLERANCE = 0.25      # rozjazd licznik vs całka mocy powyżej tego = energy_check false
 
 Series = list[tuple[datetime, str]]
-
-
-def _points(series: Series) -> tuple[list[datetime], list[float | None]]:
-    pts = sorted((t, catalog.to_number(s)) for t, s in series)
-    return [t for t, _ in pts], [v for _, v in pts]
-
-
-def _value_at(times: list[datetime], values: list[float | None], t: datetime) -> float | None:
-    """Ostatnia znana wartość w chwili `t` (krok schodkowy)."""
-    i = bisect.bisect_right(times, t) - 1
-    return values[i] if i >= 0 else None
-
-
-def _minutes(a: datetime, b: datetime) -> float:
-    return (b - a).total_seconds() / 60.0
 
 
 def _on_intervals(times, values, window_start, window_end) -> list[tuple[datetime, datetime]]:
@@ -127,10 +113,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
         complete = not edge and not (start == window_start and (_value_at(p_times, p_values, window_start) or 0) > AC_ON_MIN_W)
         hours = _minutes(start, end) / 60.0
         int_kwh, pln = _integral(p_times, p_values, start, end, tz, price_at)
-        meter = None
-        a, b = _value_at(e_times, e_values, start), _value_at(e_times, e_values, end)
-        if a is not None and b is not None and b >= a:
-            meter = b - a
+        meter = _delta(e_times, e_values, start, end)
         energy = int_kwh if meter is None else meter
         check = None if meter is None else bool(int_kwh <= 0 and meter <= 0
                                                  or int_kwh > 0 and abs(meter - int_kwh) / int_kwh <= ENERGY_CHECK_TOLERANCE)
@@ -154,7 +137,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
     return runs
 
 
-def store_runs(conn, settings: dict, day: date, states: list[dict], now: datetime,
+def store_runs(conn, settings: dict, day: date, states: list[dict],
                get_history=ha_client.get_history,
                is_workday: Callable[[date], bool] | None = None) -> int:
     """Pobiera historię doby (z zapasem 3 h wstecz, by złapać runy zaczęte tuż przed północą) i zapisuje
@@ -206,19 +189,3 @@ def load_runs(conn, days: int = 60) -> list[dict]:
     rows = conn.execute("SELECT data FROM attic_runs WHERE start >= ? ORDER BY start DESC", (since,)).fetchall()
     return [json.loads(r["data"]) for r in rows]
 
-
-def summarize(runs: list[dict], tz: ZoneInfo) -> list[dict]:
-    """Podsumowanie doby (data lokalna startu runu): suma kWh i zł, liczba runów, godziny pracy. Najnowsze pierwsze;
-    pole bez wartości (None) nie wchodzi do sumy."""
-    days: dict[str, dict] = {}
-    for r in runs:
-        start = datetime.fromisoformat(r["start"])
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        d = days.setdefault(start.astimezone(tz).date().isoformat(), {"kwh": 0.0, "pln": 0.0, "runs": 0, "hours": 0.0})
-        d["kwh"] += r.get("energy_kwh") or 0.0
-        d["pln"] += r.get("cost_pln") or 0.0
-        d["runs"] += 1
-        d["hours"] += (r.get("duration_min") or 0.0) / 60.0
-    return [{"day": k, "kwh": round(v["kwh"], 3), "pln": round(v["pln"], 2), "runs": v["runs"],
-             "hours": round(v["hours"], 2)} for k, v in sorted(days.items(), reverse=True)]
