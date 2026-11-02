@@ -8,7 +8,7 @@ from heiko_predictive_control.analyzers import Snapshot, dhw_slot
 NOW = datetime(2026, 1, 14, 7, 0, tzinfo=timezone.utc)
 
 
-def cycle(days_ago=1, duration=40.0, outdoor=0.0, deficit=4.0):
+def cycle(days_ago=1, duration=40.0, outdoor=0.0, deficit=9.0):
     return {"start": (NOW - timedelta(days=days_ago, hours=1)).isoformat(), "duration_min": duration,
             "outdoor_c": outdoor, "deficit_c": deficit}
 
@@ -39,7 +39,7 @@ def test_extends_when_ah_is_expensive_per_saved_minute():
 def test_shortens_in_winter_when_cycles_run_over_and_water_is_cold():
     (d,) = dhw_slot.analyze(snap(ah=ah(price=0.10), cycles=winter()))
     assert (d.from_value, d.to_value) == (30.0, 25.0)
-    assert d.evidence["winter_cycles"] == 6 and d.evidence["median_deficit_c"] == 4.0 and "Zimą" in d.reason
+    assert d.evidence["winter_cycles"] == 6 and d.evidence["median_deficit_c"] == 9.0 and "Zimą" in d.reason
 
 
 def test_shortens_also_without_ah_measurement():
@@ -84,8 +84,8 @@ def test_shorten_winter_thresholds_exactly_at_the_limit():
     a = ah(price=0.1)
     assert dhw_slot.analyze(snap(ah=a, cycles=winter(n=5))) == []
     assert len(dhw_slot.analyze(snap(ah=a, cycles=winter(n=6)))) == 1                    # dokładnie 6
-    assert dhw_slot.analyze(snap(ah=a, cycles=winter(deficit=2.99))) == []
-    assert len(dhw_slot.analyze(snap(ah=a, cycles=winter(deficit=3.0)))) == 1            # mediana dokładnie na progu
+    assert dhw_slot.analyze(snap(ah=a, cycles=winter(deficit=7.99))) == []
+    assert len(dhw_slot.analyze(snap(ah=a, cycles=winter(deficit=8.0)))) == 1            # mediana dokładnie na progu
     assert dhw_slot.analyze(snap(ah=a, cycles=winter(outdoor=5.0))) == []                # outdoor < 5 (ostro)
     assert len(dhw_slot.analyze(snap(ah=a, cycles=winter(outdoor=4.9)))) == 1
     assert dhw_slot.analyze(snap(ah=a, cycles=winter(duration=30.0))) == []             # 30 nie jest > 30
@@ -105,4 +105,13 @@ def test_shorten_ignores_old_warm_and_incomplete_cycles_and_none_deficits():
     noise = [cycle(days_ago=15, deficit=9.0), cycle(outdoor=10.0), cycle(duration=None), cycle(outdoor=None)]
     assert dhw_slot.analyze(snap(ah=a, cycles=winter(n=5) + noise)) == []
     (d,) = dhw_slot.analyze(snap(ah=a, cycles=winter(n=6) + [cycle(deficit=None)]))
-    assert d.evidence["winter_cycles"] == 7 and d.evidence["median_deficit_c"] == 4.0
+    assert d.evidence["winter_cycles"] == 7 and d.evidence["median_deficit_c"] == 9.0
+
+
+def test_shorten_ignores_mild_cycles_with_median_deficit_6():
+    assert dhw_slot.analyze(snap(ah=ah(price=0.10), cycles=winter(deficit=6.0))) == []
+
+
+def test_shorten_proposed_for_frosty_cycles_with_median_deficit_10():
+    (d,) = dhw_slot.analyze(snap(ah=ah(price=0.10), cycles=winter(deficit=10.0)))
+    assert (d.from_value, d.to_value) == (30.0, 25.0)

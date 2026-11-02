@@ -135,9 +135,9 @@ def test_offset_rises_when_room_below_target():
 
 
 def test_offset_falls_when_room_above_target():
-    d = decide(inp(at(9, 30), temp=22.6, ac="heat", sp=23.5), owned_state(),
+    d = decide(inp(at(9, 30), temp=22.4, ac="heat", sp=23.5), owned_state(),
                SETTINGS, enabled=True)
-    assert abs(d.state.offset_c - 1.32) < 0.001
+    assert abs(d.state.offset_c - 1.38) < 0.001
 
 
 def test_offset_deadband():
@@ -167,6 +167,16 @@ def test_protective_off_when_too_warm():
     assert cmds(d) == [("turn_off", {})]
     assert d.state.owned is True
     assert d.state.last_cmd["hvac"] == "off"
+
+
+def test_protective_off_above_target_plus_half_degree():
+    d = decide(inp(at(11, 0), temp=22.6, ac="heat", sp=23.5), owned_state(), SETTINGS, enabled=True)
+    assert cmds(d) == [("turn_off", {})]
+
+
+def test_no_protective_off_within_half_degree_above_target():
+    d = decide(inp(at(11, 0), temp=22.4, ac="heat", sp=23.5), owned_state(), SETTINGS, enabled=True)
+    assert ("turn_off", {}) not in cmds(d)
 
 
 def test_resumes_heating_after_protective_off():

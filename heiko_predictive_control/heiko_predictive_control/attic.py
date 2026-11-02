@@ -33,7 +33,7 @@ OFFSET_DEADBAND_C = 0.2
 PREHEAT_BOOST_C = 2.0        # nadwyżka nastawy podczas dogrzewania (jak stare 28°C)
 REACHED_BELOW_C = 0.3        # T >= cel - 0,3 => dogrzane
 FAR_BELOW_C = 1.0            # T < cel - 1,0 => wracamy do dogrzewania
-TOO_WARM_ABOVE_C = 0.7       # T > cel + 0,7 => AC off (nadal przejęte)
+TOO_WARM_ABOVE_C = 0.5       # T > cel + 0,5 => AC off (nadal przejęte)
 MARGIN_MIN = {"komfort": 20, "ekonomia": 10}
 OWN_WRITE_GRACE_S = 120      # tyle czekamy z oceną „ręcznej zmiany” po własnym zapisie
 WINDOW_OPEN_PAUSE_S = 120
