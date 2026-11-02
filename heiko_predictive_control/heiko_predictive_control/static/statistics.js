@@ -88,14 +88,19 @@ async function renderRuns() {
     const since = Date.now() - 30 * 86400e3;
     const recent = d.runs.filter(r => Date.parse(r.start) >= since);
     const kwhSum = sumKey(recent, "energy_kwh"), plnSum = sumKey(recent, "cost_pln"), min = sumKey(recent, "duration_min");
+    const pvRows = recent.filter(r => has(r.pv_share) && r.energy_kwh > 0);
+    const pvKwh = pvRows.reduce((a, r) => a + r.energy_kwh, 0);
+    const pvVal = pvKwh > 0 ? pvRows.reduce((a, r) => a + r.pv_share * r.energy_kwh, 0) / pvKwh : null;
     $("attic-runs-tiles").innerHTML = [
       tileHtml("runy", String(recent.length)),
       tileHtml("godziny pracy", min === null ? "—" : num(min / 60, 1)),
       tileHtml("kWh (suma)", kwhSum === null ? "—" : kwh(kwhSum)),
       tileHtml("zł (suma)", plnSum === null ? "—" : zl(plnSum)),
+      tileHtml("PV %", pvVal === null ? "—" : num(pvVal * 100, 0)),
     ].join("");
-    $("attic-runs").innerHTML = HPC.collapsibleTable(["Start", "Czas min", "kWh", "Zł", "Średnia W", "Szczyt W", "Strefa", "T start °C", "T koniec °C", "ΔT °C", "°C/godz.", "kWh na °C", "Zewn. °C"],
-      d.runs.map(r => [when(r.start), v(r.duration_min), r.energy_check === false ? `${v(r.energy_kwh)} (?)` : v(r.energy_kwh), v(r.cost_pln), v(r.avg_w), v(r.peak_w),
+    $("attic-runs").innerHTML = HPC.collapsibleTable(["Start", "Czas min", "kWh", "Zł", "PV %", "Średnia W", "Szczyt W", "Strefa", "T start °C", "T koniec °C", "ΔT °C", "°C/godz.", "kWh na °C", "Zewn. °C"],
+      d.runs.map(r => [when(r.start), v(r.duration_min), r.energy_check === false ? `${v(r.energy_kwh)} (?)` : v(r.energy_kwh),
+        r.split_complete === false ? `${v(r.cost_pln)} (zegarowo)` : v(r.cost_pln), r.pv_share == null ? "—" : num(r.pv_share * 100, 0), v(r.avg_w), v(r.peak_w),
         ZONES[r.zone] || v(r.zone), v(r.temp_start_c), v(r.temp_end_c), v(r.delta_c), v(r.rate_c_h), v(r.kwh_per_c), v(r.outdoor_c)]),
       { empty: "Brak zapisanych runów — pojawią się po ustawieniu encji mocy klimatyzacji i nocnym zapisie." });
   } catch (e) { $("attic-runs").textContent = "Błąd wczytywania runów klimatyzacji."; }

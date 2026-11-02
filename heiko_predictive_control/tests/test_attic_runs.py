@@ -113,3 +113,45 @@ def test_store_missing_days_and_load(tmp_path):
     assert ar.store_runs(conn, {}, datetime(2026, 10, 27).date(), [], get_history=lambda *a: hist) == 0
     runs = ar.load_runs(conn, 36500)
     assert len(runs) == 1 and runs[0]["duration_min"] == 30.0
+
+
+def _meter_base():
+    return {"power": power_series(12, 0, 30), "energy": [(z(11, 55), "5.00"), (z(12, 30), "5.60")]}
+
+
+def test_cost_by_source_with_rce_in_midday():
+    s = {**_meter_base(),
+         "grid": [(z(11, 50), "100.0"), (z(12, 40), "100.0")],          # bez poboru z sieci
+         "discharge": [(z(11, 50), "50.0"), (z(12, 40), "50.0")],       # bateria nie oddaje
+         "rce": [(z(11, 50), "0.30")]}
+    r = ar.extract_runs(s, z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5)[0]
+    clock = ar.extract_runs(_meter_base(), z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5)[0]
+    assert r["pv_share"] > 0 and r["split_complete"] is True
+    assert r["cost_pln"] < clock["cost_pln"]
+
+
+def test_missing_source_series_is_clock_cost():
+    r = ar.extract_runs(_meter_base(), z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5)[0]
+    price = tariff.price_for(tariff.fallback_hour(datetime(2026, 10, 27, 12, 30), True).is_peak, 1.0, 0.5)
+    assert r["split_complete"] is False and r["pv_share"] is None
+    assert r["cost_pln"] == pytest.approx(0.6 * price, abs=0.01)
+
+
+def test_no_meter_keeps_integral_cost():
+    r = ar.extract_runs({"power": power_series(10, 0, 30)}, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    peak = tariff.fallback_hour(datetime(2026, 10, 27, 10), True).is_peak
+    price = 2.0 if peak else 1.0
+    assert r["pv_share"] is None and r["split_complete"] is False
+    assert r["cost_pln"] == pytest.approx(0.55 * price, abs=0.06 * price)
+
+
+def test_missing_days_treats_v1_record_as_missing():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    for day, v in (("2026-10-26", 1), ("2026-10-25", ar.DATA_VERSION)):
+        conn.execute("INSERT INTO attic_runs (start, end, data) VALUES (?, ?, ?)",
+                     (f"{day}T10:00:00+00:00", f"{day}T10:30:00+00:00", json.dumps({"v": v})))
+    conn.commit()
+    missing = ar.missing_days(conn, z(12, d=28).replace(tzinfo=None))
+    assert datetime(2026, 10, 26).date() in missing
+    assert datetime(2026, 10, 25).date() not in missing
