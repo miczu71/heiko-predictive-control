@@ -22,7 +22,7 @@ from .tariff import default_is_workday, fallback_hour, fallback_prices, price_fo
 
 logger = logging.getLogger(__name__)
 
-DATA_VERSION = 2
+DATA_VERSION = 3
 BACKFILL_DAYS = 7                  # zasięg recordera HA
 MERGE_GAP_MIN = 10.0               # przerwa krótsza/równa = ta sama praca sprężarki (postoje)
 ENERGY_CHECK_TOLERANCE = 0.25      # rozjazd licznik vs całka mocy powyżej tego = energy_check false
@@ -129,6 +129,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
         cost_pln = split["pln"] if split else round(pln, 2)
         split_complete = bool(split and split["split_complete"])
         pv_share = pv_share_of(split)
+        zones = split["zones"] if split else None
         in_run = [v for t, v in zip(p_times, p_values) if start <= t < end and v is not None]
         t0, t1 = _value_at(t_times, t_values, start), _value_at(t_times, t_values, end)
         delta = None if t0 is None or t1 is None else t1 - t0
@@ -139,7 +140,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
             "energy_kwh": round(energy, 3), "energy_check": check,
             "peak_w": max(in_run) if in_run else None,
             "avg_w": round(int_kwh * 1000.0 / hours, 0) if hours > 0 else None,
-            "cost_pln": cost_pln, "pv_share": pv_share, "split_complete": split_complete,
+            "cost_pln": cost_pln, "pv_share": pv_share, "split_complete": split_complete, "zones": zones,
             "zone": None if hour is None else hour.zone,
             "temp_start_c": t0, "temp_end_c": t1,
             "delta_c": None if delta is None else round(delta, 2),

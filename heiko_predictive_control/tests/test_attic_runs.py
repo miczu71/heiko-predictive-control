@@ -153,6 +153,8 @@ def test_cost_by_source_with_rce_in_midday():
     clock = ar.extract_runs(_meter_base(), z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5)[0]
     assert r["pv_share"] > 0 and r["split_complete"] is True
     assert r["cost_pln"] < clock["cost_pln"]
+    assert sum(v["kwh"] for v in r["zones"].values()) == pytest.approx(r["energy_kwh"], abs=0.001)
+    assert sum(v["pv_kwh"] for v in r["zones"].values()) > 0
 
 
 def test_missing_discharge_series_is_not_counted_as_pv():

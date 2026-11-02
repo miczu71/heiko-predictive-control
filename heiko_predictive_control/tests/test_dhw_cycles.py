@@ -267,7 +267,7 @@ def test_cycle_record_has_minute_trace_and_v4():
     water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
-    assert dc.DATA_VERSION == 6 and c["v"] == 6
+    assert dc.DATA_VERSION == 7 and c["v"] == 7
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
 
@@ -435,3 +435,33 @@ def test_cycle_zone_comes_from_tariff_feed_at_start(conn):
     s = {"mode": mode, "water": series((z(9, 0), "40.0")), "target": series((z(0), "48"))}
     assert dc.extract_cycles(s, z(0), z(23, 59), TZ, feed=feed)[0]["zone"] == "peak"
     assert dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["zone"] is None  # bez feedu zona nieznana
+
+
+def test_ah_cost_zones_sum_to_total_across_peak_boundary_without_feed():
+    mode = series((z(0), "0"), (z(12, 50), "1"), (z(13, 20), "0"))
+    ah = series((z(12, 50), "40.0"), (z(13, 9), "41.0"), (z(13, 14), "42.0"))
+    energy = series((z(12, 50), "10.00"), (z(12, 55), "10.20"), (z(13, 2), "10.50"))
+    s = {"mode": mode, "ah": ah, "energy_c": energy, "energy_total": energy}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    zones = dc._cost(*dc._points(energy), z(12, 50), z(13, 22), TZ, lambda d: True, 2.0, 1.0,
+                     grid=dc.es.Counter([]), discharge=dc.es.Counter([]), rce=dc.es.Counter([]),
+                     battery_cost_at=lambda t: None)["zones"]
+    assert set(zones) == {"peak", "offpeak"}
+    assert zones["peak"]["kwh"] == pytest.approx(0.2) and zones["offpeak"]["kwh"] == pytest.approx(0.3)
+    assert zones["peak"]["pln"] == pytest.approx(0.4) and zones["offpeak"]["pln"] == pytest.approx(0.3)
+    assert c["zones"] == zones
+
+
+def test_zones_use_feed_zone_names_and_sum_equals_total(conn):
+    feed = dc.tariff_feed.TariffFeed(None, conn, "sensor.x")
+    for hour, zone, gross in (("2026-09-21T12", "expensive", 2.0), ("2026-09-21T13", "cheap", 1.0)):
+        conn.execute("INSERT INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                     "VALUES (?, 'G12w', ?, 0, NULL, ?, NULL, '2026-09-21T00:00')", (hour, zone, gross))
+    energy = series((z(12, 50), "10.00"), (z(12, 55), "10.20"), (z(13, 2), "10.50"))
+    cost = dc._cost(*dc._points(energy), z(12, 50), z(13, 22), TZ, lambda d: True, 2.0, 1.0,
+                    grid=dc.es.Counter([]), discharge=dc.es.Counter([]), rce=dc.es.Counter([]),
+                    battery_cost_at=lambda t: None, feed=feed)
+    zs = cost["zones"]
+    assert set(zs) == {"expensive", "cheap"}
+    assert sum(v["kwh"] for v in zs.values()) == pytest.approx(cost["kwh"])
+    assert sum(v["pln"] for v in zs.values()) == pytest.approx(cost["pln"], abs=0.01)

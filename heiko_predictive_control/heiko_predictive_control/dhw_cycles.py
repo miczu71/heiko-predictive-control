@@ -34,7 +34,7 @@ BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-DATA_VERSION = 6                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie, v5 z błędną atrybucją — backfill je przelicza
+DATA_VERSION = 7                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie, v5 z błędną atrybucją, v6 bez stref taryfy (`zones`) i z brakiem serii rozładowania liczonym jako PV — backfill je przelicza
 TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0
 MIN_HP_SEG_MIN = 5.0
@@ -160,6 +160,14 @@ def _classify(start: datetime, target_times: list[datetime], target_values: list
     return "zapotrzebowanie"
 
 
+def _zone_key(local: datetime, feed: tariff_feed.TariffFeed | None, is_workday: Callable[[date], bool]) -> str:
+    """Strefa taryfy godziny lokalnej: z feedu pv_roi, a bez niego zapas G12w (`peak`/`offpeak`)."""
+    hour = None if feed is None else feed.at(local.replace(tzinfo=None))
+    if hour is not None and hour.zone:
+        return hour.zone
+    return "peak" if fallback_hour(local, is_workday(local.date())).is_peak else "offpeak"
+
+
 def _cost(times: list[datetime], values: list[float | None], start: datetime, end: datetime,
           tz: ZoneInfo, is_workday: Callable[[date], bool],
           peak_price: float, offpeak_price: float, grid: es.Counter, discharge: es.Counter, rce: es.Counter,
@@ -175,6 +183,7 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
     i = bisect.bisect_right(times, start)
     total = price = pv = 0.0
     split_complete = True
+    zones: dict[str, dict] = {}
     prev, prev_t = _value_at(times, values, start), start
     for t, v in zip(times[i:], values[i:]):
         if t > end:
@@ -184,6 +193,8 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
             local = t.astimezone(tz)
             tariff = (feed.price(local.replace(tzinfo=None)) if feed is not None else
                       price_for(fallback_hour(local, is_workday(local.date())).is_peak, peak_price, offpeak_price))
+            zone = _zone_key(local, feed, is_workday)
+            price_before, pv_before = price, pv
             d_grid, d_dis, rce_now = grid.delta(prev_t, t), discharge.delta(prev_t, t), rce.at(t)
             total += inc
             if d_grid is None or d_dis is None or rce_now is None:     # brak serii źródeł: bez podziału
@@ -194,10 +205,16 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
                 battery = battery_cost_at(t)
                 price += es.price(g, b, p, tariff, offpeak_price if battery is None else battery, rce_now)
                 pv += p
+            z = zones.setdefault(zone, {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0})
+            z["kwh"] += inc
+            z["pln"] += price - price_before
+            z["pv_kwh"] += pv - pv_before
         prev, prev_t = v, t
     if total <= 0:
-        return {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0, "split_complete": True}
-    return {"kwh": round(total, 3), "pln": round(price, 2), "pv_kwh": pv, "split_complete": split_complete}
+        return {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0, "split_complete": True, "zones": {}}
+    return {"kwh": round(total, 3), "pln": round(price, 2), "pv_kwh": pv, "split_complete": split_complete,
+            "zones": {k: {"kwh": round(z["kwh"], 3), "pln": round(z["pln"], 2), "pv_kwh": round(z["pv_kwh"], 3)}
+                      for k, z in zones.items()}}
 
 
 def source_roles(settings: dict) -> dict[str, str]:
@@ -310,7 +327,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
             "ah_kwh": None if cost is None else cost["kwh"],
             "ah_pln": None if cost is None else cost["pln"],
             "cost_pln": None if total_cost is None else total_cost["pln"],
-            "pv_share": pv_share,
+            "pv_share": pv_share, "zones": None if total_cost is None else total_cost["zones"],
             "zone": None if hour is None else hour.zone,
         })
     return cycles
