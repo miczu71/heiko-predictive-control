@@ -131,3 +131,17 @@ def test_store_missing_days_and_load(tmp_path):
     assert datetime(2026, 10, 26).date() in hr.missing_days(conn, now)
     runs = hr.load_runs(conn, 36500)
     assert len(runs) == 1 and runs[0]["duration_min"] == 30.0 and runs[0]["v"] == hr.DATA_VERSION
+
+
+def test_store_long_run_started_before_previous_midnight_is_complete(tmp_path):
+    """Run 20:30–01:30 (start > 3 h przed północą) ma być zapisany przez job doby, w której się kończy."""
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    dbm.migrate(conn)
+    settings = {"pump_energy_entity": "sensor.test_pump_energy", "timezone": "Europe/Warsaw"}
+    states = [{"entity_id": "sensor.test_heiko_heat_pump_working_mode", "state": "0", "attributes": {}}]
+    t0, t1 = z(20, 30, d=26), z(1, 30, d=27)
+    hist = {"sensor.test_heiko_heat_pump_working_mode": [(t0 - timedelta(minutes=5), "0"), (t0, "2"), (t1, "0")],
+            "sensor.test_pump_energy": [(t0 - timedelta(minutes=5), "5.00"), (t1, "8.00")]}
+    day = datetime(2026, 10, 27).date()
+    assert hr.store_runs(conn, {**settings}, day, states, get_history=lambda e, a, b: hist) == 1
+    assert hr.load_runs(conn, 36500)[0]["duration_min"] == 300.0

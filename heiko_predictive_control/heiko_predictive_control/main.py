@@ -295,9 +295,15 @@ def main() -> None:
             now = datetime.now()
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
+            if not states:
+                logger.warning("Runy ogrzewania: brak stanów HA, pomijam przebieg")
+                return
             for day in heating_runs.missing_days(c, now):
-                stored = heating_runs.store_runs(c, settings, day, states, is_workday=is_workday)
-                logger.info("Runy ogrzewania doby %s: zapisano %d", day, stored)
+                try:
+                    stored = heating_runs.store_runs(c, settings, day, states, is_workday=is_workday)
+                    logger.info("Runy ogrzewania doby %s: zapisano %d", day, stored)
+                except Exception:
+                    logger.exception("Runy ogrzewania doby %s nieudane", day)
         except Exception:
             logger.exception("Dziennik runów ogrzewania nieudany")
         finally:

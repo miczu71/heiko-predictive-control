@@ -31,7 +31,7 @@ function group(runs) {
 function runRow(r) {
   const flag = r.complete === false ? `<br><span class="badge">niekompletny</span>` : "";
   const pv = (r.split_complete || r.pv_share == null) ? pct(r.pv_share) : "≈ " + pct(r.pv_share);
-  return `<tr><td>${hhmm(r.start)}–${r.end ? hhmm(r.end) : "…"}${flag}</td><td>${dur(r.duration_min)}</td><td>${nf(r.energy_kwh)}</td><td>${nf(r.cost_pln)}</td><td>${pv}</td><td class="opt">${nf(r.outdoor_c, 1)}</td><td class="opt">${nf(r.water_c, 1)}</td></tr>`;
+  return `<tr><td>${hhmm(r.start)}–${r.end ? hhmm(r.end) : "…"}${flag}</td><td>${dur(r.duration_min)}</td><td>${nf(r.energy_kwh)}</td><td>${nf(r.cost_pln)}</td><td>${pv}</td><td class="opt">${nf(r.outdoor_c, 1)}</td><td class="opt">${nf(r.water_start_c, 1)}→${nf(r.water_end_c, 1)}</td></tr>`;
 }
 
 function dayBlock(d, open) {
@@ -59,5 +59,5 @@ function render(runs) {
 }
 
 HPC.getJSON("/api/heating_runs?days=60").then(d => render(d.runs || []))
-  .catch(() => HPC.put("heat-summary", `<p class="notice-inline">Nie udało się wczytać runów podłogówki.</p>`));
+  .catch((e) => { console.error(e); HPC.put("heat-summary", `<p class="notice-inline">Nie udało się wczytać runów podłogówki.</p>`); });
 })();

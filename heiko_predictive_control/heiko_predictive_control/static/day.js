@@ -26,7 +26,7 @@ async function load(day) {
   tile.querySelectorAll("[data-day]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.day === day)));
   body.innerHTML = "ładowanie…";
   try { const d = await HPC.getJSON(`/api/day_summary?day=${day}`); if (day === current) render(d); }
-  catch (e) { if (day === current) body.innerHTML = `<p class="notice-inline">Nie udało się wczytać podsumowania doby.</p>`; }
+  catch (e) { console.error(e); if (day === current) body.innerHTML = `<p class="notice-inline">Nie udało się wczytać podsumowania doby.</p>`; }
 }
 
 tile.addEventListener("click", ev => { const b = ev.target.closest("[data-day]"); if (b) load(b.dataset.day); });

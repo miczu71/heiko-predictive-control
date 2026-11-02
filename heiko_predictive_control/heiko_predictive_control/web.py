@@ -366,7 +366,7 @@ def create_app(db_path: str,
     @app.get("/api/heating_runs")
     def api_heating_runs():
         """Dziennik runów podłogówki (E2) — tylko odczyt. `?days=` (domyślnie 60)."""
-        days = min(int(request.args.get("days", 60)), 365)
+        days = max(1, min(request.args.get("days", 60, type=int) or 60, 365))
         conn = db_conn()
         try:
             runs = heating_runs.load_runs(conn, days)

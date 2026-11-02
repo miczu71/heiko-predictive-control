@@ -104,7 +104,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
 def store_runs(conn, settings: dict, day: date, states: list[dict],
                get_history=ha_client.get_history,
                is_workday: Callable[[date], bool] | None = None) -> int:
-    """Pobiera historię doby (z zapasem 3 h wstecz) i zapisuje kompletne runy (INSERT OR REPLACE po `start`).
+    """Pobiera historię doby (z zapasem 12 h wstecz, by runy przez północ były kompletne) i zapisuje kompletne runy (INSERT OR REPLACE po `start`).
     Bez `pump_energy_entity` nic nie robi (przed jakimkolwiek zapytaniem)."""
     if not settings.get("pump_energy_entity"):
         return 0
@@ -116,7 +116,7 @@ def store_runs(conn, settings: dict, day: date, states: list[dict],
     tz_name = settings.get("timezone") or "Europe/Warsaw"
     tz = ZoneInfo(tz_name)
     day_start, day_end = day_bounds(day, tz_name)
-    fetch_start = day_start - timedelta(hours=3)
+    fetch_start = day_start - timedelta(hours=12)
     hist = get_history(entities, fetch_start.isoformat(), day_end.isoformat())
     if not hist:
         return 0

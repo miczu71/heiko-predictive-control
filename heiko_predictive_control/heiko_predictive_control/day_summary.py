@@ -115,7 +115,10 @@ def build_yesterday(conn, settings: dict, now: datetime) -> dict:
     parts = {"floor": aggregate(pick(heating_runs.load_runs(conn, 3)), "energy_kwh"),
              "dhw": aggregate(pick(dhw_cycles.load_cycles(conn, 3)), "kwh_total"),
              "ac": aggregate(pick(attic_runs.load_runs(conn, 3)), "energy_kwh")}
-    return _result(day, parts, _configured(settings), now)
+    error = None
+    if not any(p["runs"] for p in parts.values()) and any(_configured(settings).values()):
+        error = "Brak zapisanych runów tej doby (zapis nocą o 00:30)"
+    return _result(day, parts, _configured(settings), now, error=error)
 
 
 def build_today(conn, settings: dict, states: list[dict], now: datetime,
