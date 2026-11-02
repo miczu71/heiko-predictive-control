@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0 — strefy taryfy per składnik w kaflu „Doba” i nowa zakładka „Koszty”
+
+- **Kafel „Doba”:** pod każdym wierszem (podłoga, CWU, AC, Razem) pasek stref taryfy z legendą kWh · zł; energia rekordów bez podziału na strefy (starsze cykle CWU) pokazuje się jako szary segment „bez podziału”.
+- **Zakładka „Koszty”:** przegląd kosztów podłogi, CWU i AC dla dowolnego zakresu dat (presety: 7 dni, 30 dni, ten i poprzedni miesiąc, sezon grzewczy; grupowanie auto/dzień/tydzień/miesiąc). Kafle KPI (zł, kWh, PV %) z różnicą względem poprzedniego okresu tej samej długości, wykres skumulowany zł/kWh wg składnika z linią T zewn., tabela stref taryfy oraz notka o zakresie danych (podłogówka od 19.10, strefy CWU od v7). Historia rośnie od zapisanych rekordów — bez odbudowy wstecz.
+- API: `GET /api/costs?from=&to=&group=` (tylko odczyt, maks. 400 dni, `to` nie później niż dziś). Awaria doby „dziś” nie wyłącza już widoku — koszty liczą się z zapisanych rekordów.
+- Bez migracji schematu i bez zapisów do pompy, klimatyzacji i HA.
+
 ## 0.18.0 — podłogówka: dziennik runów, kafel „Doba” na pulpicie i strona /ogrzewanie
 
 - **Kafel „Doba” na stronie głównej:** dziś (na żywo) i wczoraj — podłogówka, CWU i klimatyzacja poddasza: kWh, koszt, rozkład na strefy taryfy i udział PV. Bez zapisów do pompy i klimatyzacji.
