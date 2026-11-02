@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Ogrzewanie{% endblock %}
+{% block content %}
+<section class="stats report">
+  <h2>Ogrzewanie podłogowe</h2>
+  <p class="sub">Okno: ostatnie 60 dni (historia rośnie od wdrożenia). Tylko odczyt. Run to ciągła praca pompy w trybie grzania
+    (przerwy do 10 min scalane); energia z licznika pompy, koszt wg taryfy i źródła energii (PV, sieć, bateria).</p>
+  <div id="heat-summary" class="heat-summary">ładowanie…</div>
+  <h3>Doby</h3>
+  <p class="sub">Kliknij dobę, aby zobaczyć strefy taryfy i pojedyncze runy.</p>
+  <div id="heat-days" class="heat-days"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ base }}/static/ogrzewanie.js?v={{ version }}"></script>
+{% endblock %}

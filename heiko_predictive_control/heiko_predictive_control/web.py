@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
-               ha_client, layout, live, rooms, stats, tariff_feed, telemetry)
+               ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
 from .tariff import default_is_workday
@@ -159,6 +159,10 @@ def create_app(db_path: str,
     @app.get("/cwu")
     def page_cwu():
         return render_template("cwu.html", base=base(), active="cwu")
+
+    @app.get("/ogrzewanie")
+    def page_ogrzewanie():
+        return render_template("ogrzewanie.html", base=base(), active="ogrzewanie")
 
     @app.get("/advisor")
     def page_advisor():
@@ -355,6 +359,17 @@ def create_app(db_path: str,
         conn = db_conn()
         try:
             runs = attic_runs.load_runs(conn, days)
+        finally:
+            conn.close()
+        return jsonify({"runs": runs})
+
+    @app.get("/api/heating_runs")
+    def api_heating_runs():
+        """Dziennik runów podłogówki (E2) — tylko odczyt. `?days=` (domyślnie 60)."""
+        days = min(int(request.args.get("days", 60)), 365)
+        conn = db_conn()
+        try:
+            runs = heating_runs.load_runs(conn, days)
         finally:
             conn.close()
         return jsonify({"runs": runs})

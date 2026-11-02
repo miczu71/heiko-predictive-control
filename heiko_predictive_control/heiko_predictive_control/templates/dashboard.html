@@ -30,6 +30,18 @@
   </div>
 </section>
 
+<section class="day-tile" id="day-tile" aria-labelledby="day-title">
+  <div class="day-head">
+    <h2 id="day-title">Doba: koszt ogrzewania</h2>
+    <div class="range-switch" role="group" aria-label="Doba">
+      <button type="button" data-day="today" aria-pressed="true">Dziś</button>
+      <button type="button" data-day="yesterday" aria-pressed="false">Wczoraj</button>
+    </div>
+  </div>
+  <div id="day-body" class="day-body" aria-live="polite">ładowanie…</div>
+  <p class="sub"><a href="{{ base }}/ogrzewanie">Runy podłogówki wg stref taryfy →</a></p>
+</section>
+
 <section class="house-layout" data-heiko-profile="{{ settings.heiko_active_profile or 'ekonomia' }}">
   <div class="house-wrap">
     {% include "_house_iso.html" %}
@@ -50,4 +62,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ base }}/static/dashboard.js?v={{ version }}"></script>
+<script src="{{ base }}/static/day.js?v={{ version }}"></script>
 {% endblock %}

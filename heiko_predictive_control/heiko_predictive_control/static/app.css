@@ -484,3 +484,36 @@ img { max-width: 100%; }
 .zone-cheap { fill: var(--band-cheap); }
 .zone-mid { fill: var(--band-mid); }
 .zone-expensive { fill: var(--band-expensive); }
+
+/* ── Kafel „Doba” (pulpit) i /ogrzewanie ─────────────────────── */
+:root { --zone-cheap: var(--chart-target); --zone-mid: var(--chart-cold); --zone-expensive: var(--peak); --zone-other: var(--muted); }
+.day-tile { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 16px; margin-bottom: 20px; }
+.day-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; }
+.day-head h2 { font-size: 16px; margin: 0; }
+.day-head .range-switch { margin: 0; }
+.day-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+.day-table th, .day-table td { white-space: nowrap; padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.day-table th:first-child, .day-table td:first-child { text-align: left; font-weight: 500; }
+.day-table thead th { color: var(--muted); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; }
+.day-table tr.total th, .day-table tr.total td { font-weight: 700; border-bottom: 0; }
+.muted { color: var(--muted); }
+.day-table td.muted { text-align: left; }
+.approx { text-decoration: none; cursor: help; color: var(--muted); }
+.notice-inline { margin: 8px 0; padding: 8px 12px; background: var(--accent-light); border-radius: 8px; font-size: 14px; }
+.zonebar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 12px 0 6px; background: var(--line); gap: 2px; }
+.zone-other { background: var(--zone-other); }
+.zone-cheap, .zone-offpeak { background: var(--zone-cheap); }
+.zone-mid { background: var(--zone-mid); }
+.zone-expensive, .zone-peak { background: var(--zone-expensive); }
+.zonelegend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+.zonelegend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.heat-days { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.heat-day td, .heat-day th { white-space: nowrap; }
+@media (max-width: 520px) { .heat-day .opt { display: none; } }
+.heat-day { border: 1px solid var(--line); border-radius: 8px; background: var(--card-bg); }
+.heat-day summary { display: flex; flex-wrap: wrap; gap: 2px 18px; align-items: baseline; padding: 10px 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.heat-day summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hd-date { font-weight: 600; min-width: 8ch; }
+.hd-body { padding: 0 12px 10px; }
+.heat-summary .stat-strip { margin-bottom: 8px; }
+.day-tile a { color: var(--accent); }

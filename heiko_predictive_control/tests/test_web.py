@@ -335,6 +335,23 @@ def test_attic_runs_api_returns_runs(tmp_path):
     assert data["runs"][0]["energy_kwh"] == 0.6
 
 
+def test_heating_runs_api_returns_runs_and_page_renders(tmp_path):
+    client, db_path = _advisor_client(tmp_path)
+    assert client.get("/api/heating_runs").get_json() == {"runs": []}
+    st = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0)
+    conn = dbm.get_conn(db_path)
+    for t, kwh in ((st, 1.2), (st - timedelta(days=40), 9.9)):
+        row = {"start": t.isoformat(), "end": (t + timedelta(minutes=30)).isoformat(), "energy_kwh": kwh, "complete": True}
+        conn.execute("INSERT INTO heating_runs (start, end, data) VALUES (?, ?, ?)", (row["start"], row["end"], json.dumps(row)))
+    conn.commit()
+    conn.close()
+    assert [r["energy_kwh"] for r in client.get("/api/heating_runs?days=5").get_json()["runs"]] == [1.2]
+    assert len(client.get("/api/heating_runs?days=60").get_json()["runs"]) == 2
+    page = client.get("/ogrzewanie")
+    assert page.status_code == 200 and b"ogrzewanie.js" in page.data
+    assert b'id="day-tile"' in client.get("/").data
+
+
 def test_catalog_api_marks_automation_managed(tmp_path):
     states = [{"entity_id": "number.heiko_heat_pump_dhw_setpoint", "state": "48", "last_changed": "2026-09-26T10:00:00+00:00"}]
     client, _ = _advisor_client(tmp_path, {"advisor_managed_keys": "dhw_setpoint, backup_heater"}, states)
