@@ -460,3 +460,13 @@ def load_cycles(conn, days: int = 60) -> list[dict]:
     for c in cycles:
         c["cfg_50"] = normalize_slot50(c.get("cfg_50"))
     return cycles
+
+
+def load_range(conn, start_utc: datetime, end_utc: datetime) -> list[dict]:
+    """Zapisy ze `start` w [start_utc, end_utc) (UTC, `start` zapisany jako UTC ISO), rosnąco. Tylko odczyt."""
+    rows = conn.execute("SELECT data FROM dhw_cycles WHERE start >= ? AND start < ? ORDER BY start",
+                        (start_utc.isoformat(), end_utc.isoformat())).fetchall()
+    cycles = [json.loads(r["data"]) for r in rows]
+    for c in cycles:
+        c["cfg_50"] = normalize_slot50(c.get("cfg_50"))
+    return cycles

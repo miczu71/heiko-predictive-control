@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request
 
-from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
+from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, costs, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
 from . import floor_model, kpi
 from . import db as dbm
@@ -19,6 +19,7 @@ from .tariff import default_is_workday
 
 logger = logging.getLogger(__name__)
 
+COSTS_MAX_DAYS = 400                   # maks. zakres /api/costs
 TRACE_CYCLES = 30                      # tyle najnowszych cykli CWU dostaje przebieg w /api/dhw_cycles (tyle rysuje UI)
 
 
@@ -389,6 +390,44 @@ def create_app(db_path: str,
             else:
                 data = day_summary.build_today(conn, settings, get_states() or [], now,
                                                is_workday=is_workday, cache=day_summary.CACHE)
+        finally:
+            conn.close()
+        return jsonify(data)
+
+    @app.get("/api/costs")
+    def api_costs():
+        """Koszty (K2): kWh / zł / udział PV w koszykach doba/tydzień/miesiąc + poprzedni okres. `?from=&to=&group=`. Tylko odczyt."""
+        settings = get_settings()
+        tz = ZoneInfo(settings.get("timezone") or "Europe/Warsaw")
+        now = datetime.now(tz)
+
+        def parse(name):
+            try:
+                return date.fromisoformat(request.args.get(name, "")) if len(request.args.get(name, "")) == 10 else None
+            except ValueError:
+                return None
+
+        start, end = parse("from"), parse("to")
+        group = request.args.get("group", "auto")
+        if start is None or end is None:
+            error = "from i to muszą mieć format YYYY-MM-DD"
+        elif start > end:
+            error = "from musi być <= to"
+        elif (end - start).days + 1 > COSTS_MAX_DAYS:
+            error = f"zakres maks. {COSTS_MAX_DAYS} dni"
+        elif end > now.date():
+            error = "to nie może być w przyszłości"
+        elif group not in costs.GROUPS:
+            error = f"group musi być jednym z: {', '.join(costs.GROUPS)}"
+        else:
+            error = None
+        if error:
+            return jsonify({"error": error}), 400
+        conn = db_conn()
+        try:
+            data = costs.build(conn, settings, start, end, now, group,
+                               today_fn=lambda: day_summary.build_today(conn, settings, get_states() or [], now,
+                                                                        is_workday=is_workday, cache=day_summary.CACHE))
         finally:
             conn.close()
         return jsonify(data)

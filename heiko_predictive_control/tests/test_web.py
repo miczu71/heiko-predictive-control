@@ -732,3 +732,37 @@ def test_rejecting_slot52_proposal_never_writes(tmp_path, monkeypatch):
     client, db_path = _proposal_client(tmp_path, states=_slot_states())
     _insert_slot_proposal(db_path)
     assert client.post("/api/proposals/1/decision", json={"decision": "odrzucona"}).get_json()["trial"] is True
+
+
+# ── /api/costs (K2) ──
+
+def _costs_client(tmp_path):
+    return _app_with_db(tmp_path, {"timezone": "Europe/Warsaw", "pump_energy_entity": "sensor.pump"}).test_client()
+
+
+@pytest.mark.parametrize("query", [
+    "from=2026-13-01&to=2026-10-02", "from=2026-10-01", "from=20261001&to=2026-10-02",
+    "from=2026-10-05&to=2026-10-01", "from=2024-01-01&to=2025-03-01",
+    "from=2026-10-01&to=2999-01-01", "from=2026-10-01&to=2026-10-02&group=year"])
+def test_api_costs_rejects_bad_params(tmp_path, query):
+    resp = _costs_client(tmp_path).get(f"/api/costs?{query}")
+    assert resp.status_code == 400 and resp.get_json()["error"]
+
+
+def test_api_costs_ok_shape(tmp_path):
+    resp = _costs_client(tmp_path).get("/api/costs?from=2026-10-01&to=2026-10-03&group=day")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert {"from", "to", "group", "days", "buckets", "totals", "previous", "delta", "coverage", "generated_at"} <= set(data)
+    assert data["days"] == 3 and [b["key"] for b in data["buckets"]] == ["2026-10-01", "2026-10-02", "2026-10-03"]
+    assert {"floor", "dhw", "ac", "total", "in_progress", "outdoor_c", "label"} <= set(data["buckets"][0])
+    assert "unsplit_kwh" in data["totals"]["total"]
+
+
+def test_api_costs_400_days_allowed(tmp_path):
+    from zoneinfo import ZoneInfo
+    yesterday = datetime.now(ZoneInfo("Europe/Warsaw")).date() - timedelta(days=1)
+    resp = _costs_client(tmp_path).get(f"/api/costs?from={yesterday - timedelta(days=399)}&to={yesterday}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["days"] == 400 and data["group"] == "month" and data["buckets"][-1]["in_progress"] is False
