@@ -145,3 +145,19 @@ def test_store_long_run_started_before_previous_midnight_is_complete(tmp_path):
     day = datetime(2026, 10, 27).date()
     assert hr.store_runs(conn, {**settings}, day, states, get_history=lambda e, a, b: hist) == 1
     assert hr.load_runs(conn, 36500)[0]["duration_min"] == 300.0
+
+
+def test_run_has_sources_summing_to_energy_and_v2():
+    s = {**base(),
+         "grid": [(z(11, 50), "100.0"), (z(12, 30), "100.2")],
+         "discharge": [(z(11, 50), "50.0"), (z(12, 30), "50.2")],
+         "rce": [(z(11, 50), "0.30")]}
+    r = run_one(s, mix_at=lambda t: {"pv": {"kwh": 1, "pln": 0.3}})
+    assert hr.DATA_VERSION == 2 and r["v"] == 2
+    assert sum(x["kwh"] for x in r["sources"].values()) == pytest.approx(r["energy_kwh"])
+    assert r["sources"]["pv"]["battery_kwh"] == pytest.approx(0.2)
+
+
+def test_run_without_meter_has_no_sources():
+    r = run_one({"mode": mode_series(12, 0, 30)})
+    assert r["sources"] is None

@@ -32,12 +32,27 @@ def conn(tmp_path):
     return c
 
 
+def sources_of(zones):
+    """`sources` spójne ze strefami: sieć per strefa (bez PV) + osobny origin `pv`."""
+    if zones is None:
+        return None
+    out = {}
+    for name, zn in zones.items():
+        if zn["kwh"] - zn["pv_kwh"] > 0:
+            out[f"grid:{name}"] = {"kwh": zn["kwh"] - zn["pv_kwh"], "pln": zn["pln"], "battery_kwh": 0.0}
+        if zn["pv_kwh"] > 0:
+            pv = out.setdefault("pv", {"kwh": 0.0, "pln": 0.0, "battery_kwh": 0.0})
+            pv["kwh"] += zn["pv_kwh"]
+    return out
+
+
 def insert(conn, table, start, kwh, pln=None, pv=0.0, zones="auto", minutes=30, **extra):
     pln = kwh * 0.5 if pln is None else pln
     if zones == "auto":
         zones = {"cheap": zone(kwh, pln, pv)}
     row = {"v": 7, "start": start.isoformat(), "end": (start + timedelta(minutes=minutes)).isoformat(),
-           "complete": True, KWH_KEY[table]: kwh, "cost_pln": pln, "zones": zones, "split_complete": True, **extra}
+           "complete": True, KWH_KEY[table]: kwh, "cost_pln": pln, "zones": zones, "sources": sources_of(zones),
+           "split_complete": True, **extra}
     conn.execute(f"INSERT INTO {table} (start, end, data) VALUES (?, ?, ?)", (row["start"], row["end"], json.dumps(row)))
     conn.commit()
     return row
@@ -185,6 +200,26 @@ def test_dhw_without_zones_has_unsplit_and_approx(conn):
     assert res["totals"]["dhw"]["unsplit_kwh"] == 2.6 and res["totals"]["floor"]["unsplit_kwh"] == 0
 
 
+def test_unsplit_is_kwh_minus_sources_and_record_without_sources_is_all_unsplit(conn):
+    insert(conn, "dhw_cycles", loc(10, 20, 9), 2.0, pv_share=0.0, sources={"pv": {"kwh": 1.5, "pln": 0.3, "battery_kwh": 0.5}})
+    insert(conn, "dhw_cycles", loc(10, 20, 15), 1.0, pv_share=0.0, sources=None)
+    res = build(conn, date(2026, 10, 20), date(2026, 10, 20))
+    assert res["totals"]["dhw"]["unsplit_kwh"] == 1.5
+
+
+def test_sources_merged_in_week_bucket_and_day_total(conn):
+    insert(conn, "dhw_cycles", loc(10, 20, 9), 2.0, pv=0.5, pv_share=0.25)     # grid:cheap 1.5, pv 0.5
+    insert(conn, "dhw_cycles", loc(10, 21, 9), 1.0, pv=0.25, pv_share=0.25)    # grid:cheap 0.75, pv 0.25
+    insert(conn, "heating_runs", loc(10, 21, 8), 1.0, pv=0.0)                  # grid:cheap 1.0
+    res = build(conn, date(2026, 10, 19), date(2026, 10, 25), group="week")
+    dhw = res["buckets"][0]["dhw"]["sources"]
+    assert dhw["grid:cheap"]["kwh"] == pytest.approx(2.25) and dhw["pv"]["kwh"] == pytest.approx(0.75)
+    assert res["totals"]["total"]["sources"]["grid:cheap"]["kwh"] == pytest.approx(3.25)
+    assert res["totals"]["dhw"]["unsplit_kwh"] == 0
+    day = build(conn, date(2026, 10, 21), date(2026, 10, 21))
+    assert day["buckets"][0]["total"]["sources"]["pv"]["kwh"] == pytest.approx(0.25)
+
+
 # ── g) pusty zakres ──
 
 def test_empty_range_gives_zero_buckets(conn):
@@ -196,7 +231,8 @@ def test_empty_range_gives_zero_buckets(conn):
             assert b[comp]["unsplit_kwh"] == 0
         assert b["outdoor_c"] is None and b["in_progress"] is False
     assert res["totals"]["total"]["kwh"] == 0 and res["previous"] is None
-    assert res["coverage"] == {"floor": {"oldest": None}, "dhw": {"oldest": None, "zones_from": None},
+    assert res["coverage"] == {"floor": {"oldest": None},
+                               "dhw": {"oldest": None, "zones_from": None, "sources_from": None},
                                "ac": {"oldest": None}}
     assert res["from"] == "2026-10-20" and res["to"] == "2026-10-22" and res["generated_at"] == NOW.isoformat()
 
@@ -278,10 +314,12 @@ def test_coverage_oldest_and_zones_from(conn):
     insert(conn, "dhw_cycles", loc(9, 20, 9), 1.0, v=6, pv_share=0.0)
     insert(conn, "dhw_cycles", loc(10, 3, 9), 1.0, v=7, pv_share=0.0)
     insert(conn, "dhw_cycles", loc(10, 4, 9), 1.0, v=7, pv_share=0.0)
+    insert(conn, "dhw_cycles", loc(10, 6, 9), 1.0, v=8, pv_share=0.0)
     insert(conn, "attic_runs", loc(10, 15, 9), 1.0)
     res = build(conn, date(2026, 10, 20), date(2026, 10, 21))      # zakres nie obejmuje najstarszych rekordów
     assert res["coverage"] == {"floor": {"oldest": "2026-09-01"},
-                               "dhw": {"oldest": "2026-09-05", "zones_from": "2026-10-03"},
+                               "dhw": {"oldest": "2026-09-05", "zones_from": "2026-10-03",
+                                       "sources_from": "2026-10-06"},
                                "ac": {"oldest": "2026-10-15"}}
 
 

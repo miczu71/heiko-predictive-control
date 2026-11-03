@@ -188,3 +188,16 @@ def test_missing_days_treats_v1_record_as_missing():
     missing = ar.missing_days(conn, z(12, d=28).replace(tzinfo=None))
     assert datetime(2026, 10, 26).date() in missing
     assert datetime(2026, 10, 25).date() not in missing
+
+
+def test_run_has_sources_summing_to_energy_and_v4():
+    s = {"power": power_series(10, 0, 30),
+         "energy": [(z(9, 55), "5.00"), (z(10, 30), "5.60")],
+         "grid": [(z(9, 50), "100.0"), (z(10, 30), "100.2")],
+         "discharge": [(z(9, 50), "50.0"), (z(10, 30), "50.2")],
+         "rce": [(z(9, 50), "0.30")]}
+    r = ar.extract_runs(s, z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5,
+                        mix_at=lambda t: {"pv": {"kwh": 1, "pln": 0.3}})[0]
+    assert ar.DATA_VERSION == 4 and r["v"] == 4
+    assert sum(x["kwh"] for x in r["sources"].values()) == pytest.approx(r["energy_kwh"])
+    assert r["sources"]["pv"]["battery_kwh"] == pytest.approx(0.2)

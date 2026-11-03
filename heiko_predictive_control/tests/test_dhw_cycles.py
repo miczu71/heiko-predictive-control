@@ -267,7 +267,7 @@ def test_cycle_record_has_minute_trace_and_v4():
     water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
     c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
-    assert dc.DATA_VERSION == 7 and c["v"] == 7
+    assert dc.DATA_VERSION == 8 and c["v"] == 8
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
 
@@ -485,3 +485,51 @@ def test_mix_at_is_none_before_first_row_and_for_empty_table(conn):
     dbm.migrate(empty)
     assert dc.mix_at(empty, TZ, z(0), z(23, 59))(datetime(2026, 9, 21, 13, 0)) is None
     empty.close()
+
+
+def _night_battery_cycle(**kw):
+    """12:00-12:10 (peak/offpeak bez znaczenia): 0,4 kWh pompy w całości z baterii (grid bez przyrostu)."""
+    s = {"mode": series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0")), "water": series((z(12, 0), "42.0")),
+         "target": series((z(0), "48")), "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
+         "grid": series((z(11), "500.0"), (z(12, 10), "500.0")),
+         "discharge": series((z(11), "40.0"), (z(12, 10), "40.4")), "rce": series((z(11), "0.25"))}
+    return dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0, **kw)[0]
+
+
+def test_sources_battery_night_mix_prices_from_mix():
+    c = _night_battery_cycle(mix_at=lambda t: {"grid:offpeak": {"kwh": 4, "pln": 1.6}})
+    assert c["sources"] == {"grid:offpeak": {"kwh": 0.4, "pln": 0.16, "battery_kwh": 0.4}}
+    assert c["cost_pln"] == pytest.approx(0.16)
+
+
+def test_sources_without_mix_is_unknown_with_battery_kwh():
+    c = _night_battery_cycle(battery_cost_at=lambda t: 0.5)
+    assert c["sources"] == {"unknown": {"kwh": 0.4, "pln": 0.2, "battery_kwh": 0.4}}
+    c = _night_battery_cycle()                                  # bez kosztu baterii: cena off-peak
+    assert c["sources"]["unknown"]["pln"] == pytest.approx(0.4)
+
+
+def test_sources_mixed_battery_mix_splits_by_share_and_price():
+    c = _night_battery_cycle(mix_at=lambda t: {"grid:offpeak": {"kwh": 2, "pln": 0.8}, "pv": {"kwh": 2, "pln": 0.4}})
+    assert c["sources"] == {"grid:offpeak": {"kwh": 0.2, "pln": 0.08, "battery_kwh": 0.2},
+                            "pv": {"kwh": 0.2, "pln": 0.04, "battery_kwh": 0.2}}
+
+
+def test_sources_sum_to_kwh_and_cost_for_grid_battery_and_pv():
+    s = {"mode": series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0")), "water": series((z(12, 0), "42.0")),
+         "target": series((z(0), "48")), "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
+         "grid": series((z(11), "500.0"), (z(12, 10), "500.1")),
+         "discharge": series((z(11), "40.0"), (z(12, 10), "40.1")), "rce": series((z(11), "0.25"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0,
+                          mix_at=lambda t: {"pv": {"kwh": 1, "pln": 0.3}})[0]
+    assert sum(x["kwh"] for x in c["sources"].values()) == pytest.approx(c["kwh_total"])
+    assert sum(x["pln"] for x in c["sources"].values()) == pytest.approx(c["cost_pln"], abs=0.02)
+    assert c["sources"]["pv"]["kwh"] == pytest.approx(0.3) and c["sources"]["pv"]["battery_kwh"] == pytest.approx(0.1)
+    assert [k for k in c["sources"] if k.startswith("grid:")] and c["pv_share"] == pytest.approx(0.5)
+
+
+def test_sources_empty_without_source_series():
+    s = {"mode": series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0")), "water": series((z(12, 0), "42.0")),
+         "target": series((z(0), "48")), "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4"))}
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    assert c["sources"] == {} and c["pv_share"] is None

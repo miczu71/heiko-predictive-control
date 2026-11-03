@@ -204,3 +204,22 @@ def test_api_day_summary(tmp_path):
     assert resp.status_code == 200
     data = resp.get_json()
     assert {"floor", "dhw", "ac", "total"} <= set(data)
+
+
+def test_aggregate_combine_public_merge_sources():
+    a = ds.aggregate([{"energy_kwh": 1.0, "cost_pln": 0.5, "zones": {}, "split_complete": True,
+                       "sources": {"grid:cheap": {"kwh": 0.6004, "pln": 0.3, "battery_kwh": 0.0},
+                                   "pv": {"kwh": 0.4, "pln": 0.1, "battery_kwh": 0.4}}},
+                      {"energy_kwh": 1.0, "cost_pln": 0.5, "zones": {}, "split_complete": True,
+                       "sources": {"grid:cheap": {"kwh": 0.4003, "pln": 0.2, "battery_kwh": 0.0}}}], "energy_kwh")
+    b = ds.aggregate([{"energy_kwh": 1.0, "cost_pln": 0.5, "zones": {}, "split_complete": True,
+                       "sources": {"unknown": {"kwh": 1.0, "pln": 0.4, "battery_kwh": 1.0}}}], "energy_kwh")
+    assert a["sources"]["grid:cheap"]["kwh"] == pytest.approx(1.0007)
+    out = ds.public(ds.combine([a, b]))
+    assert out["sources"]["grid:cheap"] == {"kwh": 1.001, "pln": 0.5, "battery_kwh": 0.0}
+    assert out["sources"]["pv"] == {"kwh": 0.4, "pln": 0.1, "battery_kwh": 0.4}
+    assert out["sources"]["unknown"] == {"kwh": 1.0, "pln": 0.4, "battery_kwh": 1.0}
+
+
+def test_aggregate_without_sources_gives_empty():
+    assert ds.public(ds.aggregate([{"energy_kwh": 1.0, "cost_pln": 0.5, "zones": {}}], "energy_kwh"))["sources"] == {}

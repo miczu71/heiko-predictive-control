@@ -15,7 +15,7 @@ from . import catalog
 from . import db
 from . import ha_client
 from . import tariff_feed
-from .dhw_cycles import (_cost, _delta, _minutes, _points, _value_at, battery_counter, pv_share_of,
+from .dhw_cycles import (_cost, _delta, _minutes, _points, _value_at, battery_counter, mix_at, pv_share_of,
                          source_counters, source_roles)
 from .summaries import day_bounds
 from .tariff import default_is_workday, fallback_prices
@@ -23,7 +23,7 @@ from .tariff import default_is_workday, fallback_prices
 logger = logging.getLogger(__name__)
 
 HEATING_CODE = 2                   # working_mode: grzanie (4 = CWU + grzanie, to nie run podłogówki)
-DATA_VERSION = 1
+DATA_VERSION = 2
 BACKFILL_DAYS = 7                  # zasięg recordera HA
 MERGE_GAP_MIN = 10.0               # przerwa krótsza/równa = ten sam run
 
@@ -52,7 +52,8 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
                  tz: ZoneInfo, is_workday: Callable[[date], bool] = default_is_workday,
                  peak_price: float | None = None, offpeak_price: float | None = None,
                  feed: tariff_feed.TariffFeed | None = None,
-                 battery_cost_at: Callable[[datetime], float | None] = lambda t: None) -> list[dict]:
+                 battery_cost_at: Callable[[datetime], float | None] = lambda t: None,
+                 mix_at: Callable[[datetime], dict | None] = lambda t: None) -> list[dict]:
     """Runy podłogówki w [window_start, window_end). `series`: mode (kod trybu), energy (licznik pompy), water,
     outdoor oraz do kosztu wg źródła: grid, discharge, rce. Run dotykający granic okna (start = początek okna
     z trybem przeniesionym z poprzedzającej doby albo koniec w odległości ≤ `MERGE_GAP_MIN` od końca okna) dostaje
@@ -83,7 +84,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
         carried = start == window_start and mode0 is not None and int(round(mode0)) == HEATING_CODE
         meter = _delta(e_times, e_values, start, end)
         split = _cost(e_times, e_values, start, end, tz, is_workday, peak_price, offpeak_price,
-                      battery_cost_at=battery_cost_at, feed=feed, **sources) if e_times else None
+                      battery_cost_at=battery_cost_at, feed=feed, mix_at=mix_at, **sources) if e_times else None
         hour = None if feed is None else feed.at(start.astimezone(tz).replace(tzinfo=None))
         runs.append({
             "v": DATA_VERSION, "start": start.isoformat(), "end": end.isoformat(),
@@ -94,6 +95,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
             "pv_share": pv_share_of(split),
             "split_complete": bool(split and meter is not None and split["split_complete"]),
             "zones": split["zones"] if split else None,
+            "sources": split["sources"] if split else None,
             "zone": None if hour is None else hour.zone,
             "outdoor_c": _value_at(o_times, o_values, start),
             "water_start_c": _value_at(w_times, w_values, start),
@@ -123,12 +125,14 @@ def store_runs(conn, settings: dict, day: date, states: list[dict],
         return 0
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
     battery = battery_counter(conn, tz, fetch_start, day_end)
+    mixes = mix_at(conn, tz, fetch_start, day_end)
     is_workday = is_workday or default_is_workday
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     stored = 0
     for r in extract_runs(series, fetch_start, day_end, tz, is_workday, feed=feed,
                           offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)),
-                          battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None))):
+                          battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)),
+                          mix_at=lambda t: mixes(t.astimezone(tz).replace(tzinfo=None))):
         if not r["complete"]:
             continue
         conn.execute("INSERT OR REPLACE INTO heating_runs (start, end, data) VALUES (?, ?, ?)",

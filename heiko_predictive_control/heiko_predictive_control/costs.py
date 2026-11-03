@@ -18,6 +18,7 @@ AUTO_DAY_MAX = 62                      # ≤ 62 dni -> doby
 AUTO_WEEK_MAX = 182                    # ≤ 182 dni -> tygodnie, dalej miesiące
 FETCH_MARGIN = timedelta(hours=12)
 ZONES_MIN_VERSION = 7                  # `v` cyklu CWU od wersji ze strefami taryfy (`dhw_cycles.DATA_VERSION` = 7)
+SOURCES_MIN_VERSION = 8                # `v` cyklu CWU od wersji z pochodzeniem energii (`sources`)
 OUTDOOR_KEY = "ambient_air_temperature"
 COMPONENTS = (("floor", heating_runs, "energy_kwh"),
               ("dhw", dhw_cycles, "kwh_total"),
@@ -47,7 +48,7 @@ def _bucket(day: date, group: str) -> tuple[str, str]:
 
 def _with_unsplit(agg: dict) -> dict:
     out = public(agg)
-    out["unsplit_kwh"] = round(max(0.0, agg["kwh"] - sum(z["kwh"] for z in agg["zones"].values())), 3)
+    out["unsplit_kwh"] = round(max(0.0, agg["kwh"] - sum(x["kwh"] for x in agg["sources"].values())), 3)
     return out
 
 
@@ -65,7 +66,9 @@ def _from_public(part: dict) -> dict:
     kwh = part.get("kwh") or 0.0
     zones = {n: {"kwh": z.get("kwh") or 0.0, "pln": z.get("pln") or 0.0, "pv_kwh": z.get("pv_kwh") or 0.0}
              for n, z in (part.get("zones") or {}).items()}
-    return {"kwh": kwh, "pln": part.get("pln") or 0.0, "zones": zones, "runs": part.get("runs") or 0,
+    sources = {n: {"kwh": x.get("kwh") or 0.0, "pln": x.get("pln") or 0.0, "battery_kwh": x.get("battery_kwh") or 0.0}
+               for n, x in (part.get("sources") or {}).items()}
+    return {"kwh": kwh, "pln": part.get("pln") or 0.0, "zones": zones, "sources": sources, "runs": part.get("runs") or 0,
             "approx": bool(part.get("approx")), "_pv_kwh": share * kwh if share is not None else 0.0,
             "_known_kwh": kwh if share is not None else 0.0}
 
@@ -114,8 +117,11 @@ def _coverage(conn, tz) -> dict:
     row = conn.execute("SELECT start FROM dhw_cycles WHERE json_extract(data, '$.v') >= ? ORDER BY start LIMIT 1",
                        (ZONES_MIN_VERSION,)).fetchone()
     zones_from = local_date(row["start"], tz).isoformat() if row else None
+    row = conn.execute("SELECT start FROM dhw_cycles WHERE json_extract(data, '$.v') >= ? ORDER BY start LIMIT 1",
+                       (SOURCES_MIN_VERSION,)).fetchone()
+    sources_from = local_date(row["start"], tz).isoformat() if row else None
     return {"floor": {"oldest": oldest("heating_runs")},
-            "dhw": {"oldest": oldest("dhw_cycles"), "zones_from": zones_from},
+            "dhw": {"oldest": oldest("dhw_cycles"), "zones_from": zones_from, "sources_from": sources_from},
             "ac": {"oldest": oldest("attic_runs")}}
 
 

@@ -25,14 +25,24 @@ def local_date(iso: str, tz) -> date:
     return datetime.fromisoformat(iso).astimezone(tz).date()
 
 
+def _merge_sources(acc: dict[str, dict], src: dict | None) -> None:
+    """Dosumowuje `sources` (origin -> kwh/pln/battery_kwh) do akumulatora."""
+    for origin, x in (src or {}).items():
+        a = acc.setdefault(origin, {"kwh": 0.0, "pln": 0.0, "battery_kwh": 0.0})
+        for f in ("kwh", "pln", "battery_kwh"):
+            a[f] += x.get(f) or 0.0
+
+
 def aggregate(records: list[dict], kwh_key: str) -> dict:
     """Suma rekordów jednego składnika. Pola `_pv_kwh`/`_known_kwh` (tylko rekordy `split_complete`) służą
     `combine`; `public` je usuwa."""
     kwh = pln = pv_all = known = 0.0
     zones: dict[str, dict] = {}
+    sources: dict[str, dict] = {}
     approx = False
     for r in records:
         k, cost, zn = r.get(kwh_key), r.get("cost_pln"), r.get("zones")
+        _merge_sources(sources, r.get("sources"))
         # cykle CWU nie mają `split_complete`: pv_share ustawione (albo zerowa energia) = podział pełny
         split = r.get("split_complete")
         if split is None:
@@ -51,20 +61,22 @@ def aggregate(records: list[dict], kwh_key: str) -> dict:
             pv_all += sum(z.get("pv_kwh") or 0.0 for z in zn.values())
         if not split or cost is None or zn is None or r.get("complete") is False:
             approx = True
-    return {"kwh": kwh, "pln": pln, "zones": zones, "runs": len(records), "approx": approx,
+    return {"kwh": kwh, "pln": pln, "zones": zones, "sources": sources, "runs": len(records), "approx": approx,
             "_pv_kwh": pv_all, "_known_kwh": known}
 
 
 def combine(parts: list[dict]) -> dict:
     """`total` z wyników `aggregate`: sumy, zones scalone po strefie, `approx` = OR."""
     zones: dict[str, dict] = {}
+    sources: dict[str, dict] = {}
     for p in parts:
+        _merge_sources(sources, p.get("sources"))
         for name, z in p["zones"].items():
             acc = zones.setdefault(name, {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0})
             for f in ("kwh", "pln", "pv_kwh"):
                 acc[f] += z[f]
     return {"kwh": sum(p["kwh"] for p in parts), "pln": sum(p["pln"] for p in parts), "zones": zones,
-            "runs": sum(p["runs"] for p in parts), "approx": any(p["approx"] for p in parts),
+            "sources": sources, "runs": sum(p["runs"] for p in parts), "approx": any(p["approx"] for p in parts),
             "_pv_kwh": sum(p["_pv_kwh"] for p in parts), "_known_kwh": sum(p["_known_kwh"] for p in parts)}
 
 
@@ -77,6 +89,9 @@ def public(d: dict) -> dict:
     out["pv_share"] = round(d["_pv_kwh"] / known, 3) if known > 0 else None
     out["zones"] = {n: {"kwh": round(z["kwh"], 3), "pln": round(z["pln"], 2), "pv_kwh": round(z["pv_kwh"], 3)}
                     for n, z in d["zones"].items()}
+    out["sources"] = {n: {"kwh": round(x["kwh"], 3), "pln": round(x["pln"], 2),
+                          "battery_kwh": round(x["battery_kwh"], 3)}
+                      for n, x in d.get("sources", {}).items()}
     return out
 
 
@@ -174,9 +189,11 @@ def build_today(conn, settings: dict, states: list[dict], now: datetime,
         return s
 
     battery = battery_counter(conn, tz, fetch_start, now)
+    mixes = dhw_cycles.mix_at(conn, tz, fetch_start, now)
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     kw = dict(feed=feed, offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)),
-              battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)))
+              battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)),
+              mix_at=lambda t: mixes(t.astimezone(tz).replace(tzinfo=None)))
 
     def mine(records):
         return [r for r in records if local_date(r["start"], tz) == today]

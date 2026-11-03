@@ -35,7 +35,8 @@ BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-DATA_VERSION = 7                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie, v5 z błędną atrybucją, v6 bez stref taryfy (`zones`) i z brakiem serii rozładowania liczonym jako PV — backfill je przelicza
+EPS_KWH = 1e-9                     # resztki zmiennoprzecinkowe `split` nie tworzą źródła
+DATA_VERSION = 8                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie, v5 z błędną atrybucją, v6 bez stref taryfy (`zones`) i z brakiem serii rozładowania liczonym jako PV, v7 bez `sources` pochodzenia energii — backfill je przelicza
 TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0
 MIN_HP_SEG_MIN = 5.0
@@ -173,18 +174,27 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
           tz: ZoneInfo, is_workday: Callable[[date], bool],
           peak_price: float, offpeak_price: float, grid: es.Counter, discharge: es.Counter, rce: es.Counter,
           battery_cost_at: Callable[[datetime], float | None],
-          feed: tariff_feed.TariffFeed | None = None) -> dict | None:
+          feed: tariff_feed.TariffFeed | None = None,
+          mix_at: Callable[[datetime], dict | None] = lambda t: None) -> dict | None:
     """kWh i koszt PLN z licznika energii (faza C = AH) na [start, end], przyrost po przyroście
     przypisany do godziny lokalnej próbki końcowej (jak `summaries._energy`). Z historią poboru z sieci,
     rozładowania baterii i RCE przyrost jest dzielony na źródła (`energy_source.split`): sieć po taryfie,
     bateria po średnim koszcie energii w baterii, PV po RCE; gdy brakuje którejkolwiek serii — cały po
-    taryfie i `split_complete: False` (energii spoza sieci nie wolno zaliczać do PV bez danych o baterii)."""
+    taryfie i `split_complete: False` (energii spoza sieci nie wolno zaliczać do PV bez danych o baterii).
+    `sources` rozbija energię z pełnym podziałem na pochodzenie (`grid:<strefa>`/`pv`/`unknown`), część z baterii wg `mix_at`."""
     if _value_at(times, values, start) is None:
         return None
     i = bisect.bisect_right(times, start)
     total = price = pv = 0.0
     split_complete = True
     zones: dict[str, dict] = {}
+    sources: dict[str, dict] = {}
+
+    def add_source(origin: str, kwh: float, pln: float, battery_kwh: float) -> None:
+        seg = sources.setdefault(origin, {"kwh": 0.0, "pln": 0.0, "battery_kwh": 0.0})
+        seg["kwh"] += kwh
+        seg["pln"] += pln
+        seg["battery_kwh"] += battery_kwh
     prev, prev_t = _value_at(times, values, start), start
     for t, v in zip(times[i:], values[i:]):
         if t > end:
@@ -203,8 +213,25 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
                 split_complete = False
             else:
                 g, b, p = es.split(inc, d_grid, d_dis)
-                battery = battery_cost_at(t)
-                price += es.price(g, b, p, tariff, offpeak_price if battery is None else battery, rce_now)
+                if g > EPS_KWH:
+                    add_source(f"grid:{zone}", g, g * tariff, 0.0)
+                    price += g * tariff
+                if p > EPS_KWH:
+                    add_source("pv", p, p * max(rce_now, 0.0), 0.0)
+                    price += p * max(rce_now, 0.0)
+                if b > EPS_KWH:
+                    mix = mix_at(t)
+                    shares = es.mix_shares(mix) if mix else {}
+                    if shares:
+                        for origin, sh in shares.items():
+                            kwh = b * sh["share"]
+                            add_source(origin, kwh, kwh * sh["pln_kwh"], kwh)
+                            price += kwh * sh["pln_kwh"]
+                    else:
+                        battery = battery_cost_at(t)
+                        pln = b * (offpeak_price if battery is None else battery)
+                        add_source("unknown", b, pln, b)
+                        price += pln
                 pv += p
             z = zones.setdefault(zone, {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0})
             z["kwh"] += inc
@@ -212,10 +239,12 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
             z["pv_kwh"] += pv - pv_before
         prev, prev_t = v, t
     if total <= 0:
-        return {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0, "split_complete": True, "zones": {}}
+        return {"kwh": 0.0, "pln": 0.0, "pv_kwh": 0.0, "split_complete": True, "zones": {}, "sources": {}}
     return {"kwh": round(total, 3), "pln": round(price, 2), "pv_kwh": pv, "split_complete": split_complete,
             "zones": {k: {"kwh": round(z["kwh"], 3), "pln": round(z["pln"], 2), "pv_kwh": round(z["pv_kwh"], 3)}
-                      for k, z in zones.items()}}
+                      for k, z in zones.items()},
+            "sources": {k: {"kwh": round(x["kwh"], 3), "pln": round(x["pln"], 2), "battery_kwh": round(x["battery_kwh"], 3)}
+                        for k, x in sources.items()}}
 
 
 def source_roles(settings: dict) -> dict[str, str]:
@@ -264,7 +293,8 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
                     offpeak_price: float | None = None,
                     battery_cost_at: Callable[[datetime], float | None] = lambda t: None,
                     feed: tariff_feed.TariffFeed | None = None,
-                    bath_entries: list[dict] | None = None) -> list[dict]:
+                    bath_entries: list[dict] | None = None,
+                    mix_at: Callable[[datetime], dict | None] = lambda t: None) -> list[dict]:
     """Cykle CWU (`working_mode` w DHW_CODES) w [window_start, window_end). `series`: mode, water,
     target (dhw_setpoint), ah (ah_working_time), energy_c, outdoor oraz do kosztu wg źródła: grid
     (pobór z sieci), discharge (rozładowanie baterii), rce. Cykl wciąż trwający na prawej
@@ -312,9 +342,9 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
         first_tick = _first_tick(ah_times, ah_values, start, end)
         ah_min = _delta(ah_times, ah_values, start, end)
         cost = _cost(energy_times, energy_values, start, end + timedelta(minutes=2),
-                     tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, **sources)
+                     tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, mix_at=mix_at, **sources)
         total_cost = _cost(total_times, total_values, start, end + timedelta(minutes=2),
-                           tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, **sources)
+                           tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, mix_at=mix_at, **sources)
         pv_share = pv_share_of(total_cost)
         hour = None if feed is None else feed.at(start.astimezone(tz).replace(tzinfo=None))
         hp_end = end if first_tick is None else first_tick - timedelta(minutes=AH_TICK_MARGIN_MIN)
@@ -343,6 +373,7 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
             "ah_pln": None if cost is None else cost["pln"],
             "cost_pln": None if total_cost is None else total_cost["pln"],
             "pv_share": pv_share, "zones": None if total_cost is None else total_cost["zones"],
+            "sources": None if total_cost is None else total_cost["sources"],
             "zone": None if hour is None else hour.zone,
         })
     return cycles
@@ -433,12 +464,14 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
         return 0
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
     battery = battery_counter(conn, tz, fetch_start, day_end)
+    mixes = mix_at(conn, tz, fetch_start, day_end)
     is_workday = is_workday or default_is_workday
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     bath_entries = get_logbook(BATH_BOOLEAN, fetch_start.isoformat(), day_end.isoformat())
     cycles = extract_cycles(series, fetch_start, day_end, tz, is_workday, bath_entries=bath_entries,
                             offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)), feed=feed,
-                            battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)))
+                            battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)),
+                            mix_at=lambda t: mixes(t.astimezone(tz).replace(tzinfo=None)))
     stored = 0
     for c in cycles:
         if not c["complete"]:
