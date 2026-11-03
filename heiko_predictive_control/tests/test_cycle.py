@@ -346,3 +346,24 @@ def test_missing_pump_reading_keeps_all_deltas_on_the_same_interval(conn):
     # pompa (1,0) i sieć (0,6) liczone z tego samego przedziału 0–30 min — inaczej sieć miałaby tylko 0,1
     assert row["energy_kwh"] == pytest.approx(1.0)
     assert row["grid_kwh"] == pytest.approx(0.6) and row["pv_kwh"] == pytest.approx(0.4)
+
+
+def test_source_step_writes_battery_mix_row_and_setting(conn):
+    world = World(mode="Heating")
+    _counters(world, imp=1000.0, chg=50.0, dis=40.0)
+    _run(conn, world, NOW)
+    world.energy += 0.5
+    _counters(world, imp=1000.1, chg=50.0, dis=40.3)
+    _run(conn, world, NOW + timedelta(minutes=15))
+    ts = (NOW + timedelta(minutes=15)).isoformat()
+    rows = dbm.load_battery_mix(conn, ts, ts)
+    assert [t for t, _ in rows] == [ts]
+    assert dbm.get_setting(conn, "battery_mix") == rows[0][1]
+
+
+def test_first_cycle_without_counter_history_writes_no_battery_mix_row(conn):
+    world = World(mode="Heating")
+    _counters(world, imp=1000.0, chg=50.0, dis=40.0)
+    _run(conn, world, NOW)
+    assert conn.execute("SELECT COUNT(*) FROM battery_mix").fetchone()[0] == 0
+    assert dbm.get_setting(conn, "battery_mix") is None

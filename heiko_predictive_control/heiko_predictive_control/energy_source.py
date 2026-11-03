@@ -93,3 +93,50 @@ def _battery_cost_after(step: Step, load_grid_kwh: float, battery_cost: float) -
     charged_cost = price(from_grid, 0.0, step.charge_kwh - from_grid, step.grid_price, 0.0, step.rce_price)
     kept = max(step.soc_kwh - step.charge_kwh, 0.0)
     return (kept * battery_cost + charged_cost) / (kept + step.charge_kwh)
+
+
+# Skład baterii: {origin: {"kwh", "pln"}}, origin = "grid:<strefa>" | "pv" | "unknown".
+# Ślad pochodzenia energii, która siedzi w baterii; średni koszt = Σpln / Σkwh (spójny z battery_cost).
+
+def mix_after(mix: dict, step: Step, battery_cost: float, zone: str) -> dict:
+    """Skład baterii po kroku. Rozładowanie/utrata skaluje wszystkie origin do `kept` (proporcje zachowane),
+    ładowanie dokłada: pobór z sieci po taryfie z chwili (strefa `zone`), reszta jako PV po RCE (ujemna = 0).
+    Zwraca nowy słownik; wejścia nie zmienia."""
+    grid, _, _ = split(step.load_kwh, step.import_kwh, step.discharge_kwh)
+    kept = max(step.soc_kwh - step.charge_kwh, 0.0)
+    total = sum(seg["kwh"] for seg in mix.values())
+    out: dict[str, dict[str, float]] = {}
+    if total > 0:
+        factor = kept / total
+        out = {origin: {"kwh": seg["kwh"] * factor, "pln": seg["pln"] * factor} for origin, seg in mix.items()}
+    elif kept > 0:
+        out = {"unknown": {"kwh": kept, "pln": kept * battery_cost}}
+    if step.charge_kwh > 0:
+        from_grid = min(step.charge_kwh, max(step.import_kwh - grid, 0.0))
+        pv = step.charge_kwh - from_grid
+        if from_grid > 0:
+            _add(out, f"grid:{zone}", from_grid, from_grid * step.grid_price)
+        if pv > 0:
+            _add(out, "pv", pv, pv * max(step.rce_price, 0.0))
+    return {origin: seg for origin, seg in out.items() if seg["kwh"] > 1e-9}
+
+
+def _add(mix: dict, origin: str, kwh: float, pln: float) -> None:
+    seg = mix.setdefault(origin, {"kwh": 0.0, "pln": 0.0})
+    seg["kwh"] += kwh
+    seg["pln"] += pln
+
+
+def mix_cost(mix: dict) -> float | None:
+    """Średni koszt energii w baterii, zł/kWh; None dla pustego składu."""
+    kwh = sum(seg["kwh"] for seg in mix.values())
+    return sum(seg["pln"] for seg in mix.values()) / kwh if kwh > 0 else None
+
+
+def mix_shares(mix: dict) -> dict[str, dict[str, float]]:
+    """Udział kWh każdego origin w baterii i jego cena zł/kWh; pusty skład → {}."""
+    kwh = sum(seg["kwh"] for seg in mix.values())
+    if kwh <= 0:
+        return {}
+    return {origin: {"share": seg["kwh"] / kwh, "pln_kwh": seg["pln"] / seg["kwh"]}
+            for origin, seg in mix.items() if seg["kwh"] > 0}

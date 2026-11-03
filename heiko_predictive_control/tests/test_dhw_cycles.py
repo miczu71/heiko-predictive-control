@@ -465,3 +465,23 @@ def test_zones_use_feed_zone_names_and_sum_equals_total(conn):
     assert set(zs) == {"expensive", "cheap"}
     assert sum(v["kwh"] for v in zs.values()) == pytest.approx(cost["kwh"])
     assert sum(v["pln"] for v in zs.values()) == pytest.approx(cost["pln"], abs=0.01)
+
+
+def test_mix_at_returns_last_battery_mix_not_after_t(conn):
+    dbm.insert_battery_mix(conn, "2026-09-21T12:00:00", {"pv": {"kwh": 1.0, "pln": 0.3}})
+    dbm.insert_battery_mix(conn, "2026-09-21T14:00:00", {"grid:offpeak": {"kwh": 1.0, "pln": 0.6}})
+    mix_at = dc.mix_at(conn, TZ, z(0), z(23, 59))
+    assert mix_at(datetime(2026, 9, 21, 13, 0)) == {"pv": {"kwh": 1.0, "pln": 0.3}}
+    assert mix_at(datetime(2026, 9, 21, 14, 0)) == {"grid:offpeak": {"kwh": 1.0, "pln": 0.6}}
+    assert mix_at(datetime(2026, 9, 21, 22, 0)) == {"grid:offpeak": {"kwh": 1.0, "pln": 0.6}}
+
+
+def test_mix_at_is_none_before_first_row_and_for_empty_table(conn):
+    dbm.insert_battery_mix(conn, "2026-09-21T12:00:00", {"pv": {"kwh": 1.0, "pln": 0.3}})
+    assert dc.mix_at(conn, TZ, z(0), z(23, 59))(datetime(2026, 9, 20, 22, 0)) is None
+    assert dc.mix_at(conn, TZ, z(0), z(23, 59))(datetime(2026, 9, 21, 12, 0)) is not None
+    assert dc.mix_at(conn, TZ, z(0), z(23, 59))(datetime(2026, 9, 21, 12, 0)) == {"pv": {"kwh": 1.0, "pln": 0.3}}
+    empty = dbm.get_conn(":memory:")
+    dbm.migrate(empty)
+    assert dc.mix_at(empty, TZ, z(0), z(23, 59))(datetime(2026, 9, 21, 13, 0)) is None
+    empty.close()

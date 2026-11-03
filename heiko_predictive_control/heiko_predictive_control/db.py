@@ -106,6 +106,12 @@ CREATE TABLE IF NOT EXISTS heating_runs (
     data TEXT NOT NULL
 );
 
+-- Skład baterii po kroku pętli A (JSON origin→kwh/pln); ts lokalny jak `cycles.ts`.
+CREATE TABLE IF NOT EXISTS battery_mix (
+    ts TEXT PRIMARY KEY,
+    mix TEXT NOT NULL
+);
+
 -- Ostatni policzony raport analizy (analysis.py), do pokazania bez ponownego liczenia LTS.
 CREATE TABLE IF NOT EXISTS report_cache (
     name TEXT PRIMARY KEY,
@@ -323,6 +329,18 @@ def insert_cycle(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
         tuple(row.get(c) for c in cols),
     )
     conn.commit()
+
+
+def insert_battery_mix(conn: sqlite3.Connection, ts: str, mix: dict[str, Any]) -> None:
+    conn.execute("INSERT OR REPLACE INTO battery_mix (ts, mix) VALUES (?, ?)", (ts, json.dumps(mix)))
+    conn.commit()
+
+
+def load_battery_mix(conn: sqlite3.Connection, start_iso: str, end_iso: str) -> list[tuple[str, dict]]:
+    """Skład baterii z `battery_mix` w [start_iso, end_iso] (czas lokalny jak `cycles.ts`), rosnąco."""
+    rows = conn.execute("SELECT ts, mix FROM battery_mix WHERE ts >= ? AND ts <= ? ORDER BY ts",
+                        (start_iso, end_iso)).fetchall()
+    return [(r["ts"], json.loads(r["mix"])) for r in rows]
 
 
 def latest_cycle(conn: sqlite3.Connection, loop: str) -> sqlite3.Row | None:

@@ -237,6 +237,20 @@ def battery_counter(conn, tz: ZoneInfo, fetch_start: datetime, day_end: datetime
          day_end.astimezone(tz).replace(tzinfo=None).isoformat())))
 
 
+def mix_at(conn, tz: ZoneInfo, fetch_start: datetime, day_end: datetime) -> Callable[[datetime], dict | None]:
+    """Skład baterii z pętli A (`battery_mix`) w tym samym oknie co `battery_counter`. Zwrócona funkcja
+    podaje ostatni skład o ts <= t (czas lokalny bez strefy); None przed pierwszym wierszem i dla pustej tabeli."""
+    rows = db.load_battery_mix(conn, (fetch_start - timedelta(hours=1)).astimezone(tz).replace(tzinfo=None).isoformat(),
+                               day_end.astimezone(tz).replace(tzinfo=None).isoformat())
+    times = [datetime.fromisoformat(ts) for ts, _ in rows]
+    mixes = [mix for _, mix in rows]
+
+    def at(t: datetime) -> dict | None:
+        i = bisect.bisect_right(times, t) - 1
+        return mixes[i] if i >= 0 else None
+    return at
+
+
 def pv_share_of(cost: dict | None) -> float | None:
     """Udział PV w energii (wynik `_cost`); None bez kosztu, bez pełnego podziału albo bez energii."""
     if cost is None or not cost["split_complete"] or cost["kwh"] <= 0:
