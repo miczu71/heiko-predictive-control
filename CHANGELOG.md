@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.2 — Pulpit bez symulowanej oszczędności, z kafelką zapisów do pompy
+
+- **Usunięte:** kafelki „Szac. oszczędność dziś” i „Zmiany nastaw pompy”, linie „Model — …” z kosztem planu oraz endpoint `/api/today_summary`. „Oszczędność” była różnicą dwóch symulacji, a pętla A nie zapisuje planu do pompy, więc realna oszczędność wynosiła 0, a liczba wprowadzała w błąd. Tabela 36 h, wykres planu i sensory HA zostają.
+- **Nowa kafelka „Zapisy do pompy”:** trwający test (tytuł, godzina i wartość następnego kroku albo „ostatni krok wykonany”), „brak” gdy pompa działa na własnej krzywej, oraz link „propozycje Doradcy: N”.
+- **„Pompa dziś”:** jedna liczba = podłoga + ciepła woda z kafla „Doba” (nowe pole `pump` w `/api/day_summary`), z podpisem „wczoraj: X zł”. Przy braku historii z HA pokazuje „—” zamiast „0,00 zł”.
+- **Karta pompy:** prawdziwy opis tego, co add-on zapisuje do pompy (kroki testów i zatwierdzone propozycje Doradcy); bez przełącznika profili i wierszy „Optymalizator (poglądowo)”; trzy foldy scalone w „Model i plan (poglądowo)”.
+- **Odporność:** nieczytelny plan testu nie wywala już Pulpitu (kafelka bez następnego kroku).
+- Znane (nieblokujące): kolumny `baseline_cost_today_pln` / `sim_cost_today_*` nadal się zapisują bez odbiorcy; licznik propozycji nie uwzględnia wygaśnięcia; brak testów dla kroku P0, „ostatni krok wykonany” i nieznanego rodzaju testu.
+
 ## 0.20.1 — pasek pochodzenia energii wypełnia całą szerokość
 
 - **Poprawka:** gdy zużycie składnika w dobie było poniżej 1 kWh (typowo klimatyzacja rano), segmenty paska pochodzenia energii zajmowały tylko część szerokości, a reszta była jasna jak tło. Segmenty mają teraz szerokość proporcjonalną do udziału, więc zawsze wypełniają cały pasek (kafel „Doba”, „Koszty”, /ogrzewanie).
