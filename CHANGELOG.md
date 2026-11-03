@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0 — pochodzenie energii ze śladem baterii zamiast pasków stref taryfy
+
+- **Pochodzenie każdej kWh:** kafel „Doba”, zakładka „Koszty” i strona /ogrzewanie pokazują, skąd naprawdę pochodzi energia podłogi, CWU i AC: sieć wg strefy taryfy z chwili ładowania baterii, PV albo „nieznane”, z adnotacją „przez baterię” i wyceną z chwili ładowania. Paski stref zużycia znikają z UI (pole `zones` zostaje w danych i API).
+- **Skład baterii:** pętla A co cykl zapisuje skład baterii (tabela `battery_mix`, addytywna). Po starcie jednorazowy replay 7 dni z recordera HA odtwarza skład wstecz; zawartość baterii na początku okna to „nieznane” (wycena średnim kosztem, wypłukuje się w ok. dobę).
+- **Przeliczenie:** rekordy CWU v8, podłoga v2, AC v4 — backfill przelicza ostatnie 7 dób (po replayu, w jednym łańcuchu startowym); starsze rekordy pokazują się jako „bez podziału”.
+- API: `sources` ({origin: kwh, zł, kWh przez baterię}) w rekordach, `/api/day_summary` i `/api/costs`; `coverage.sources_from` dla CWU.
+- Znane ograniczenia: `battery_mix` bez retencji (~96 wierszy/dobę), replay liczy w strefie czasowej procesu i bez licznika pompy (lekko zawyża „sieć”), brak testów DST i awarii zapisu replayu.
+- Bez zapisów do pompy, klimatyzacji i HA.
+
 ## 0.19.0 — strefy taryfy per składnik w kaflu „Doba” i nowa zakładka „Koszty”
 
 - **Kafel „Doba”:** pod każdym wierszem (podłoga, CWU, AC, Razem) pasek stref taryfy z legendą kWh · zł; energia rekordów bez podziału na strefy (starsze cykle CWU) pokazuje się jako szary segment „bez podziału”.
