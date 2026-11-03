@@ -148,6 +148,18 @@ def test_build_today_run_in_progress_with_pv_share(tmp_path):
     assert r["floor"]["pv_share"] > 0
     assert r["total"]["kwh"] == pytest.approx(r["floor"]["kwh"] + r["dhw"]["kwh"] + r["ac"]["kwh"])
     assert r["ac"]["configured"] is True
+    # `pump` (kafelka „Pompa dziś”) = podłoga + CWU, bez klimatyzacji.
+    assert r["pump"]["configured"] is True
+    assert r["pump"]["kwh"] == pytest.approx(r["floor"]["kwh"] + r["dhw"]["kwh"], abs=0.002)
+    assert r["pump"]["pln"] == pytest.approx(r["floor"]["pln"] + r["dhw"]["pln"], abs=0.011)
+
+
+def test_pump_not_configured_when_no_pump_entities(tmp_path):
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    dbm.migrate(conn)
+    settings = {"attic_power_entity": "sensor.test_attic_power", "timezone": "Europe/Warsaw"}
+    r = ds.build_today(conn, settings, STATES, NOW, get_history=fake_history_factory())
+    assert r["pump"]["configured"] is False and r["pump"]["kwh"] == 0 and r["pump"]["pln"] == 0
 
 
 def test_build_today_unconfigured_component_hidden(tmp_path):

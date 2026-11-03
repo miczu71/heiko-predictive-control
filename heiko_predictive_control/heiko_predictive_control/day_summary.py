@@ -107,6 +107,9 @@ def _result(day: date, parts: dict[str, dict], configured: dict[str, bool], now:
     for name in ("floor", "dhw", "ac"):
         out[name] = {**public(parts[name]), "configured": configured[name]}
     out["total"] = public(combine([parts["floor"], parts["dhw"], parts["ac"]]))
+    # Pompa = podłoga + CWU (bez klimatyzacji) — jedno źródło dla kafelki „Pompa dziś” na pulpicie.
+    out["pump"] = {**public(combine([parts["floor"], parts["dhw"]])),
+                   "configured": configured["floor"] or configured["dhw"]}
     out["in_progress"] = in_progress
     out["generated_at"] = now.isoformat()
     if error:

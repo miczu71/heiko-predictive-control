@@ -22,12 +22,12 @@ function render(d) {
     + (d.total && d.total.kwh > 0 ? "" : `<p class="sub">Brak zużycia w tej dobie.</p>`) + live;
 }
 
-// Koszt pompy na kafelce pulpitu: podłoga + ciepła woda (bez składnika nieskonfigurowanego).
+// Koszt pompy na kafelce pulpitu: pole `pump` (podłoga + ciepła woda) z /api/day_summary.
+const pumpPln = d => (d.pump && d.pump.configured ? nf(d.pump.pln) + " zł" : "—");
+
 function setPumpCost(d) {
   const el = document.getElementById("pump-cost");
-  if (!el) return;
-  const parts = [d.floor, d.dhw].filter(p => p && p.configured !== false);
-  el.textContent = parts.length ? nf(parts.reduce((s, p) => s + (p.pln || 0), 0)) + " zł" : "—";
+  if (el) el.textContent = pumpPln(d);
 }
 
 async function loadYesterdayPumpCost() {
@@ -35,9 +35,7 @@ async function loadYesterdayPumpCost() {
   if (!el) return;
   try {
     const d = await HPC.getJSON("/api/day_summary?day=yesterday");
-    const parts = [d.floor, d.dhw].filter(p => p && p.configured !== false);
-    const pln = parts.reduce((s, p) => s + (p.pln || 0), 0);
-    el.textContent = `podłoga + ciepła woda · wczoraj: ${parts.length ? nf(pln) + " zł" : "—"}`;
+    el.textContent = `podłoga + ciepła woda · wczoraj: ${pumpPln(d)}`;
   } catch (e) { console.error(e); }
 }
 
