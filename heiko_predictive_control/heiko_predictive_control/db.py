@@ -25,9 +25,6 @@ CREATE TABLE IF NOT EXISTS cycles (
     setpoint_komfort REAL,
     setpoint_ekonomia REAL,
     coefficient REAL,                -- współczynnik strat cieplnych (loop='heiko')
-    baseline_cost_today_pln REAL,
-    sim_cost_today_komfort_pln REAL,
-    sim_cost_today_ekonomia_pln REAL,
     write_enabled INTEGER NOT NULL   -- czy pętla miała wtedy włączony zapis
 );
 CREATE INDEX IF NOT EXISTS idx_cycles_loop_ts ON cycles(loop, ts);
@@ -235,12 +232,19 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
+_DROPPED_CYCLE_COLUMNS = ("baseline_cost_today_pln", "sim_cost_today_komfort_pln", "sim_cost_today_ekonomia_pln")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(cycles)")}
     for name, decl in _ADDED_COLUMNS:
         if name not in existing:
             conn.execute(f"ALTER TABLE cycles ADD COLUMN {name} {decl}")
+    # 0.20.3: kolumny symulowanego kosztu nie mają odbiorcy — jednokierunkowe usunięcie (idempotentne).
+    for name in _DROPPED_CYCLE_COLUMNS:
+        if name in existing:
+            conn.execute(f"ALTER TABLE cycles DROP COLUMN {name}")
     # Streszczenia dobowe: 0.8.3 zmieniło jednostki backup (godziny -> minuty), 0.8.4 poprawiło doby bez zmiany licznika.
     # Przy podniesieniu wersji schematu stare streszczenia są kasowane, a backfill (ostatnie 7 dób) je odtwarza.
     row = conn.execute("SELECT value FROM settings WHERE key = 'summary_schema'").fetchone()
@@ -320,8 +324,7 @@ def set_setting(conn: sqlite3.Connection, key: str, value: Any) -> None:
 def insert_cycle(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     cols = ("ts", "loop", "active_profile", "tariff_peak", "price_pln_kwh",
             "outdoor_temp_c", "indoor_temp_c", "setpoint_komfort",
-            "setpoint_ekonomia", "coefficient", "baseline_cost_today_pln",
-            "sim_cost_today_komfort_pln", "sim_cost_today_ekonomia_pln",
+            "setpoint_ekonomia", "coefficient",
             "write_enabled", *(name for name, _ in _ADDED_COLUMNS))
     placeholders = ", ".join("?" for _ in cols)
     conn.execute(

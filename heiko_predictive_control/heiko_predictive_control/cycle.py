@@ -299,12 +299,9 @@ def run_heiko_cycle(conn, settings: dict, now: datetime,
     shifts = {name: fp.plan_with_shift_only(inp, base) for name, inp in inputs.items()}
 
     active = result["active_profile"] if result["active_profile"] in plans else "ekonomia"
-    price0 = fp.step_prices(blocks, n)[0]
     for name, plan in plans.items():
         result[f"setpoint_{name}"] = _r(plan.block_setpoint(blocks[0]), 1)
-        result[f"sim_cost_today_{name}_pln"] = plan.energy_kwh[0] * price0
     result["plan_setpoint_c"] = result[f"setpoint_{active}"]
-    result["baseline_cost_today_pln"] = base.energy_kwh[0] * price0
     uniform = curve_analyzer.uniform_effects(inputs["komfort"], base)     # skutki przesunięcia krzywej ±1 (doradca)
     dbm.set_setting(conn, "heiko_plan", summarize_plan(
         now, t0, inputs["komfort"], base, plans, shifts, indoor_c, outdoor_c, min_room, uniform))
@@ -491,8 +488,7 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
         "indoor_temp_c": indoor_c, "write_enabled": int(enabled),
         "setpoint_komfort": profiles.komfort_target_c if show_targets else None,
         "setpoint_ekonomia": profiles.ekonomia_target_c if show_targets else None,
-        "coefficient": st.heat_rate_c_h, "baseline_cost_today_pln": None,
-        "sim_cost_today_komfort_pln": None, "sim_cost_today_ekonomia_pln": None,
+        "coefficient": st.heat_rate_c_h,
         "phase": "dry_run" if decision.dry_run and decision.commands else decision.phase,
         "ac_cmd_setpoint": (st.last_cmd or {}).get("temp"),
         "offset_c": st.offset_c, "ac_power_w": power_w,

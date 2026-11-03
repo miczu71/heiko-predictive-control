@@ -273,8 +273,7 @@ def test_migration_adds_columns_to_0_3_0_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, loop TEXT NOT NULL,
             active_profile TEXT NOT NULL, tariff_peak INTEGER, price_pln_kwh REAL,
             outdoor_temp_c REAL, indoor_temp_c REAL, setpoint_komfort REAL,
-            setpoint_ekonomia REAL, coefficient REAL, baseline_cost_today_pln REAL,
-            sim_cost_today_komfort_pln REAL, sim_cost_today_ekonomia_pln REAL,
+            setpoint_ekonomia REAL, coefficient REAL,
             write_enabled INTEGER NOT NULL);
         INSERT INTO cycles (ts, loop, active_profile, write_enabled)
             VALUES ('2026-09-25T10:00:00', 'attic', 'ekonomia', 0);
@@ -286,4 +285,31 @@ def test_migration_adds_columns_to_0_3_0_database():
     assert conn.execute("SELECT COUNT(*) FROM cycles").fetchone()[0] == 1
     env = Env(temp=22.0)
     env.run(conn, SETTINGS, at(9, 0))
+    assert conn.execute("SELECT COUNT(*) FROM cycles").fetchone()[0] == 2
+
+
+def test_migration_drops_sim_cost_columns():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript("""
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE cycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, loop TEXT NOT NULL,
+            active_profile TEXT NOT NULL, tariff_peak INTEGER, price_pln_kwh REAL,
+            outdoor_temp_c REAL, indoor_temp_c REAL, setpoint_komfort REAL,
+            setpoint_ekonomia REAL, coefficient REAL, baseline_cost_today_pln REAL,
+            sim_cost_today_komfort_pln REAL, sim_cost_today_ekonomia_pln REAL,
+            write_enabled INTEGER NOT NULL);
+        INSERT INTO cycles (ts, loop, active_profile, setpoint_komfort, baseline_cost_today_pln,
+                            sim_cost_today_komfort_pln, sim_cost_today_ekonomia_pln, write_enabled)
+            VALUES ('2026-09-25T10:00:00', 'heiko', 'ekonomia', 21.5, 1.0, 2.0, 3.0, 0);
+    """)
+    dbm.migrate(conn)
+    dbm.migrate(conn)                                       # idempotentnie
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(cycles)")}
+    assert not cols & set(dbm._DROPPED_CYCLE_COLUMNS)
+    row = conn.execute("SELECT ts, loop, setpoint_komfort FROM cycles").fetchone()
+    assert (row["ts"], row["loop"], row["setpoint_komfort"]) == ("2026-09-25T10:00:00", "heiko", 21.5)
+    dbm.insert_cycle(conn, {"ts": "2026-09-25T10:05:00", "loop": "heiko", "active_profile": "komfort",
+                            "write_enabled": 1})
     assert conn.execute("SELECT COUNT(*) FROM cycles").fetchone()[0] == 2
