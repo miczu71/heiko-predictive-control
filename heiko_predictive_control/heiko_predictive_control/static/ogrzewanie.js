@@ -14,14 +14,14 @@ function group(runs) {
   const days = new Map();
   for (const r of runs) { const k = dayKey(r.start); (days.get(k) || days.set(k, []).get(k)).push(r); }
   return [...days.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([key, rs]) => {
-    const zones = {};
-    for (const r of rs) for (const [n, z] of Object.entries(r.zones || {})) {
-      const a = zones[n] || (zones[n] = { kwh: 0, pln: 0, pv_kwh: 0 });
-      a.kwh += z.kwh || 0; a.pln += z.pln || 0; a.pv_kwh += z.pv_kwh || 0;
+    const sources = {};
+    for (const r of rs) for (const [n, x] of Object.entries(r.sources || {})) {
+      const a = sources[n] || (sources[n] = { kwh: 0, pln: 0, battery_kwh: 0 });
+      a.kwh += x.kwh || 0; a.pln += x.pln || 0; a.battery_kwh += x.battery_kwh || 0;
     }
     const known = rs.filter(r => r.split_complete && r.pv_share != null);
     const knownKwh = sum(known, r => r.energy_kwh);
-    return { key, runs: rs.slice().sort((a, b) => a.start.localeCompare(b.start)), zones,
+    return { key, runs: rs.slice().sort((a, b) => a.start.localeCompare(b.start)), sources,
       kwh: sum(rs, r => r.energy_kwh), pln: sum(rs, r => r.cost_pln), minutes: sum(rs, r => r.duration_min),
       pv: knownKwh > 0 ? sum(known, r => r.energy_kwh * r.pv_share) / knownKwh : null,
       approx: rs.some(r => !r.split_complete || r.complete === false || r.cost_pln == null) };
@@ -38,7 +38,7 @@ function dayBlock(d, open) {
   const approx = d.approx ? `<abbr class="approx" title="Wartość przybliżona: brak części danych o źródle energii lub run w toku">≈</abbr> ` : "";
   return `<details class="heat-day"${open ? " open" : ""}><summary><span class="hd-date">${esc(dayLabel(d.key))}</span>`
     + `<span>${approx}${nf(d.kwh)} kWh</span><span>${nf(d.pln)} zł</span><span>PV ${pct(d.pv)}</span><span class="muted">${d.runs.length} ${plural(d.runs.length)} · ${dur(d.minutes)}</span></summary>`
-    + `<div class="hd-body">${HPC.zoneBar(d.zones)}<div class="ctable"><table><thead><tr><th>Run</th><th>Czas</th><th>kWh</th><th>zł</th><th>PV</th><th class="opt">T zewn. °C</th><th class="opt">T wody °C</th></tr></thead><tbody>`
+    + `<div class="hd-body">${HPC.sourceBar(d.sources, d.kwh)}<div class="ctable"><table><thead><tr><th>Run</th><th>Czas</th><th>kWh</th><th>zł</th><th>PV</th><th class="opt">T zewn. °C</th><th class="opt">T wody °C</th></tr></thead><tbody>`
     + d.runs.map(runRow).join("") + `</tbody></table></div></div></details>`;
 }
 

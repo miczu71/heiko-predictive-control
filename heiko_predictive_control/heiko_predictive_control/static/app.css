@@ -486,7 +486,7 @@ img { max-width: 100%; }
 .zone-expensive { fill: var(--band-expensive); }
 
 /* ── Kafel „Doba” (pulpit) i /ogrzewanie ─────────────────────── */
-:root { --zone-cheap: var(--chart-target); --zone-mid: var(--chart-cold); --zone-expensive: var(--peak); --zone-other: var(--muted); }
+:root { --zone-cheap: var(--chart-target); --zone-mid: var(--chart-cold); --zone-expensive: var(--peak); --zone-other: var(--muted); --src-pv: var(--chart-avg); }
 .day-tile { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 16px; margin-bottom: 20px; }
 .day-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; }
 .day-head h2 { font-size: 16px; margin: 0; }
@@ -505,6 +505,9 @@ img { max-width: 100%; }
 .notice-inline { margin: 8px 0; padding: 8px 12px; background: var(--accent-light); border-radius: 8px; font-size: 14px; }
 .zonebar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 12px 0 6px; background: var(--line); gap: 2px; }
 .zone-other { background: var(--zone-other); }
+.src-pv { background: var(--src-pv); }
+.src-unknown { background: repeating-linear-gradient(45deg, var(--zone-other) 0 3px, var(--line) 3px 6px); }
+.via-bat { color: var(--muted); }
 .zone-cheap, .zone-offpeak { background: var(--zone-cheap); }
 .zone-mid { background: var(--zone-mid); }
 .zone-expensive, .zone-peak { background: var(--zone-expensive); }

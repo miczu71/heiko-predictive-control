@@ -24,22 +24,24 @@ HPC.zoneLabel = z => HPC.ZONE_LABEL[z] || z;
 HPC.zoneClass = z => HPC.ZONE_LABEL[z] ? `zone-${z}` : "zone-other";
 HPC.nf = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toFixed(d).replace(".", ",");
 HPC.pct = v => (v === null || v === undefined) ? "—" : `${Math.round(v * 100)}%`;
-HPC.zoneEntries = zones => Object.entries(zones || {}).sort((a, b) => {
-  const ia = HPC.ZONE_ORDER.indexOf(a[0]), ib = HPC.ZONE_ORDER.indexOf(b[0]);
-  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-});
-// Pasek udziału stref w energii: segmenty szerokością ∝ kWh, opis tekstem pod paskiem (nie tylko kolor).
-// `totalKwh` (opcjonalnie): energia bez podziału na strefy (rekordy sprzed stref) trafia do szarego segmentu „bez podziału”.
-HPC.zoneBarWithRest = (zones, totalKwh) => {
-  const rows = HPC.zoneEntries(zones).filter(([, z]) => z.kwh > 0).map(([n, z]) => ({ n, label: HPC.zoneLabel(n), cls: HPC.zoneClass(n), kwh: z.kwh, pln: z.pln }));
+// Pochodzenie energii: `grid:<strefa>` (sieć wg strefy taryfy z chwili ładowania/poboru), `pv`, `unknown` (zawartość baterii sprzed replayu).
+// Kolejność: strefy sieci wg ZONE_ORDER, potem PV, potem nieznane.
+HPC.originLabel = o => o === "pv" ? "PV" : o === "unknown" ? "nieznane" : o.startsWith("grid:") ? `sieć ${HPC.zoneLabel(o.slice(5))}` : o;
+HPC.originClass = o => o === "pv" ? "src-pv" : o === "unknown" ? "src-unknown" : o.startsWith("grid:") ? HPC.zoneClass(o.slice(5)) : "zone-other";
+HPC.originRank = o => o === "pv" ? 100 : o === "unknown" ? 101 : o.startsWith("grid:") ? (HPC.ZONE_ORDER.indexOf(o.slice(5)) + 1 || 50) : 102;
+HPC.sourceEntries = sources => Object.entries(sources || {}).sort((a, b) => HPC.originRank(a[0]) - HPC.originRank(b[0]));
+// Pasek pochodzenia energii: segmenty szerokością ∝ kWh, opis tekstem pod paskiem (nie tylko kolor).
+// `totalKwh`: energia bez podziału na pochodzenie (rekordy sprzed `sources`) trafia do szarego segmentu „bez podziału”.
+HPC.sourceBar = (sources, totalKwh) => {
+  const rows = HPC.sourceEntries(sources).filter(([, x]) => x.kwh > 0)
+    .map(([n, x]) => ({ n, label: HPC.originLabel(n), cls: HPC.originClass(n), kwh: x.kwh, pln: x.pln, bat: x.battery_kwh || 0 }));
   const rest = totalKwh > 0 ? totalKwh - rows.reduce((a, r) => a + r.kwh, 0) : 0;
-  if (rest > 0.005) rows.push({ n: "rest", label: "bez podziału", cls: "zone-other", kwh: rest, pln: null });
+  if (rest > 0.005) rows.push({ n: "rest", label: "bez podziału", cls: "zone-other", kwh: rest, pln: null, bat: 0 });
   const total = rows.reduce((a, r) => a + r.kwh, 0);
   if (!total) return "";
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const esc = HPC.esc;
   const seg = rows.map(r => `<i class="${r.cls}" style="flex:${r.kwh}" title="${esc(r.label)}: ${HPC.nf(r.kwh)} kWh"></i>`).join("");
-  const legend = rows.map(r => `<span><i class="sw ${r.cls}"></i>${esc(r.label)} ${HPC.nf(r.kwh)} kWh${r.pln === null ? "" : ` · ${HPC.nf(r.pln)} zł`}</span>`).join("");
-  return `<div class="zonebar" role="img" aria-label="Energia wg stref taryfy">${seg}</div><p class="zonelegend">${legend}</p>`;
+  const legend = rows.map(r => `<span><i class="sw ${r.cls}"></i>${esc(r.label)} ${HPC.nf(r.kwh)} kWh${r.pln === null ? "" : ` · ${HPC.nf(r.pln)} zł`}${r.bat > 0.005 ? ` <span class="via-bat">(${HPC.nf(r.bat)} przez baterię)</span>` : ""}</span>`).join("");
+  return `<div class="zonebar" role="img" aria-label="Pochodzenie energii">${seg}</div><p class="zonelegend">${legend}</p>`;
 };
-HPC.zoneBar = zones => HPC.zoneBarWithRest(zones, 0);
 

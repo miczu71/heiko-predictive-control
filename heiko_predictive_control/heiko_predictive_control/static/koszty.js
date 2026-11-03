@@ -62,17 +62,18 @@ function renderChart(d) {
 }
 
 function renderZones(d) {
-  const names = [...new Set(COMP.flatMap(([k]) => Object.keys(d.totals[k].zones || {})).concat(Object.keys(d.totals.total.zones || {})))]
-    .sort((x, y) => (HPC.ZONE_ORDER.indexOf(x) + 1 || 99) - (HPC.ZONE_ORDER.indexOf(y) + 1 || 99));
+  const names = [...new Set([...COMP, ["total"]].flatMap(([k]) => Object.keys(d.totals[k].sources || {})))]
+    .sort((x, y) => HPC.originRank(x) - HPC.originRank(y));
   const showRest = [...COMP, ["total"]].some(([k]) => (d.totals[k].unsplit_kwh || 0) > 0.005);
-  const cell = (z) => z && z.kwh > 0 ? `${nf(z.kwh)} kWh · ${nf(z.pln)} zł` : "—";
-  const head = `<thead><tr><th></th>${names.map(n => `<th>${esc(HPC.zoneLabel(n))}</th>`).join("")}${showRest ? "<th>bez podziału</th>" : ""}<th>Z PV</th></tr></thead>`;
+  const cell = (x) => x && x.kwh > 0
+    ? `${nf(x.kwh)} kWh · ${nf(x.pln)} zł${x.battery_kwh > 0.005 ? `<br><span class="muted">${nf(x.battery_kwh)} przez baterię</span>` : ""}` : "—";
+  const head = `<thead><tr><th></th>${names.map(n => `<th>${esc(HPC.originLabel(n))}</th>`).join("")}${showRest ? "<th>bez podziału</th>" : ""}<th>Z PV</th></tr></thead>`;
   const span = names.length + (showRest ? 1 : 0) + 2;
   const row = (k, l, total) => {
     const c = d.totals[k];
-    return `<tr${total ? ' class="total"' : ""}><th scope="row">${l}</th>${names.map(n => `<td>${cell((c.zones || {})[n])}</td>`).join("")}`
+    return `<tr${total ? ' class="total"' : ""}><th scope="row">${l}</th>${names.map(n => `<td>${cell((c.sources || {})[n])}</td>`).join("")}`
       + `${showRest ? `<td>${c.unsplit_kwh > 0.005 ? nf(c.unsplit_kwh) + " kWh" : "—"}</td>` : ""}<td>${pct(c.pv_share)}</td></tr>`
-      + (c.kwh > 0 ? `<tr class="zones-row"><td colspan="${span}">${HPC.zoneBarWithRest(c.zones, c.kwh)}</td></tr>` : "");
+      + (c.kwh > 0 ? `<tr class="zones-row"><td colspan="${span}">${HPC.sourceBar(c.sources, c.kwh)}</td></tr>` : "");
   };
   $("k-zones").innerHTML = head + `<tbody>${COMP.map(([k, l]) => row(k, l)).join("")}${row("total", "Razem", true)}</tbody>`;
 }
@@ -80,7 +81,7 @@ function renderZones(d) {
 function renderNote(d) {
   const c = d.coverage || {}, parts = [];
   if (c.floor && c.floor.oldest) parts.push(`podłogówka od ${plDate(c.floor.oldest)}`);
-  if (c.dhw && c.dhw.oldest) parts.push(`CWU od ${plDate(c.dhw.oldest)}${c.dhw.zones_from ? `, strefy CWU od ${plDate(c.dhw.zones_from)}` : ", bez stref"}`);
+  if (c.dhw && c.dhw.oldest) parts.push(`CWU od ${plDate(c.dhw.oldest)}${c.dhw.sources_from ? `, pochodzenie energii CWU od ${plDate(c.dhw.sources_from)}` : ", bez pochodzenia energii"}`);
   if (c.ac && c.ac.oldest) parts.push(`klimatyzacja od ${plDate(c.ac.oldest)}`);
   const empty = d.totals.total.kwh <= 0 ? " W wybranym zakresie nie ma zapisanych rekordów." : "";
   $("k-note").textContent = (parts.length ? `Zakres danych: ${parts.join("; ")}. ` : "Brak zapisanych rekordów. ") + `Koszyki: ${({ day: "doby", week: "tygodnie", month: "miesiące" })[d.group] || d.group}.${empty}`;
