@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.3 — usunięcie nieużywanych kolumn kosztu symulowanego
+
+- **Usunięte:** kolumny `baseline_cost_today_pln`, `sim_cost_today_komfort_pln` i `sim_cost_today_ekonomia_pln` w tabeli `cycles`. Po 0.20.2 nikt ich nie czytał (sensory HA liczą się z planu), a pętla liczyła je co cykl na darmo. `/api/history` nie zwraca już tych trzech pól.
+- **Migracja jednokierunkowa:** przy starcie `DROP COLUMN` usuwa kolumny z istniejącej bazy (idempotentnie, dane pozostałych kolumn zostają). Wersja ≤0.20.2 nie zapisze cyklu do zmigrowanej bazy („no such column”), więc cofnięcie wymaga przywrócenia add-onu z backupu, nie samego zainstalowania starej wersji.
+- Testy: migracja starej bazy, idempotencja, zapis cyklu po migracji, świeża baza bez tych kolumn.
+
 ## 0.20.2 — Pulpit bez symulowanej oszczędności, z kafelką zapisów do pompy
 
 - **Usunięte:** kafelki „Szac. oszczędność dziś” i „Zmiany nastaw pompy”, linie „Model — …” z kosztem planu oraz endpoint `/api/today_summary`. „Oszczędność” była różnicą dwóch symulacji, a pętla A nie zapisuje planu do pompy, więc realna oszczędność wynosiła 0, a liczba wprowadzała w błąd. Tabela 36 h, wykres planu i sensory HA zostają.
@@ -7,7 +13,7 @@
 - **„Pompa dziś”:** jedna liczba = podłoga + ciepła woda z kafla „Doba” (nowe pole `pump` w `/api/day_summary`), z podpisem „wczoraj: X zł”. Przy braku historii z HA pokazuje „—” zamiast „0,00 zł”.
 - **Karta pompy:** prawdziwy opis tego, co add-on zapisuje do pompy (kroki testów i zatwierdzone propozycje Doradcy); bez przełącznika profili i wierszy „Optymalizator (poglądowo)”; trzy foldy scalone w „Model i plan (poglądowo)”.
 - **Odporność:** nieczytelny plan testu nie wywala już Pulpitu (kafelka bez następnego kroku).
-- Znane (nieblokujące): kolumny `baseline_cost_today_pln` / `sim_cost_today_*` nadal się zapisują bez odbiorcy; licznik propozycji nie uwzględnia wygaśnięcia; brak testów dla kroku P0, „ostatni krok wykonany” i nieznanego rodzaju testu.
+- Znane (nieblokujące): kolumny `baseline_cost_today_pln` / `sim_cost_today_*` nadal się zapisują bez odbiorcy (usunięte w 0.20.3); licznik propozycji nie uwzględnia wygaśnięcia; brak testów dla kroku P0, „ostatni krok wykonany” i nieznanego rodzaju testu.
 
 ## 0.20.1 — pasek pochodzenia energii wypełnia całą szerokość
 
