@@ -276,6 +276,9 @@ def main() -> None:
         c = dbm.get_conn(db_path)
         try:
             now = datetime.now()
+            if not dbm.get_setting(c, battery_replay.DONE_KEY):
+                logger.warning("Cykle CWU: replay składu baterii niewykonany, pomijam (rekordy dostałyby `unknown` na stałe)")
+                return
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             for day in dhw_cycles.missing_days(c, now):
@@ -291,6 +294,9 @@ def main() -> None:
         c = dbm.get_conn(db_path)
         try:
             now = datetime.now()
+            if not dbm.get_setting(c, battery_replay.DONE_KEY):
+                logger.warning("Runy AC: replay składu baterii niewykonany, pomijam (rekordy dostałyby `unknown` na stałe)")
+                return
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             for day in attic_runs.missing_days(c, now):
@@ -306,6 +312,9 @@ def main() -> None:
         c = dbm.get_conn(db_path)
         try:
             now = datetime.now()
+            if not dbm.get_setting(c, battery_replay.DONE_KEY):
+                logger.warning("Runy ogrzewania: replay składu baterii niewykonany, pomijam (rekordy dostałyby `unknown` na stałe)")
+                return
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             if not states:
@@ -403,14 +412,15 @@ def main() -> None:
     scheduler.add_job(run_telemetry, "interval", minutes=initial.get("cycle_interval_min") or 15,
                        next_run_time=datetime.now() + timedelta(seconds=10), max_instances=1, coalesce=True)
     scheduler.add_job(daily_summaries, "cron", hour=0, minute=20, max_instances=1, coalesce=True)
-    scheduler.add_job(battery_mix_replay, "date", run_date=datetime.now() + timedelta(seconds=30))
-    scheduler.add_job(daily_summaries, "date", run_date=datetime.now() + timedelta(seconds=60))
+    def startup_backfills() -> None:
+        """Po starcie po kolei: replay składu baterii, potem streszczenia i backfille (korzystają ze składu)."""
+        for job in (battery_mix_replay, daily_summaries, dhw_cycles_backfill, attic_runs_backfill, heating_runs_backfill):
+            job()
+
+    scheduler.add_job(startup_backfills, "date", run_date=datetime.now() + timedelta(seconds=30))
     scheduler.add_job(dhw_cycles_backfill, "cron", hour=0, minute=25, max_instances=1, coalesce=True)
-    scheduler.add_job(dhw_cycles_backfill, "date", run_date=datetime.now() + timedelta(seconds=90))
     scheduler.add_job(attic_runs_backfill, "cron", hour=0, minute=30, max_instances=1, coalesce=True)
-    scheduler.add_job(attic_runs_backfill, "date", run_date=datetime.now() + timedelta(seconds=120))
     scheduler.add_job(heating_runs_backfill, "cron", hour=0, minute=30, max_instances=1, coalesce=True)
-    scheduler.add_job(heating_runs_backfill, "date", run_date=datetime.now() + timedelta(seconds=120))
     scheduler.add_job(run_advisor, "interval", hours=1, next_run_time=datetime.now() + timedelta(seconds=120),
                        max_instances=1, coalesce=True)
     scheduler.add_job(run_advisor, "cron", hour=0, minute=30, max_instances=1, coalesce=True)   # po streszczeniach dobowych

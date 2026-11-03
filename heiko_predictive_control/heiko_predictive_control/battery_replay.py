@@ -1,7 +1,8 @@
 """Jednorazowe odtworzenie składu baterii (E2) z historii recordera HA za ostatnie dni.
 
 Kroki co 15 min z przyrostów liczników (sieć, ładowanie, rozładowanie) i SoC; wynik trafia do tabeli
-`battery_mix` tylko sprzed pierwszego wiersza zapisanego przez pętlę A (nie nadpisuje danych na żywo).
+`battery_mix` aż do `now`: wiersze pętli A z tego okna są zastępowane (pętla A rusza przy starcie przed replayem i
+zaczęłaby łańcuch od jednej kategorii „nieznane”), a skład na żywo (`battery_mix` w settings) startuje z ostatniego kroku.
 
 Uproszczenie: replay nie zna licznika pompy, więc krok liczy z `load_kwh=0` i `from_grid = min(charge, import)`.
 To lekko zawyża „sieć” w ładowaniu (pobór pompy wlicza się w import) — świadomie przyjęte, pompa ≪ ładowanie nocne.
@@ -43,8 +44,7 @@ def replay(conn, settings: dict, now: datetime, get_history, feed, back_days: in
         return 0
     c = {k: es.Counter((t, catalog.to_number(s)) for t, s in history[ent[k]]) for k in _KEYS}
 
-    first = conn.execute("SELECT MIN(ts) AS m FROM battery_mix").fetchone()["m"]
-    cutoff = datetime.fromisoformat(first) if first else now
+    cutoff = now
     start = (now - timedelta(days=back_days)).replace(minute=(now.minute // STEP_MIN) * STEP_MIN,
                                                       second=0, microsecond=0)
     cost0 = feed.offpeak_price(start)
@@ -70,20 +70,20 @@ def replay(conn, settings: dict, now: datetime, get_history, feed, back_days: in
             step = es.Step(0.0, d[0], d[1], d[2], soc_kwh, feed.price(t), rce)
             row = feed.at(t)
             zone = row.zone if row is not None and row.zone else ("peak" if feed.is_peak(t) else "offpeak")
-            mix = es.mix_after(mix, step, es.mix_cost(mix) or cost0, zone)
+            mix = es.mix_after(mix, step, cost0 if (avg := es.mix_cost(mix)) is None else avg, zone)
             rows.append((t.isoformat(), mix))
         t += timedelta(minutes=STEP_MIN)
 
     if not rows:
         return 0
     try:
+        conn.execute("DELETE FROM battery_mix WHERE ts >= ?", (rows[0][0],))
         for ts, m in rows:                       # jedna transakcja: częściowy zapis przesunąłby cutoff i zablokował replay
             conn.execute("INSERT OR REPLACE INTO battery_mix (ts, mix) VALUES (?, ?)", (ts, json.dumps(m)))
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    if first is None and not dbm.get_setting(conn, "battery_mix"):
-        dbm.set_setting(conn, "battery_mix", rows[-1][1])
+    dbm.set_setting(conn, "battery_mix", rows[-1][1])
     dbm.set_setting(conn, DONE_KEY, now.isoformat())
     return len(rows)

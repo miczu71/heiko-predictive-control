@@ -163,17 +163,16 @@ def test_missing_series(conn):
     assert rows(conn) == []
 
 
-def test_live_rows_untouched(conn):
+def test_live_rows_replaced_and_setting_seeded(conn):
     live_ts = datetime(2026, 9, 21, 6, 0)
-    live = {"grid:offpeak": {"kwh": 9.0, "pln": 3.0}}
+    live = {"unknown": {"kwh": 9.0, "pln": 3.0}}
     dbm.insert_battery_mix(conn, live_ts.isoformat(), live)
     dbm.set_setting(conn, "battery_mix", live)
     run(conn, build(night_rates))
     got = rows(conn)
-    assert dict(got)[live_ts.isoformat()] == live
-    assert all(ts <= live_ts.isoformat() for ts, _ in got)
-    assert len(got) > 1
-    assert dbm.get_setting(conn, "battery_mix") == live
+    assert live_ts.isoformat() not in dict(got) or dict(got)[live_ts.isoformat()] != live
+    assert dbm.get_setting(conn, "battery_mix") == got[-1][1]
+    assert dbm.get_setting(conn, "battery_mix") != live
 
 
 def test_no_live_rows_sets_setting(conn):
