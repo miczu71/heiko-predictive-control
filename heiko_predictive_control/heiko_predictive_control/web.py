@@ -2,6 +2,7 @@
 wyłącznie względne) — Pulpit / Statystyki / Opcje."""
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -21,6 +22,22 @@ logger = logging.getLogger(__name__)
 
 COSTS_MAX_DAYS = 400                   # maks. zakres /api/costs
 TRACE_CYCLES = 30                      # tyle najnowszych cykli CWU dostaje przebieg w /api/dhw_cycles (tyle rysuje UI)
+
+
+def _running_test_view(conn) -> Optional[dict]:
+    """Test w toku dla kafelki „Zapisy do pompy” na pulpicie: tytuł, godzina i wartość następnego kroku."""
+    test = experiments.running_test(conn)
+    if test is None:
+        return None
+    kind = experiments.KINDS.get(test["kind"])
+    schedule = json.loads(test["schedule"])
+    view = {"title": kind.title if kind else test["kind"], "next_at": None, "next_value": None}
+    step = test["step"]
+    if step < len(schedule):
+        nxt = schedule[step]
+        view["next_at"] = nxt["at"][11:16]
+        view["next_value"] = (f"{nxt['value']:g}/{nxt['stop']:g}" if "stop" in nxt else f"{nxt['value']:g}")
+    return view
 
 
 def create_app(db_path: str,
@@ -132,12 +149,14 @@ def create_app(db_path: str,
         try:
             heiko = dbm.latest_cycle(conn, "heiko")
             attic = dbm.latest_cycle(conn, "attic")
-            changes = telemetry.changes_summary(conn, datetime.now())
+            writes = {"test": _running_test_view(conn),
+                      "pending": conn.execute("SELECT COUNT(*) FROM proposals WHERE status = ?",
+                                              (advisor.STATUS_PENDING,)).fetchone()[0]}
         finally:
             conn.close()
         settings = get_settings()
         return render_template(
-            "dashboard.html", base=base(), active="dashboard", changes=changes,
+            "dashboard.html", base=base(), active="dashboard", writes=writes,
             heiko=dict(heiko) if heiko else None,
             attic=dict(attic) if attic else None,
             settings=settings, scene=scene, house=house, house_warnings=house_warnings,
@@ -233,30 +252,6 @@ def create_app(db_path: str,
             return jsonify(stats.build(conn, loop, hours, datetime.now(), meta))
         finally:
             conn.close()
-
-    @app.get("/api/today_summary/<loop>")
-    def api_today_summary(loop: str):
-        if loop not in ("heiko", "attic"):
-            return jsonify({"error": "unknown loop"}), 400
-        conn = db_conn()
-        try:
-            rows = dbm.today_cycles(conn, loop, date.today().isoformat())
-        finally:
-            conn.close()
-        actual = sum((r["energy_kwh"] or 0) * (r["price_pln_kwh"] or 0) for r in rows
-                     if "energy_kwh" in r.keys())
-        baseline = sum((r["baseline_cost_today_pln"] or 0) for r in rows)
-        komfort = sum((r["sim_cost_today_komfort_pln"] or 0) for r in rows)
-        ekonomia = sum((r["sim_cost_today_ekonomia_pln"] or 0) for r in rows)
-        return jsonify({
-            "actual_pln": round(actual, 2),
-            "baseline_pln": round(baseline, 2),
-            "komfort_pln": round(komfort, 2),
-            "ekonomia_pln": round(ekonomia, 2),
-            "savings_komfort_pln": round(baseline - komfort, 2),
-            "savings_ekonomia_pln": round(baseline - ekonomia, 2),
-            "cycles": len(rows),
-        })
 
     @app.get("/api/plan")
     def api_plan():

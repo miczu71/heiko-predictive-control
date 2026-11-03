@@ -1,5 +1,5 @@
 // Pulpit 0.2.0: hotspoty modelu domu (akordeon kart szczegółów) + odświeżanie
-// wartości na żywo z /api/live i kosztu z /api/today_summary co minutę.
+// wartości na żywo z /api/live co minutę.
 const cards = Array.from(document.querySelectorAll(".detail[data-card]"));
 const hotspots = Array.from(document.querySelectorAll(".house .hotspot[data-card]"));
 const layout = document.querySelector(".house-layout");
@@ -68,27 +68,6 @@ async function refreshLive() {
   }
   const tariff = document.getElementById("tariff-label");
   if (tariff) tariff.classList.toggle("peak", data.tariff.peak === true);
-}
-
-async function refreshCost() {
-  const heikoEl = document.getElementById("heiko-cost");
-  try {
-    const s = await HPC.getJSON("/api/today_summary/heiko");
-    const profile = layout ? layout.dataset.heikoProfile : "ekonomia";
-    const savings = profile === "komfort" ? s.savings_komfort_pln : s.savings_ekonomia_pln;
-    document.getElementById("cost-baseline").textContent = s.cycles ? fmtPLN(s.actual_pln) : "—";
-    document.getElementById("cost-savings").textContent = s.cycles ? fmtPLN(savings) : "—";
-    if (heikoEl) {
-      heikoEl.innerHTML = s.cycles
-        ? `Dziś realnie (licznik): <strong>${fmtPLN(s.actual_pln)}</strong><br>
-           Model — krzywa natywna: ${fmtPLN(s.baseline_pln)}<br>
-           Model — Komfort: ${fmtPLN(s.komfort_pln)} (różnica ${fmtPLN(s.savings_komfort_pln)})<br>
-           Model — Ekonomia: ${fmtPLN(s.ekonomia_pln)} (różnica ${fmtPLN(s.savings_ekonomia_pln)})`
-        : "Za mało danych na dziś — koszt pojawi się po drugim cyklu (15 min).";
-    }
-  } catch (e) {
-    if (heikoEl) heikoEl.textContent = "Błąd wczytywania kosztu.";
-  }
 }
 
 // ── Plan pętli A: wykres przewidywanej temperatury, oszczędność, bloki, model ──
@@ -246,6 +225,5 @@ async function refreshPlan() {
 }
 
 openCard("loop_heiko", null);
-refreshCost();
 refreshPlan();
-setInterval(() => { refreshLive(); refreshCost(); refreshPlan(); }, 60_000);
+setInterval(() => { refreshLive(); refreshPlan(); }, 60_000);

@@ -14,19 +14,19 @@
     <span class="stat-sub" data-live="tariff.price">{{ live.tariff.price }}</span>
   </div>
   <div class="stat">
-    <span class="stat-label">Pompa dziś — realnie</span>
-    <span class="stat-value" id="cost-baseline">—</span>
-    <span class="stat-sub">koszt energii pompy wg licznika</span>
+    <span class="stat-label">Pompa dziś</span>
+    <span class="stat-value" id="pump-cost">—</span>
+    <span class="stat-sub" id="pump-cost-sub">podłoga + ciepła woda · wczoraj: —</span>
   </div>
   <div class="stat">
-    <span class="stat-label">Zmiany nastaw pompy</span>
-    <span class="stat-value" id="param-changes">{{ changes.today }}</span>
-    <span class="stat-sub">dziś · {{ changes.days30 }} w 30 dni · dowolne źródło</span>
-  </div>
-  <div class="stat">
-    <span class="stat-label">Szac. oszczędność dziś</span>
-    <span class="stat-value" id="cost-savings">—</span>
-    <span class="stat-sub">profil {{ (settings.heiko_active_profile or 'ekonomia')|capitalize }} · wg modelu, bez zapisu</span>
+    <span class="stat-label">Zapisy do pompy</span>
+    {% if writes.test %}
+    <span class="stat-value">{{ writes.test.title }}</span>
+    <span class="stat-sub">{% if writes.test.next_at %}następny krok {{ writes.test.next_at }} → {{ writes.test.next_value }}{% else %}ostatni krok wykonany{% endif %}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
+    {% else %}
+    <span class="stat-value">brak</span>
+    <span class="stat-sub">pompa na własnej krzywej{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
+    {% endif %}
   </div>
 </section>
 

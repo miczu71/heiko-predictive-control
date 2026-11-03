@@ -22,15 +22,39 @@ function render(d) {
     + (d.total && d.total.kwh > 0 ? "" : `<p class="sub">Brak zużycia w tej dobie.</p>`) + live;
 }
 
+// Koszt pompy na kafelce pulpitu: podłoga + ciepła woda (bez składnika nieskonfigurowanego).
+function setPumpCost(d) {
+  const el = document.getElementById("pump-cost");
+  if (!el) return;
+  const parts = [d.floor, d.dhw].filter(p => p && p.configured !== false);
+  el.textContent = parts.length ? nf(parts.reduce((s, p) => s + (p.pln || 0), 0)) + " zł" : "—";
+}
+
+async function loadYesterdayPumpCost() {
+  const el = document.getElementById("pump-cost-sub");
+  if (!el) return;
+  try {
+    const d = await HPC.getJSON("/api/day_summary?day=yesterday");
+    const parts = [d.floor, d.dhw].filter(p => p && p.configured !== false);
+    const pln = parts.reduce((s, p) => s + (p.pln || 0), 0);
+    el.textContent = `podłoga + ciepła woda · wczoraj: ${parts.length ? nf(pln) + " zł" : "—"}`;
+  } catch (e) { console.error(e); }
+}
+
 async function load(day) {
   current = day;
   tile.querySelectorAll("[data-day]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.day === day)));
   body.innerHTML = "ładowanie…";
-  try { const d = await HPC.getJSON(`/api/day_summary?day=${day}`); if (day === current) render(d); }
+  try {
+    const d = await HPC.getJSON(`/api/day_summary?day=${day}`);
+    if (day === current) render(d);
+    if (day === "today") setPumpCost(d);
+  }
   catch (e) { console.error(e); if (day === current) body.innerHTML = `<p class="notice-inline">Nie udało się wczytać podsumowania doby.</p>`; }
 }
 
 tile.addEventListener("click", ev => { const b = ev.target.closest("[data-day]"); if (b) load(b.dataset.day); });
 load(current);
+loadYesterdayPumpCost();
 setInterval(() => { if (current === "today" && !document.hidden) load("today"); }, 300000);
 })();

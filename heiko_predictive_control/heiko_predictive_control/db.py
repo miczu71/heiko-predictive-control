@@ -357,14 +357,6 @@ def recent_cycles(conn: sqlite3.Connection, loop: str, limit: int = 200) -> list
     ).fetchall()
 
 
-def today_cycles(conn: sqlite3.Connection, loop: str, day_prefix: str) -> list[sqlite3.Row]:
-    """`day_prefix` np. '2026-09-25' (porównanie prefiksem ISO ts)."""
-    return conn.execute(
-        "SELECT * FROM cycles WHERE loop = ? AND ts LIKE ? ORDER BY id ASC",
-        (loop, f"{day_prefix}%"),
-    ).fetchall()
-
-
 def attic_today_totals(conn: sqlite3.Connection, day_prefix: str) -> dict[str, float]:
     """Energia (kWh) i koszt (PLN) AC poddasza od północy — suma przyrostów cykli."""
     row = conn.execute(

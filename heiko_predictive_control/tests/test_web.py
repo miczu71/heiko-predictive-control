@@ -217,23 +217,27 @@ def test_api_plan_reports_live_model_error_and_stored_plan(tmp_path):
     assert data["bootstrap"]["ok"] is True
 
 
-def test_today_summary_reports_actual_cost_from_meter(tmp_path):
-    from datetime import date
-    today = date.today().isoformat()
-    rows = [{"ts": f"{today}T10:{15 * i:02d}:00", "loop": "heiko", "active_profile": "ekonomia",
-             "write_enabled": 0, "energy_kwh": 0.5, "price_pln_kwh": 1.2,
-             "baseline_cost_today_pln": 0.6, "sim_cost_today_komfort_pln": 0.5,
-             "sim_cost_today_ekonomia_pln": 0.4} for i in range(2)]
-    data = _app_with_db(tmp_path, SETTINGS, rows).test_client().get("/api/today_summary/heiko").get_json()
-    assert data["actual_pln"] == pytest.approx(1.2)
-    assert data["baseline_pln"] == pytest.approx(1.2) and data["savings_ekonomia_pln"] == pytest.approx(0.4)
+def test_dashboard_shows_running_write_test_and_pending_proposals(tmp_path):
+    app = _app_with_db(tmp_path, SETTINGS)
+    db_path = str(tmp_path / "t.db")
+    schedule = [{"at": "2026-11-03T10:00:00", "value": 1.0}, {"at": "2026-11-03T10:10:00", "value": 0.0}]
+    conn = dbm.get_conn(db_path)
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, step, baseline) "
+                 "VALUES ('zapis', 'w_toku', '2026-11-03T09:55:00', ?, 0, 0)", (json.dumps(schedule),))
+    conn.commit()
+    conn.close()
+    _insert_alert(db_path)
+    html = app.test_client().get("/").get_data(as_text=True)
+    assert "Test zapisu (poza sezonem)" in html
+    assert "następny krok 10:00 → 1" in html
+    assert "propozycje Doradcy: 1" in html
 
 
 def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
     html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
     for element_id in ("heiko-chart", "heiko-savings", "heiko-blocks", "heiko-model", "hp-fuse"):
         assert f'id="{element_id}"' in html
-    assert "tylko obserwacja" in html and "niczego" in html and "poglądow" in html
+    assert "Add-on zapisuje do pompy" in html and "poglądow" in html
     assert "steruje" not in html.split('data-card="loop_heiko"')[1].split("</section>")[0].replace("Grzaniem steruje pompa", "")
 
 
@@ -382,7 +386,10 @@ def test_changes_api_shape_and_dashboard_counter(tmp_path):
     data = client.get("/api/changes").get_json()
     assert data["changes"][0]["key"] == "dhw_setpoint" and data["summary"]["total"] == 1
     assert data["telemetry"]["rows"] == 0 and data["telemetry"]["db_warn"] is False
-    assert "Zmiany nastaw pompy" in client.get("/").get_data(as_text=True)
+    html = client.get("/").get_data(as_text=True)
+    assert "Zmiany nastaw pompy" not in html and "Szac. oszczędność" not in html and "cost-savings" not in html
+    assert "niczego do niej nie zapisuje" not in html
+    assert "Zapisy do pompy" in html and "brak" in html
 
 
 def test_report_api_refresh_runs_in_background_and_caches(tmp_path):

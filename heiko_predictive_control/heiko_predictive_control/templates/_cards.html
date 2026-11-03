@@ -1,7 +1,6 @@
 {# Karty szczegółów — jedna widoczna naraz, przełączana dotknięciem hotspotu.
    Domyślnie otwarta karta pompy (najważniejsza dla celu: koszt). Nie zna
    kluczy konkretnego domu — pokoje/urządzenia i opisy przychodzą z układu. #}
-{% set heiko_profile = settings.heiko_active_profile or 'ekonomia' %}
 {% set attic_profile = settings.attic_active_profile or 'ekonomia' %}
 {% set loop_cards = ('loop_heiko', 'loop_attic') %}
 
@@ -10,15 +9,8 @@
     <h2><svg class="ico"><use href="#i-fan"/></svg> {{ pump_eq.label if pump_eq else 'Pompa ciepła' }}</h2>
     <span class="status">tylko obserwacja</span>
   </header>
-  <p class="sub">Podłogówka całego domu · pętla A — <strong>tylko obserwacja</strong>. Grzaniem steruje pompa
-    (krzywa grzewcza + natywna „ograniczona nastawa” z zegarem ustawianym na panelu); add-on niczego
-    do niej nie zapisuje, tylko mierzy skutek i pilnuje komfortu. Plan optymalizatora poniżej jest
-    wyłącznie poglądowy.
+  <p class="sub">Podłogówka całego domu · pętla A. Grzaniem steruje pompa (krzywa grzewcza + ograniczona nastawa z panelu). Add-on zapisuje do pompy tylko kroki testów, które uruchomisz, i zatwierdzone propozycje Doradcy; plan poniżej jest poglądowy.
     {% if pump_eq and pump_eq.note %}{{ pump_eq.note }}{% endif %}</p>
-  <div class="profiles" aria-label="Aktywny profil">
-    <span class="{{ 'active' if heiko_profile == 'komfort' }}">Komfort</span>
-    <span class="{{ 'active' if heiko_profile == 'ekonomia' }}">Ekonomia</span>
-  </div>
   <dl class="kv">
     <dt>Tryb pracy</dt><dd data-live="heiko.mode">{{ live.heiko.mode }}</dd>
     <dt><abbr class="term" tabindex="0" data-tip="Reguła, według której pompa dobiera temperaturę wody w podłogówce do pogody: im zimniej na dworze, tym cieplejsza woda.">Krzywa grzewcza</abbr></dt><dd data-live="heiko.curve">{{ live.heiko.curve }}</dd>
@@ -26,30 +18,26 @@
     <dt>Ograniczona nastawa — funkcja (panel)</dt><dd data-live="heiko.reduced_enabled">{{ live.heiko.reduced_enabled }}</dd>
     <dt>Ograniczona nastawa — aktywna teraz (wnioskowana)</dt><dd data-live="heiko.reduced">{{ live.heiko.reduced }}</dd>
     <dt>Równoważnik krzywej teraz</dt><dd>{{ (heiko.base_curve_c if heiko else none)|temp }}</dd>
-    <dt>Optymalizator (poglądowo) — Komfort</dt><dd>{{ (heiko.setpoint_komfort if heiko else none)|temp }}</dd>
-    <dt>Optymalizator (poglądowo) — Ekonomia</dt><dd>{{ (heiko.setpoint_ekonomia if heiko else none)|temp }}</dd>
     <dt>Temp. zewnętrzna</dt><dd data-live="heiko.outdoor">{{ live.heiko.outdoor }}</dd>
     <dt>Średnia stref dziennych</dt><dd data-live="heiko.avg">{{ live.heiko.avg }}</dd>
     <dt>Najzimniejszy pokój</dt><dd id="hp-minroom">{{ (heiko.min_room_c if heiko else none)|temp }}</dd>
   </dl>
   <p class="warn" id="hp-fuse" hidden></p>
-  <div class="cost" id="heiko-cost">ładowanie…</div>
   <figure class="plan-chart" id="heiko-chart" aria-label="Przewidywana średnia temperatura pokoi na 36 h"></figure>
   <details class="fold" open>
     <summary>Udział energii w szczycie (zmierzony)</summary>
     <div id="heiko-kpi" class="fold-body">ładowanie…</div>
   </details>
   <details class="fold">
-    <summary>Oszczędność optymalizatora (model, poglądowo)</summary>
-    <div id="heiko-savings" class="fold-body">ładowanie…</div>
-  </details>
-  <details class="fold">
-    <summary>Plan bloków taryfy — 36 h</summary>
-    <div id="heiko-blocks" class="fold-body history-table">ładowanie…</div>
-  </details>
-  <details class="fold">
-    <summary>Model podłogówki</summary>
-    <div id="heiko-model" class="fold-body">ładowanie…</div>
+    <summary>Model i plan (poglądowo)</summary>
+    <div class="fold-body">
+      <h3>Oszczędność optymalizatora (model, poglądowo)</h3>
+      <div id="heiko-savings">ładowanie…</div>
+      <h3>Plan bloków taryfy — 36 h</h3>
+      <div id="heiko-blocks" class="history-table">ładowanie…</div>
+      <h3>Model podłogówki</h3>
+      <div id="heiko-model">ładowanie…</div>
+    </div>
   </details>
 </section>
 

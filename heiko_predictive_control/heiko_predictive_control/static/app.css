@@ -344,6 +344,7 @@ body {
 .fold-body tr.peak td:nth-child(2) { color: var(--peak); }
 .fold-body td.on { font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .fold-body small { color: var(--muted); }
+.fold-body h3 { font-size: 14px; margin: 12px 0 4px; }
 .empty { color: var(--muted); }
 
 /* ── Statystyki / Opcje (współdzielona paleta) ───────────────── */
