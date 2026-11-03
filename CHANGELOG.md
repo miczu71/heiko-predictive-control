@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.1 — pasek pochodzenia energii wypełnia całą szerokość
+
+- **Poprawka:** gdy zużycie składnika w dobie było poniżej 1 kWh (typowo klimatyzacja rano), segmenty paska pochodzenia energii zajmowały tylko część szerokości, a reszta była jasna jak tło. Segmenty mają teraz szerokość proporcjonalną do udziału, więc zawsze wypełniają cały pasek (kafel „Doba”, „Koszty”, /ogrzewanie).
+- Test: `tests/test_source_bar_js.py` (node) pilnuje, by suma szerokości segmentów wynosiła 1.
+
 ## 0.20.0 — pochodzenie energii ze śladem baterii zamiast pasków stref taryfy
 
 - **Pochodzenie każdej kWh:** kafel „Doba”, zakładka „Koszty” i strona /ogrzewanie pokazują, skąd naprawdę pochodzi energia podłogi, CWU i AC: sieć wg strefy taryfy z chwili ładowania baterii, PV albo „nieznane”, z adnotacją „przez baterię” i wyceną z chwili ładowania. Paski stref zużycia znikają z UI (pole `zones` zostaje w danych i API).

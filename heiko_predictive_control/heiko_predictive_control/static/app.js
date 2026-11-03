@@ -40,7 +40,7 @@ HPC.sourceBar = (sources, totalKwh) => {
   const total = rows.reduce((a, r) => a + r.kwh, 0);
   if (!total) return "";
   const esc = HPC.esc;
-  const seg = rows.map(r => `<i class="${r.cls}" style="flex:${r.kwh}" title="${esc(r.label)}: ${HPC.nf(r.kwh)} kWh"></i>`).join("");
+  const seg = rows.map(r => `<i class="${r.cls}" style="flex:${r.kwh / total}" title="${esc(r.label)}: ${HPC.nf(r.kwh)} kWh"></i>`).join("");
   const legend = rows.map(r => `<span><i class="sw ${r.cls}"></i>${esc(r.label)} ${HPC.nf(r.kwh)} kWh${r.pln === null ? "" : ` · ${HPC.nf(r.pln)} zł`}${r.bat > 0.005 ? ` <span class="via-bat">(${HPC.nf(r.bat)} przez baterię)</span>` : ""}</span>`).join("");
   return `<div class="zonebar" role="img" aria-label="Pochodzenie energii">${seg}</div><p class="zonelegend">${legend}</p>`;
 };
