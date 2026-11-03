@@ -21,6 +21,7 @@ ENTITIES = {                     # domyślne encje HA (opcja nadpisująca: <nazw
     "rce_price": "sensor.current_rce_price_kwh",              # zł/kWh
 }
 COUNTERS = ("grid_import", "battery_charge", "battery_discharge")
+EPS_KWH = 1e-9                  # resztki zmiennoprzecinkowe nie tworzą źródła w składzie
 MAX_STEP_KWH = 10.0              # większy przyrost licznika w jednym kroku = błędny odczyt, krok pomijamy
 
 
@@ -118,7 +119,7 @@ def mix_after(mix: dict, step: Step, battery_cost: float, zone: str) -> dict:
             _add(out, f"grid:{zone}", from_grid, from_grid * step.grid_price)
         if pv > 0:
             _add(out, "pv", pv, pv * max(step.rce_price, 0.0))
-    return {origin: seg for origin, seg in out.items() if seg["kwh"] > 1e-9}
+    return {origin: seg for origin, seg in out.items() if seg["kwh"] > EPS_KWH}
 
 
 def _add(mix: dict, origin: str, kwh: float, pln: float) -> None:

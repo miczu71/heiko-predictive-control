@@ -35,7 +35,7 @@ BACKFILL_DAYS = 7                  # zasięg recordera HA
 
 # M1 (`docs/ROADMAP_heiko_dhw_model.md`): odcinki do modelu grzania. Od startu cyklu woda w pętli
 # najpierw spada (mieszanie), więc odcinek sprężarki zaczyna się dopiero po HP_SKIP_MIN.
-EPS_KWH = 1e-9                     # resztki zmiennoprzecinkowe `split` nie tworzą źródła
+EPS_KWH = es.EPS_KWH               # resztki zmiennoprzecinkowe `split` nie tworzą źródła
 DATA_VERSION = 8                   # v1 (A2) bez odcinków, v2 bez przebiegu (`trace`), v3 bez kosztu całego cyklu, v4 bez podziału „zmiany celu” na PV/ręcznie, v5 z błędną atrybucją, v6 bez stref taryfy (`zones`) i z brakiem serii rozładowania liczonym jako PV, v7 bez `sources` pochodzenia energii — backfill je przelicza
 TRACE_MAX_POINTS = 120             # przebieg wody co minutę; dłuższe cykle są obcinane
 HP_SKIP_MIN = 5.0

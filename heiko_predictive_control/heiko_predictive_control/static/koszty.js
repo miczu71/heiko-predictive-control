@@ -62,9 +62,10 @@ function renderChart(d) {
 }
 
 function renderZones(d) {
-  const names = [...new Set([...COMP, ["total"]].flatMap(([k]) => Object.keys(d.totals[k].sources || {})))]
+  const rows = [...COMP, ["total"]];
+  const names = [...new Set(rows.flatMap(([k]) => Object.keys(d.totals[k].sources || {})))]
     .sort((x, y) => HPC.originRank(x) - HPC.originRank(y));
-  const showRest = [...COMP, ["total"]].some(([k]) => (d.totals[k].unsplit_kwh || 0) > 0.005);
+  const showRest = rows.some(([k]) => (d.totals[k].unsplit_kwh || 0) > 0.005);
   const cell = (x) => x && x.kwh > 0
     ? `${nf(x.kwh)} kWh · ${nf(x.pln)} zł${x.battery_kwh > 0.005 ? `<br><span class="muted">${nf(x.battery_kwh)} przez baterię</span>` : ""}` : "—";
   const head = `<thead><tr><th></th>${names.map(n => `<th>${esc(HPC.originLabel(n))}</th>`).join("")}${showRest ? "<th>bez podziału</th>" : ""}<th>Z PV</th></tr></thead>`;

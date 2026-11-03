@@ -114,12 +114,13 @@ def _coverage(conn, tz) -> dict:
         row = conn.execute(f"SELECT MIN(start) AS s FROM {table}").fetchone()
         return local_date(row["s"], tz).isoformat() if row and row["s"] else None
 
-    row = conn.execute("SELECT start FROM dhw_cycles WHERE json_extract(data, '$.v') >= ? ORDER BY start LIMIT 1",
-                       (ZONES_MIN_VERSION,)).fetchone()
-    zones_from = local_date(row["start"], tz).isoformat() if row else None
-    row = conn.execute("SELECT start FROM dhw_cycles WHERE json_extract(data, '$.v') >= ? ORDER BY start LIMIT 1",
-                       (SOURCES_MIN_VERSION,)).fetchone()
-    sources_from = local_date(row["start"], tz).isoformat() if row else None
+    def first_since(version: int) -> str | None:
+        row = conn.execute("SELECT start FROM dhw_cycles WHERE json_extract(data, '$.v') >= ? ORDER BY start LIMIT 1",
+                           (version,)).fetchone()
+        return local_date(row["start"], tz).isoformat() if row else None
+
+    zones_from = first_since(ZONES_MIN_VERSION)
+    sources_from = first_since(SOURCES_MIN_VERSION)
     return {"floor": {"oldest": oldest("heating_runs")},
             "dhw": {"oldest": oldest("dhw_cycles"), "zones_from": zones_from, "sources_from": sources_from},
             "ac": {"oldest": oldest("attic_runs")}}
