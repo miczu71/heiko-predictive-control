@@ -23,7 +23,7 @@ function render(d) {
 }
 
 // Koszt pompy na kafelce pulpitu: pole `pump` (podłoga + ciepła woda) z /api/day_summary.
-const pumpPln = d => (d.pump && d.pump.configured ? nf(d.pump.pln) + " zł" : "—");
+const pumpPln = d => (d.pump && d.pump.configured && !d.error ? nf(d.pump.pln) + " zł" : "—");
 
 function setPumpCost(d) {
   const el = document.getElementById("pump-cost");

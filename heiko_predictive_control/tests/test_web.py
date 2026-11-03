@@ -233,6 +233,18 @@ def test_dashboard_shows_running_write_test_and_pending_proposals(tmp_path):
     assert "propozycje Doradcy: 1" in html
 
 
+def test_dashboard_survives_unreadable_test_schedule(tmp_path):
+    app = _app_with_db(tmp_path, SETTINGS)
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, step, baseline) "
+                 "VALUES ('zapis', 'w_toku', '2026-11-03T09:55:00', 'nie-json', 0, 0)")
+    conn.commit()
+    conn.close()
+    resp = app.test_client().get("/")
+    assert resp.status_code == 200
+    assert "Test zapisu (poza sezonem)" in resp.get_data(as_text=True)
+
+
 def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
     html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
     for element_id in ("heiko-chart", "heiko-savings", "heiko-blocks", "heiko-model", "hp-fuse"):

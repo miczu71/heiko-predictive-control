@@ -30,13 +30,17 @@ def _running_test_view(conn) -> Optional[dict]:
     if test is None:
         return None
     kind = experiments.KINDS.get(test["kind"])
-    schedule = json.loads(test["schedule"])
     view = {"title": kind.title if kind else test["kind"], "next_at": None, "next_value": None}
-    step = test["step"]
-    if step < len(schedule):
-        nxt = schedule[step]
-        view["next_at"] = nxt["at"][11:16]
-        view["next_value"] = (f"{nxt['value']:g}/{nxt['stop']:g}" if "stop" in nxt else f"{nxt['value']:g}")
+    try:
+        schedule = json.loads(test["schedule"])
+        step = test["step"]
+        if step < len(schedule):
+            nxt = schedule[step]
+            view["next_at"] = nxt["at"][11:16]
+            view["next_value"] = (f"{nxt['value']:g}/{nxt['stop']:g}" if "stop" in nxt else f"{nxt['value']:g}")
+    except (ValueError, KeyError, TypeError):
+        logger.warning("pulpit: nieczytelny plan testu #%s", test["id"], exc_info=True)
+        view["next_at"] = view["next_value"] = None
     return view
 
 
