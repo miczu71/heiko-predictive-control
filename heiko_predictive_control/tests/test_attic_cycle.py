@@ -288,6 +288,16 @@ def test_migration_adds_columns_to_0_3_0_database():
     assert conn.execute("SELECT COUNT(*) FROM cycles").fetchone()[0] == 2
 
 
+_SIM_COST_COLUMNS = {"baseline_cost_today_pln", "sim_cost_today_komfort_pln", "sim_cost_today_ekonomia_pln"}
+
+
+def test_fresh_database_has_no_sim_cost_columns():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.migrate(conn)
+    assert not {r["name"] for r in conn.execute("PRAGMA table_info(cycles)")} & _SIM_COST_COLUMNS
+
+
 def test_migration_drops_sim_cost_columns():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -307,7 +317,7 @@ def test_migration_drops_sim_cost_columns():
     dbm.migrate(conn)
     dbm.migrate(conn)                                       # idempotentnie
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(cycles)")}
-    assert not cols & set(dbm._DROPPED_CYCLE_COLUMNS)
+    assert not cols & _SIM_COST_COLUMNS
     row = conn.execute("SELECT ts, loop, setpoint_komfort FROM cycles").fetchone()
     assert (row["ts"], row["loop"], row["setpoint_komfort"]) == ("2026-09-25T10:00:00", "heiko", 21.5)
     dbm.insert_cycle(conn, {"ts": "2026-09-25T10:05:00", "loop": "heiko", "active_profile": "komfort",
