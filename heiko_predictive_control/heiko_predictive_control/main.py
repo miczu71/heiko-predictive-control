@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import (__version__, advisor, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, ha_client, heating_runs, kpi, layout,
-               summaries, telemetry)
+from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, ha_client, heating_runs, kpi, layout,
+               summaries, tariff_feed, telemetry)
 from . import attic as attic_mod
 from . import db as dbm
 from .tariff import default_is_workday
@@ -258,6 +258,19 @@ def main() -> None:
         finally:
             c.close()
 
+    def battery_mix_replay() -> None:
+        """Jednorazowy replay składu baterii z recordera HA (E2), przed backfillami; tylko odczyt z HA."""
+        c = dbm.get_conn(db_path)
+        try:
+            settings = dbm.get_all_settings(c)
+            feed = tariff_feed.for_settings(c, settings, is_workday)
+            n = battery_replay.replay(c, settings, datetime.now(), ha_client.get_history, feed)
+            logger.info("Replay składu baterii: zapisano %d wierszy", n)
+        except Exception:
+            logger.exception("Replay składu baterii nieudany")
+        finally:
+            c.close()
+
     def dhw_cycles_backfill() -> None:
         """Dziennik cykli CWU/AH (A2) — brakujące doby z zasięgu recordera (7 dni), zapis trwały."""
         c = dbm.get_conn(db_path)
@@ -390,6 +403,7 @@ def main() -> None:
     scheduler.add_job(run_telemetry, "interval", minutes=initial.get("cycle_interval_min") or 15,
                        next_run_time=datetime.now() + timedelta(seconds=10), max_instances=1, coalesce=True)
     scheduler.add_job(daily_summaries, "cron", hour=0, minute=20, max_instances=1, coalesce=True)
+    scheduler.add_job(battery_mix_replay, "date", run_date=datetime.now() + timedelta(seconds=30))
     scheduler.add_job(daily_summaries, "date", run_date=datetime.now() + timedelta(seconds=60))
     scheduler.add_job(dhw_cycles_backfill, "cron", hour=0, minute=25, max_instances=1, coalesce=True)
     scheduler.add_job(dhw_cycles_backfill, "date", run_date=datetime.now() + timedelta(seconds=90))
