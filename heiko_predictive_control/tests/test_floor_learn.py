@@ -167,6 +167,31 @@ def test_refit_with_excitation_identifies_inertia():
     assert abs(model.c - 0.06) < 0.02
 
 
+def _blurred_world(conn, base):
+    """6 dób słabego wymuszenia (spadek 0,2°C), potem 2 doby mocnego (3°C): średnia z 14 dni < progu, okno testu ≥ progu."""
+    world = _world(24 * 8, 0.25)
+    cut = 24 * 6 * 4
+    _cycle_rows_reduced(conn, world[:cut], base, drop=0.2)
+    _cycle_rows_reduced(conn, world[cut:], base + timedelta(minutes=15 * cut), drop=3.0)
+    return base + timedelta(days=8, hours=1), (base + timedelta(minutes=15 * cut)).isoformat()
+
+
+def test_refit_uses_test_window_excitation_when_14_days_are_blurred():
+    conn = _conn()
+    now, since = _blurred_world(conn, datetime(2026, 1, 5))
+    info = fl.refit_from_cycles(conn, SETTINGS, now, excitation_since=since)
+    assert info["excitation"]["basis"] == "okno testu" and info["excitation"]["sufficient"], info
+    assert info["identified"] is True, info
+
+
+def test_refit_without_excitation_since_keeps_14_day_behaviour():
+    conn = _conn()
+    now, _ = _blurred_world(conn, datetime(2026, 1, 5))
+    info = fl.refit_from_cycles(conn, SETTINGS, now)
+    assert info["excitation"]["basis"] == "14 dni" and not info["excitation"]["sufficient"], info
+    assert not info.get("identified")
+
+
 def test_identified_model_is_not_overwritten_by_data_without_excitation():
     conn = _conn()
     identified = fm.FloorModel(tau_h=6.0, g=0.3, c=0.05, source=fm.SOURCE_IDENTIFIED, identified=True)

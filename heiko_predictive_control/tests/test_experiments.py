@@ -234,6 +234,83 @@ def test_excitation_counts_curve_shift_steps():
     assert fl.excitation(old)["transitions"] == 0
 
 
+# ── Wynik „Bezwładność −1”: wymuszenie ≠ identyfikacja (E1) ─────────────────────────────────────────────────────
+def _inertia_row(conn, status=ex.DONE, started="2026-10-01T10:00:00", ended="2026-10-04T10:00:00", sufficient=True,
+                 identified=False, recheck=None):
+    result = {"writes": 4, "confirmed": 4, "excitation": {"sufficient": sufficient},
+              "refit": {"ok": True, "identified": identified}}
+    if recheck:
+        result["recheck"] = True
+    conn.execute("INSERT INTO tests (kind, status, started, ended, schedule, baseline, result) "
+                 "VALUES ('bezwladnosc', ?, ?, ?, '[]', 0, ?)", (status, started, ended, json.dumps(result)))
+    conn.commit()
+
+
+def test_inertia_passed_on_sufficient_excitation_even_when_not_identified(conn):
+    _inertia_row(conn, sufficient=True, identified=False)
+    passed = ex._passed(conn, "bezwladnosc")
+    assert passed is not None and passed["identified"] is False
+    assert passed["ended"] == "2026-10-04T10:00:00"
+
+
+def test_inertia_not_passed_without_sufficient_excitation(conn):
+    _inertia_row(conn, sufficient=False, identified=True)
+    assert ex._passed(conn, "bezwladnosc") is None
+
+
+def test_inertia_passed_reports_identified_flag(conn):
+    _inertia_row(conn, sufficient=True, identified=True)
+    assert ex._passed(conn, "bezwladnosc")["identified"] is True
+
+
+def test_inertia_done_recently_window_30_days(conn):
+    _inertia_row(conn, ended="2026-10-07T10:00:00")
+    assert ex.inertia_done_recently(conn, datetime(2026, 11, 5, 10, 0)) is True      # 29 dni
+    assert ex.inertia_done_recently(conn, datetime(2026, 11, 7, 10, 0)) is False     # 31 dni
+
+
+def test_inertia_done_recently_ignores_aborted_and_insufficient(conn):
+    _inertia_row(conn, status=ex.ABORTED, ended="2026-10-30T10:00:00")
+    _inertia_row(conn, sufficient=False, ended="2026-10-30T10:00:00")
+    assert ex.inertia_done_recently(conn, datetime(2026, 11, 5, 10, 0)) is False
+
+
+def test_last_inertia_start_only_within_14_days(conn):
+    _inertia_row(conn, started="2026-10-27T10:00:00", ended="2026-10-30T10:00:00")
+    assert ex.last_inertia_start(conn, datetime(2026, 11, 5, 10, 0)) == "2026-10-27T10:00:00"
+    assert ex.last_inertia_start(conn, datetime(2026, 11, 20, 10, 0)) is None
+
+
+def test_recheck_inertia_refits_on_test_window_and_is_idempotent(conn, monkeypatch):
+    _inertia_row(conn, sufficient=True, identified=False)
+    dbm.set_setting(conn, "floor_model_state", {"tau_h": 5.0, "identified": False})
+    calls = []
+
+    def fake_refit(c, settings, now, **kw):
+        calls.append(kw)
+        dbm.set_setting(c, "floor_model_state", {"tau_h": 7.0, "identified": True})
+        return {"ok": True, "reason": "ok", "rmse_c": 0.1, "tau_h": 7.0, "identified": True}
+
+    monkeypatch.setattr(fl, "refit_from_cycles", fake_refit)
+    now = datetime(2026, 11, 5, 10, 0)
+    assert ex.recheck_inertia(conn, SETTINGS, now) is True
+    assert calls == [{"excitation_since": "2026-10-01T10:00:00"}]
+    result = json.loads(_test(conn)["result"])
+    assert result["refit"]["identified"] is True and result["recheck"] is True
+    assert dbm.get_setting(conn, "floor_model_state_before_recheck") == {"tau_h": 5.0, "identified": False}
+    assert ex.recheck_inertia(conn, SETTINGS, now) is False                   # idempotencja: drugi raz nic
+    assert len(calls) == 1
+
+
+def test_recheck_inertia_skips_identified_or_insufficient(conn, monkeypatch):
+    monkeypatch.setattr(fl, "refit_from_cycles", lambda *a, **k: pytest.fail("nie powinno liczyć"))
+    _inertia_row(conn, sufficient=True, identified=True)
+    assert ex.recheck_inertia(conn, SETTINGS, datetime(2026, 11, 5)) is False
+    conn.execute("DELETE FROM tests")
+    _inertia_row(conn, sufficient=False, identified=False)
+    assert ex.recheck_inertia(conn, SETTINGS, datetime(2026, 11, 5)) is False
+
+
 # ── Test A/B pompy obiegowej P0 (p0_ab) ─────────────────────────────────────────────────────────────────────────
 RUN = "number.lazienka_heiko_heat_pump_circulation_pump_p0_run_time"
 STOP = "number.lazienka_heiko_heat_pump_circulation_pump_p0_stop_time"

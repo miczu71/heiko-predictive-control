@@ -18,7 +18,7 @@ from statistics import mean
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from . import catalog, comfort, cycle, dhw_cycles, dhw_model, floor_learn, ha_client, summaries
+from . import catalog, comfort, cycle, dhw_cycles, dhw_model, experiments, floor_learn, ha_client, summaries
 from . import db as dbm
 from . import floor_plan as fp
 from .analysis import percentile
@@ -197,7 +197,8 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         room_min_c=float(settings.get("heiko_room_min_c", 18.5)),
         avg24_c=stats.get("avg24_c"), cold24_c=stats.get("cold24_c"), coldest_name=stats.get("coldest_name"),
         curve_on=curve_on, params=params, managed=frozenset(_split(settings.get("advisor_managed_keys"))),
-        model_identified=floor_learn.load_model(conn).identified, uniform=uniform, time_shift=time_shift,
+        model_identified=floor_learn.load_model(conn).identified,
+        inertia_test_done=experiments.inertia_done_recently(conn, now), uniform=uniform, time_shift=time_shift,
         test_running=conn.execute("SELECT 1 FROM tests WHERE status = 'w_toku' LIMIT 1").fetchone() is not None,
         summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
                                                                        grid_key=settings.get("grid_power_entity") or None,

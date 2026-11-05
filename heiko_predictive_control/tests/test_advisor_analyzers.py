@@ -30,6 +30,15 @@ def test_curve_slack_with_unidentified_model_proposes_inertia_test_not_a_change(
     assert d.evidence["cooling_after_c"] == curve.FALLBACK_COOLING_C          # UNIFORM w teście nie ma end_temp_delta_c
 
 
+def test_curve_slack_unidentified_but_inertia_test_done_proposes_nothing():
+    assert curve.analyze(snap(inertia_test_done=True)) == []                 # test już był — nie proponuj drugiego
+
+
+def test_curve_slack_identified_model_still_proposes_change_when_inertia_test_done():
+    (d,) = curve.analyze(snap(model_identified=True, inertia_test_done=True))
+    assert d.kind == "zmiana" and d.to_value == -1.0
+
+
 def test_curve_slack_with_identified_model_proposes_plain_change_down():
     (d,) = curve.analyze(snap(model_identified=True))
     assert (d.kind, d.lens, d.param_key, d.from_value, d.to_value) == ("zmiana", "ekonomia", "curve_shift", 0.0, -1.0)

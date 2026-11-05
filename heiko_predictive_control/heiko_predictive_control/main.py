@@ -227,9 +227,22 @@ def main() -> None:
         """Dobowe dopasowanie modelu na własnych cyklach (faza cienia)."""
         c = dbm.get_conn(db_path)
         try:
-            floor_learn.refit_from_cycles(c, dbm.get_all_settings(c), datetime.now())
+            now = datetime.now()
+            floor_learn.refit_from_cycles(c, dbm.get_all_settings(c), now,
+                                          excitation_since=experiments.last_inertia_start(c, now))
         except Exception:
             logger.exception("Dobowe dopasowanie modelu podłogówki nieudane")
+        finally:
+            c.close()
+
+    def recheck_inertia() -> None:
+        """Jednorazowo po starcie: przelicz ostatni test „Bezwładność” na jego oknie (wynik sprzed naprawy E1)."""
+        c = dbm.get_conn(db_path)
+        try:
+            if experiments.recheck_inertia(c, dbm.get_all_settings(c), datetime.now()):
+                logger.info("Test „Bezwładność” przeliczony ponownie na oknie testu")
+        except Exception:
+            logger.exception("Ponowne przeliczenie testu Bezwładność nieudane")
         finally:
             c.close()
 
@@ -429,6 +442,7 @@ def main() -> None:
                        max_instances=1, coalesce=True)
     scheduler.add_job(refit_model, "cron", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(bootstrap_model, "date", run_date=datetime.now() + timedelta(seconds=20))
+    scheduler.add_job(recheck_inertia, "date", run_date=datetime.now() + timedelta(seconds=40))
     scheduler.add_job(peak_baseline, "date", run_date=datetime.now() + timedelta(seconds=45))
     scheduler.start()
 

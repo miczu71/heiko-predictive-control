@@ -24,6 +24,7 @@ class Snapshot:
     params: dict[str, float] = field(default_factory=dict)      # bieżące wartości liczbowych parametrów katalogu
     managed: frozenset[str] = frozenset()             # parametry prowadzone przez automatyzacje HA
     model_identified: bool = False
+    inertia_test_done: bool = False                   # test „Bezwładność” z dostatecznym wymuszeniem skończył się w ostatnich 30 dniach
     test_running: bool = False                        # trwa test (experiments) — przesunięcie krzywej steruje wtedy test, nie user
     uniform: dict | None = None                       # skutki jednolitego przesunięcia krzywej (z planu), klucze "-1", "+1"
     time_shift: dict | None = None                    # oszczędność z samego przesuwania w czasie, zł/dobę per soczewka

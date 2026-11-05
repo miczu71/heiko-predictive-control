@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from statistics import mean
 from zoneinfo import ZoneInfo
 
-from . import catalog, comfort, floor_learn, ha_client, live, summaries, tariff_feed
+from . import catalog, comfort, db as dbm, floor_learn, ha_client, live, summaries, tariff_feed
 from .cycle import curve_shift_entity
 
 logger = logging.getLogger(__name__)
@@ -257,15 +257,58 @@ def _passed(conn, kind: str) -> dict | None:
                             (kind, DONE)):
         r = json.loads(row["result"] or "{}")
         if kind == "bezwladnosc":
-            ok = (r.get("refit") or {}).get("identified")
+            ok = (r.get("excitation") or {}).get("sufficient")        # miara testu = wymuszenie, nie identyfikacja
         elif kind == "p0_ab":
             ok = r.get("verdict")
         else:
             ok = 0 < r.get("confirmed", 0) == r.get("writes")
         if ok:
             return {"ended": row["ended"], "confirmed": r["confirmed"], "writes": r["writes"],
-                    **({"verdict": r["verdict"]} if kind == "p0_ab" else {})}
+                    **({"verdict": r["verdict"]} if kind == "p0_ab" else {}),
+                    **({"identified": bool((r.get("refit") or {}).get("identified"))} if kind == "bezwladnosc" else {})}
     return None
+
+
+def _inertia_tests(conn):
+    """Zakończone testy „Bezwładność” od najnowszego, z rozpakowanym wynikiem."""
+    for row in conn.execute("SELECT id, started, ended, result FROM tests WHERE kind = 'bezwladnosc' AND status = ? "
+                            "ORDER BY id DESC", (DONE,)):
+        yield row, json.loads(row["result"] or "{}")
+
+
+def last_inertia_start(conn, now: datetime, days: int = 14) -> str | None:
+    """`started` ostatniego zakończonego testu „Bezwładność”, jeśli skończył się w ostatnich `days` dniach."""
+    for row, _ in _inertia_tests(conn):
+        if row["ended"] and datetime.fromisoformat(row["ended"]) >= now - timedelta(days=days):
+            return row["started"]
+        return None
+    return None
+
+
+def inertia_done_recently(conn, now: datetime, days: int = 30) -> bool:
+    """Czy w ostatnich `days` dniach skończył się test „Bezwładność” z dostatecznym wymuszeniem."""
+    return any((r.get("excitation") or {}).get("sufficient") and row["ended"]
+               and datetime.fromisoformat(row["ended"]) >= now - timedelta(days=days)
+               for row, r in _inertia_tests(conn))
+
+
+def recheck_inertia(conn, settings: dict, now: datetime) -> bool:
+    """Jednorazowe przeliczenie ostatniego testu „Bezwładność” na jego oknie (naprawa wyniku sprzed E1):
+    wymuszenie wystarczyło, a identyfikacji nie było i nie sprawdzano jej ponownie. Idempotentne (`result.recheck`)."""
+    for row, r in _inertia_tests(conn):
+        if (not (r.get("excitation") or {}).get("sufficient") or (r.get("refit") or {}).get("identified")
+                or r.get("recheck")):
+            return False
+        previous = dbm.get_setting(conn, "floor_model_state")
+        if previous is not None:
+            dbm.set_setting(conn, "floor_model_state_before_recheck", previous)
+        refit = floor_learn.refit_from_cycles(conn, settings, now, excitation_since=row["started"])
+        r["refit"] = {k: refit.get(k) for k in ("ok", "reason", "rmse_c", "tau_h", "identified")}
+        r["recheck"] = bool(refit.get("ok"))               # nieudany refit (brak danych) ponawiamy przy następnym starcie
+        conn.execute("UPDATE tests SET result = ? WHERE id = ?", (json.dumps(r), row["id"]))
+        conn.commit()
+        return r["recheck"]
+    return False
 
 
 def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_workday) -> dict:
@@ -528,7 +571,7 @@ def _result(conn, test, now: datetime, settings: dict) -> dict:
         rows = conn.execute("SELECT reduced_active, water_setpoint_c, base_curve_c, curve_shift_c FROM cycles "
                             "WHERE loop = 'heiko' AND ts >= ? ORDER BY id", (test["started"],)).fetchall()
         result["excitation"] = floor_learn.excitation(rows)
-        refit = floor_learn.refit_from_cycles(conn, settings, now)
+        refit = floor_learn.refit_from_cycles(conn, settings, now, excitation_since=test["started"])
         result["refit"] = {k: refit.get(k) for k in ("ok", "reason", "rmse_c", "tau_h", "identified")}
     return result
 

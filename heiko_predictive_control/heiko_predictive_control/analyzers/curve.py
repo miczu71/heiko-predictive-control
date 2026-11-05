@@ -94,7 +94,7 @@ def analyze(snap: Snapshot) -> list[Draft]:
                     param_key=KEY, from_value=cur, to_value=to, ttl_h=TTL_H, confidence=CONF_MEDIUM,
                     reason=f"{slack} Obniżenie przesunięcia krzywej z {cur:g} na {to:g}.",
                     evidence=evidence, effects=_effects(snap, "-1", LENS_ECONOMY)))
-            else:
+            elif not snap.inertia_test_done:                # test już był (wymuszenie wystarczyło) — nie proponuj drugiego
                 drafts.append(Draft(
                     analyzer="curve", dedupe_key=f"curve:{KEY}", lens=LENS_ECONOMY, kind=KIND_TEST, ttl_h=TTL_H,
                     confidence=CONF_LOW, evidence={**evidence, "test_kind": "bezwladnosc"},

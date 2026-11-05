@@ -191,11 +191,12 @@ def excitation(rows) -> dict:
 
 
 def refit_from_cycles(conn, settings: dict, now: datetime, days: int = 14,
-                      min_points: int = 150) -> dict:
+                      min_points: int = 150, excitation_since: str | None = None) -> dict:
     """Dobowe dopasowanie modelu na własnych cyklach. Swobodna regresja (c, τ)
     dopuszczona TYLKO przy dostatecznym wymuszeniu; inaczej zostaje dopasowanie z
     bilansem energii (inercja z ograniczeń). Model zidentyfikowany nie jest
-    nadpisywany przez niezidentyfikowany."""
+    nadpisywany przez niezidentyfikowany. Gdy wymuszenie z `days` dni nie wystarcza, a podano
+    `excitation_since` (początek testu „Bezwładność”), liczone jest też na samym oknie testu."""
     info: dict = {"at": now.isoformat(timespec="minutes"), "ok": False}
     cutoff = (now - timedelta(days=days)).isoformat()
     rows = conn.execute(
@@ -203,6 +204,11 @@ def refit_from_cycles(conn, settings: dict, now: datetime, days: int = 14,
         "reduced_active, water_setpoint_c, curve_shift_c "
         "FROM cycles WHERE loop = 'heiko' AND ts >= ? ORDER BY id", (cutoff,)).fetchall()
     exc = excitation(rows)
+    exc["basis"] = "14 dni"
+    if not exc["sufficient"] and excitation_since:         # 14 dni rozmywa wymuszenie testu — oceń samo okno testu
+        window = excitation([r for r in rows if r["ts"] >= excitation_since])
+        if window["sufficient"]:
+            exc, exc["basis"] = window, "okno testu"
     info["rows"] = len(rows)
     info["excitation"] = exc
     segments = cycle_segments(rows)
