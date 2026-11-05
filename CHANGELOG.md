@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0 — tryb „Szczyt G13” i naprawa wyniku testu Bezwładność
+
+- **Nowe — tryb „Szczyt G13” (domyślnie wyłączony):** w dni robocze (wg harmonogramu taryfy) o 13:00 przesunięcie krzywej = bazowe + dogrzanie (+1), o 16:00 bazowe − 4, o 21:00 powrót do bazowego. Bezpiecznik: najzimniejszy pokój stref dziennych poniżej progu (domyślnie 20,5 °C) przez 15 min → powrót do bazowego do 21:00 i powiadomienie. Zapis tylko przez istniejącą ścieżkę z potwierdzeniem ramką i wpisem w `pump_writes`; skok do ±4 dozwolony wyłącznie dla przesunięcia krzywej w tym trybie. Ręczna zmiana przesunięcia, odrzucony zapis albo brak potwierdzenia wstrzymują tryb do jutra. Tryb nie działa w trakcie testu, test nie wystartuje przy włączonym trybie, a główny wyłącznik „Sterowanie aktywne (Heiko)” gasi też tryb.
+- **UI:** kafel „Szczyt G13” na Pulpicie (stan, następna zmiana, energia i koszt podłogówki w strefie szczytu dziś i z 7 dni, zadziałania bezpiecznika), sekcja w Opcjach (przełącznik, próg pokoi, przesunięcia 13–16 i 16–21), odznaka „model zidentyfikowany / niezidentyfikowany” przy teście Bezwładność.
+- **Poprawka — test Bezwładność:** wymuszenie liczone było na 14 dniach cykli, więc przerwane testy je rozmywały i swobodne dopasowanie modelu się nie uruchamiało. Refit ocenia teraz także okno ostatniego testu; wynik zakończonego testu jest jednorazowo przeliczany po starcie. Test z wystarczającym wymuszeniem liczy się jako wykonany, Doradca nie proponuje go ponownie przez 30 dni.
+- **Odporność:** powrót do bazowego po wyłączeniu trybu jest ponawiany, gdy HA odrzuci zapis (jedno powiadomienie na dobę); zapis przyjęty przez pompę mimo błędu usługi nie jest traktowany jak ręczna zmiana; puste opcje `g13_peak_*` = wartości domyślne; ostrzeżenie w logu przy braku `advisor_notify_service`.
+- Testy: 788 (wcześniej 706).
+- Znane (nieblokujące): zapis trybu unieważnia też niepotwierdzone zapisy slotu 52 (`supersede`); ręczna zmiana przed pierwszym zapisem trybu nie jest wykrywana; bezpiecznik liczy 15 min po próbkach cykli (co 15 min); `recheck` po jednorazowym przeliczeniu nie sprawdza, czy ocenione było okno testu; brak testu nieudanego refitu w `recheck_inertia`; po utracie harmonogramu taryfy w oknie pompa zostaje na −4 do 21:00 bez powiadomienia.
+
 ## 0.20.3 — usunięcie nieużywanych kolumn kosztu symulowanego
 
 - **Usunięte:** kolumny `baseline_cost_today_pln`, `sim_cost_today_komfort_pln` i `sim_cost_today_ekonomia_pln` w tabeli `cycles`. Po 0.20.2 nikt ich nie czytał (sensory HA liczą się z planu), a pętla liczyła je co cykl na darmo. `/api/history` nie zwraca już tych trzech pól.
