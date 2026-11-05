@@ -208,7 +208,8 @@ def refit_from_cycles(conn, settings: dict, now: datetime, days: int = 14,
     if not exc["sufficient"] and excitation_since:         # 14 dni rozmywa wymuszenie testu — oceń samo okno testu
         window = excitation([r for r in rows if r["ts"] >= excitation_since])
         if window["sufficient"]:
-            exc, exc["basis"] = window, "okno testu"
+            exc = window
+            exc["basis"] = "okno testu"
     info["rows"] = len(rows)
     info["excitation"] = exc
     segments = cycle_segments(rows)

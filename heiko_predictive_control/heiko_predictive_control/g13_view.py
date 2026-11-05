@@ -14,12 +14,9 @@ STATUS_LABELS = {"off": "wyłączony", "suspended": "wstrzymany do jutra", "trip
                  "active": "włączony"}
 
 
-def _zone_energy(conn, settings: dict, first: date, last: date) -> dict:
-    tz_name = settings.get("timezone") or "Europe/Warsaw"
-    start, _ = day_bounds(first, tz_name)
-    _, end = day_bounds(last, tz_name)
+def _zone_energy(runs: list[dict]) -> dict:
     kwh = pln = 0.0
-    for run in heating_runs.load_range(conn, start, end):
+    for run in runs:
         zone = (run.get("zones") or {}).get(PEAK_ZONE)
         if zone:
             kwh += zone.get("kwh") or 0.0
@@ -53,12 +50,16 @@ def build(conn, settings: dict, now: datetime, is_workday) -> dict:
         status = "active"
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     workday = g13_peak.workday_from_feed(feed, today, now)
-    week_from = (today - timedelta(days=WEEK_DAYS - 1)).isoformat()
+    week_start = today - timedelta(days=WEEK_DAYS - 1)
+    tz_name = settings.get("timezone") or "Europe/Warsaw"
+    today_start, _ = day_bounds(today, tz_name)
+    week_runs = heating_runs.load_range(conn, day_bounds(week_start, tz_name)[0], day_bounds(today, tz_name)[1])
+    today_runs = [r for r in week_runs if datetime.fromisoformat(r["start"]) >= today_start]
     return {
         "enabled": enabled, "status": status, "status_label": STATUS_LABELS[status],
         "workday": workday,
         "next": _next_change(now, workday, g13_exec._config(settings)) if status == "active" else None,
-        "today": _zone_energy(conn, settings, today, today),
-        "week": _zone_energy(conn, settings, today - timedelta(days=WEEK_DAYS - 1), today),
-        "trips_7d": sum(1 for d in st.get("trips") or [] if d >= week_from),
+        "today": _zone_energy(today_runs),
+        "week": _zone_energy(week_runs),
+        "trips_7d": sum(1 for d in st.get("trips") or [] if d >= week_start.isoformat()),
     }

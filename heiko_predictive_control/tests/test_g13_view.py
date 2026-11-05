@@ -20,7 +20,7 @@ def conn():
 
 def run(conn, start_iso, zones):
     conn.execute("INSERT INTO heating_runs (start, end, data) VALUES (?, ?, ?)",
-                 (start_iso, start_iso, json.dumps({"zones": zones})))
+                 (start_iso, start_iso, json.dumps({"start": start_iso, "zones": zones})))
     conn.commit()
 
 

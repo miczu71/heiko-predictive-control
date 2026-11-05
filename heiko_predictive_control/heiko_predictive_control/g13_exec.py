@@ -45,7 +45,7 @@ def _breaker_state(st: dict) -> g13_peak.State:
 
 
 def _min_room(conn, now: datetime) -> float | None:
-    row = conn.execute("SELECT ts, min_room_c FROM cycles WHERE loop = 'heiko' ORDER BY id DESC LIMIT 1").fetchone()
+    row = dbm.latest_cycle(conn, "heiko")
     if row is None or row["min_room_c"] is None or row["ts"] < (now - ROOM_MAX_AGE).isoformat():
         return None
     return float(row["min_room_c"])
@@ -106,7 +106,7 @@ def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict |
         if not _close(current, base) and any(_close(current, v) for v in _known(st)):
             wrote = _apply(conn, settings, st, current, base, now, writer, notify)      # powrót do bazowego po wyłączeniu
         _clear(st)
-        dbm.set_setting(conn, STATE_KEY, st)
+        _save(conn, st, before)
         return {"reason": "tryb wyłączony — powrót do bazowego", "target": base, "wrote": wrote}
 
     if experiments.running_test(conn) is not None:
