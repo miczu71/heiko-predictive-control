@@ -8,7 +8,7 @@ from heiko_predictive_control import experiments as ex
 from heiko_predictive_control import g13_exec as g13
 
 SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
-ON = {"g13_peak_enabled": True, "heiko_curve_shift_entity": SHIFT, "advisor_notify_service": "notify.x"}
+ON = {"g13_peak_enabled": True, "heiko_enabled": True, "heiko_curve_shift_entity": SHIFT, "advisor_notify_service": "notify.x"}
 OFF = {**ON, "g13_peak_enabled": False}
 FRI, MON, SAT = date(2026, 11, 6), date(2026, 11, 9), date(2026, 11, 7)
 
@@ -325,3 +325,55 @@ def test_rejected_write_keeps_previous_value_known(conn):
     go(conn, pump, at(16))
     go(conn, pump, at(16, 5))
     assert pump.calls == [-4.0] and len(pump.notes) == 1       # tylko powiadomienie o odrzuceniu
+
+
+def test_disable_with_rejected_return_keeps_state_and_retries(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(13), at(16)):
+        go(conn, pump, now)
+    assert pump.shift == -4.0
+    pump.accept = False
+    go(conn, pump, at(16, 10), settings=OFF)                  # powrót odrzucony: stan nie ginie
+    st = dbm.get_setting(conn, g13.STATE_KEY)
+    assert pump.shift == -4.0 and st["base"] == 0.0
+    notes = len(pump.notes)
+    assert notes == 1 and "ponawiam" in pump.notes[0]
+    go(conn, pump, at(16, 15), settings=OFF)                  # kolejna odmowa tego samego dnia: bez drugiego powiadomienia
+    assert len(pump.notes) == notes
+    pump.accept = True
+    go(conn, pump, at(16, 20), settings=OFF)
+    assert pump.shift == 0.0
+    assert dbm.get_setting(conn, g13.STATE_KEY)["base"] is None
+
+
+def test_write_applied_despite_error_is_not_manual_change_and_returns_to_base(conn):
+    pump = Pump(shift=0.0)
+    go(conn, pump, at(13))
+    go(conn, pump, at(13, 5))                                 # potwierdzenie z ramki
+    assert pump.shift == 1.0
+    good_writer = pump.writer
+
+    def late_accept(domain, service, data):                   # zapis dociera do pompy, ale usługa wraca z błędem (timeout)
+        pump.shift = data["value"]
+        return False
+    pump.writer = late_accept
+    go(conn, pump, at(16), confirm=False)
+    assert pump.shift == -4.0
+    notes = len(pump.notes)
+    go(conn, pump, at(16, 5), confirm=False)
+    st = dbm.get_setting(conn, g13.STATE_KEY)
+    assert st["base"] == 0.0 and len(pump.notes) == notes          # nie „ręczna zmiana”, baza zachowana
+    pump.writer = good_writer
+    go(conn, pump, at(21), confirm=False)
+    assert pump.shift == 0.0
+
+
+def test_master_switch_off_blocks_writes(conn):
+    pump = Pump(shift=0.0)
+    go(conn, pump, at(16), settings={**ON, "heiko_enabled": False})
+    assert pump.calls == []                                   # główny wyłącznik Heiko gasi też tryb Szczyt G13
+
+
+def test_null_options_fall_back_to_defaults(conn):
+    cfg = g13._config({"g13_peak_min_room_c": None, "g13_peak_preheat_shift": None, "g13_peak_peak_shift": None})
+    assert (cfg.min_room_c, cfg.preheat_shift, cfg.peak_shift) == (20.5, 1.0, -4.0)

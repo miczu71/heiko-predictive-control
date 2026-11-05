@@ -4,7 +4,7 @@ const body = document.getElementById("g13-body");
 const badge = document.getElementById("g13-badge");
 if (!body || !badge) return;
 const esc = HPC.esc, nf = HPC.nf;
-const BADGE = { off: "", suspended: "warn", tripped: "warn", active: "ok" };
+const BADGE = { off: "", blocked: "warn", suspended: "warn", tripped: "warn", active: "ok" };
 
 function row(label, d) {
   return `<tr><th scope="row">${esc(label)}</th><td>${nf(d.kwh)} kWh</td><td>${nf(d.pln)} zł</td></tr>`;
@@ -12,6 +12,7 @@ function row(label, d) {
 
 function nextLine(d) {
   if (d.status === "off") return "Tryb wyłączony — pompa grzeje według własnej krzywej.";
+  if (d.status === "blocked") return "Główny wyłącznik „Sterowanie aktywne (Heiko)” jest wyłączony — tryb nie zapisuje do pompy.";
   if (d.status === "suspended") return "Wstrzymany do jutra (ręczna zmiana przesunięcia albo odrzucony zapis).";
   if (d.status === "tripped") return "Bezpiecznik: pokój był za zimny, przesunięcie wróciło do bazowego do 21:00.";
   if (d.workday === null) return "Brak harmonogramu taryfy — tryb nic nie zmienia.";

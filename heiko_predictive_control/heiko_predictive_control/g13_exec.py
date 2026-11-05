@@ -28,14 +28,26 @@ def _close(a, b) -> bool:
 
 def _known(st: dict) -> tuple:
     """Wartości, które tryb uznaje za „swoje”: ostatni zapis, intencja i wartość sprzed zapisu (`prev`, dopóki zapis
-    nie został potwierdzony — po braku potwierdzenia pompa może mieć starą albo spóźnioną nową)."""
-    return st.get("last_written"), st.get("intent"), st.get("prev")
+    nie został potwierdzony — po braku potwierdzenia pompa może mieć starą albo spóźnioną nową) i `maybe` (cel
+    zapisu, który zgłosił błąd, np. timeout — pompa mogła go jednak przyjąć)."""
+    return st.get("last_written"), st.get("intent"), st.get("prev"), st.get("maybe")
+
+
+def _num(settings: dict, key: str, default: float) -> float:
+    """Opcja liczbowa; pusta (`None` po wyczyszczeniu pola w Opcjach) = wartość domyślna."""
+    value = settings.get(key)
+    return default if value is None else float(value)
 
 
 def _config(settings: dict) -> g13_peak.Config:
-    return g13_peak.Config(min_room_c=float(settings.get("g13_peak_min_room_c", 20.5)),
-                           preheat_shift=float(settings.get("g13_peak_preheat_shift", 1)),
-                           peak_shift=float(settings.get("g13_peak_peak_shift", -4)))
+    return g13_peak.Config(min_room_c=_num(settings, "g13_peak_min_room_c", 20.5),
+                           preheat_shift=_num(settings, "g13_peak_preheat_shift", 1.0),
+                           peak_shift=_num(settings, "g13_peak_peak_shift", -4.0))
+
+
+def active(settings: dict) -> bool:
+    """Tryb działa tylko przy własnym przełączniku i głównym wyłączniku zapisów do pompy (`heiko_enabled`)."""
+    return bool(settings.get("g13_peak_enabled", False)) and bool(settings.get("heiko_enabled"))
 
 
 def _breaker_state(st: dict) -> g13_peak.State:
@@ -70,9 +82,11 @@ def _apply(conn, settings: dict, st: dict, current: float, target: float, now: d
         ok = False
     st["last_write_id"] = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
     if ok:
-        st["last_written"] = target
+        st["last_written"], st["maybe"] = target, None
     else:
-        st["intent"], st["prev"], st["suspended_day"] = previous, previous_prev, today
+        # wartość sprzed próby zostaje „swoja” (prev), a cel próby jest możliwy (maybe): pompa mogła go przyjąć mimo błędu
+        st["intent"], st["prev"], st["suspended_day"], st["maybe"] = (
+            previous, current if previous_prev is None else previous_prev, today, target)
         if not quiet:
             experiments._notify(settings, f"Tryb Szczyt G13 wstrzymany do jutra: HA odrzuciło zapis przesunięcia {target:g}.",
                                 notify, TITLE)
@@ -80,7 +94,7 @@ def _apply(conn, settings: dict, st: dict, current: float, target: float, now: d
 
 
 def _clear(st: dict) -> None:
-    st["base"] = st["last_written"] = st["intent"] = st["prev"] = None
+    st["base"] = st["last_written"] = st["intent"] = st["prev"] = st["maybe"] = None
 
 
 def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, writer=None, notify=None,
@@ -96,7 +110,7 @@ def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict |
     base = st.get("base")
     entity = curve_shift_entity(settings)
 
-    if not settings.get("g13_peak_enabled", False):
+    if not active(settings):
         if base is None or experiments.running_test(conn) is not None:
             return None
         current = get_numeric(entity)
@@ -104,7 +118,15 @@ def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict |
             return None
         wrote = False
         if not _close(current, base) and any(_close(current, v) for v in _known(st)):
-            wrote = _apply(conn, settings, st, current, base, now, writer, notify)      # powrót do bazowego po wyłączeniu
+            failed_before = st.get("return_fail_day") == today
+            wrote = _apply(conn, settings, st, current, base, now, writer, notify, quiet=True)     # powrót do bazowego po wyłączeniu
+            if not wrote:                                  # stan zostaje: następny tick ponowi powrót (nie zostawiamy −4)
+                if not failed_before:
+                    experiments._notify(settings, f"Tryb Szczyt G13 wyłączony, ale powrót przesunięcia do {base:g} nie "
+                                                  "powiódł się — ponawiam co 5 min; w razie potrzeby ustaw ręcznie.", notify, TITLE)
+                st["return_fail_day"] = today
+                _save(conn, st, before)
+                return {"reason": "tryb wyłączony — powrót odrzucony, ponawiam", "target": base, "wrote": False}
         _clear(st)
         _save(conn, st, before)
         return {"reason": "tryb wyłączony — powrót do bazowego", "target": base, "wrote": wrote}

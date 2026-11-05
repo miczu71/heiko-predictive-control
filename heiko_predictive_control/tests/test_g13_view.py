@@ -66,3 +66,9 @@ def test_zadzialania_bezpiecznika_7_dni(conn):
     feed(conn, at(10), True)
     dbm.set_setting(conn, g13_exec.STATE_KEY, {"trips": ["2026-10-30", "2026-11-02", "2026-11-06"]})
     assert g13_view.build(conn, ON, at(10), WD)["trips_7d"] == 2
+
+
+def test_wstrzymany_gdy_glowny_wylacznik_heiko_wylaczony(conn):
+    feed(conn, at(10), True)
+    v = g13_view.build(conn, {**ON, "heiko_enabled": False}, at(10), WD)
+    assert v["status"] == "blocked" and v["next"] is None

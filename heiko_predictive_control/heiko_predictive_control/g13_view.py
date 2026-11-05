@@ -10,7 +10,7 @@ from .summaries import day_bounds
 
 PEAK_ZONE = "evening_peak"
 WEEK_DAYS = 7
-STATUS_LABELS = {"off": "wyłączony", "suspended": "wstrzymany do jutra", "tripped": "bezpiecznik — bazowe do 21:00",
+STATUS_LABELS = {"off": "wyłączony", "blocked": "wstrzymany: sterowanie Heiko wyłączone", "suspended": "wstrzymany do jutra", "tripped": "bezpiecznik — bazowe do 21:00",
                  "active": "włączony"}
 
 
@@ -42,6 +42,8 @@ def build(conn, settings: dict, now: datetime, is_workday) -> dict:
     enabled = bool(settings.get("g13_peak_enabled", False))
     if not enabled:
         status = "off"
+    elif not g13_exec.active(settings):
+        status = "blocked"
     elif st.get("suspended_day") == today.isoformat():
         status = "suspended"
     elif st.get("tripped") and st.get("day") == today.isoformat():

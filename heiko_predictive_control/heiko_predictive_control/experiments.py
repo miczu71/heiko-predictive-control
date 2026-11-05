@@ -423,7 +423,10 @@ def _title(test) -> str:
 
 
 def _notify(settings: dict, message: str, notify, title: str = "Heiko: test przesunięcia krzywej") -> None:
-    (notify or ha_client.notify)(settings.get("advisor_notify_service") or "", title, message)
+    service = settings.get("advisor_notify_service") or ""
+    if not service:
+        logger.warning("%s: brak usługi powiadomień (advisor_notify_service) — pominięto: %s", title, message)
+    (notify or ha_client.notify)(service, title, message)
 
 
 def _finish(conn, test, status: str, now: datetime, reason: str | None = None, result: dict | None = None) -> None:
