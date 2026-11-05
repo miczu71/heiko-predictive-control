@@ -642,3 +642,63 @@ def test_slot52_write_is_confirmed_from_frame_without_a_test(conn):
     ex.write_setting(conn, SLOT52, 30, 35, T0, pump.writer)
     ex.tick(conn, SETTINGS, T0 + timedelta(minutes=ex.FRAME_DELAY_MIN + 1), lambda e: 35.0, pump.writer, pump.notify)
     assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == "2026-10-07T10:03:00" and pump.notes == []
+
+
+# ── Szczyt G13 (E3): skok do ±4 tylko z jawnym max_step, blokada Startu testu ──────────────────────────────
+
+def test_write_with_g13_max_step_allows_jump_within_range(conn):
+    calls = []
+    writer = lambda d, s, data: calls.append(data["value"]) or True
+    assert ex.G13_MAX_STEP == 8 and ex.MAX_STEP == 1
+    assert ex._write(conn, SETTINGS, None, 1.0, -4.0, T0, writer, max_step=ex.G13_MAX_STEP)
+    assert ex._write(conn, SETTINGS, None, -4.0, 4.0, T0, writer, max_step=ex.G13_MAX_STEP)
+    assert calls == [-4.0, 4.0]
+
+
+def test_write_without_max_step_still_limited_to_one_step(conn):
+    with pytest.raises(ValueError):
+        ex._write(conn, SETTINGS, None, 1.0, -4.0, T0, lambda *a: True)
+
+
+def test_write_with_g13_max_step_still_rejects_outside_range(conn):
+    with pytest.raises(ValueError):
+        ex._write(conn, SETTINGS, None, 0.0, 5.0, T0, lambda *a: True, max_step=ex.G13_MAX_STEP)
+    with pytest.raises(ValueError):
+        ex._write(conn, SETTINGS, None, 0.0, -5.0, T0, lambda *a: True, max_step=ex.G13_MAX_STEP)
+
+
+def test_write_max_step_rejects_non_shift_entity(conn):
+    entity = "number.heiko_heat_pump_circulation_pump_p0_run_time"
+    with pytest.raises(ValueError):
+        ex._write(conn, SETTINGS, None, 1.0, 3.0, T0, lambda *a: True, entity=entity, max_step=ex.G13_MAX_STEP)
+    with pytest.raises(ValueError):
+        ex._write(conn, SETTINGS, None, 1.0, 3.0, T0, lambda *a: True, entity="number.sensor_other", max_step=ex.G13_MAX_STEP)
+
+
+def test_write_max_step_does_not_loosen_slot52(conn):
+    entity = "number.heiko_heat_pump_backup_source_start_delay"
+    with pytest.raises(ValueError):
+        ex._write(conn, SETTINGS, None, 20.0, 60.0, T0, lambda *a: True, entity=entity, max_step=ex.G13_MAX_STEP)
+
+
+@pytest.mark.parametrize("kind", ["zapis", "bezwladnosc", "p0_ab"])
+def test_plan_blocks_start_when_g13_mode_enabled(kind):
+    settings = {**SETTINGS, "g13_peak_enabled": True}
+    _, reason = ex._plan(ex.KINDS[kind], settings, T0, 0.0, kind != "zapis", None, workday, (1.0, 6.0), True)
+    assert reason == "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
+
+
+def test_plan_g13_block_comes_after_heiko_enabled_and_before_running_test():
+    on = {**SETTINGS, "g13_peak_enabled": True}
+    _, reason = ex._plan(ex.KINDS["zapis"], {**on, "heiko_enabled": False}, T0, 0.0, False, None, workday)
+    assert reason.startswith("zapis do pompy wyłączony")
+    _, reason = ex._plan(ex.KINDS["zapis"], on, T0, 0.0, False, object(), workday)
+    assert reason == "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
+
+
+def test_start_refused_when_g13_mode_enabled(conn):
+    pump = Pump(shift=0.0, curve="off")
+    res = ex.start(conn, {**SETTINGS, "g13_peak_enabled": True}, "zapis", T0, pump.get_state, pump.get_numeric, workday)
+    assert res["ok"] is False and "Szczyt G13" in res["error"]
+    assert ex.running_test(conn) is None
+    assert _start(conn, pump)["ok"]                            # bez trybu start działa jak dotąd

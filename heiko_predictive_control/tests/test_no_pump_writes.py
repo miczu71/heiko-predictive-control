@@ -8,7 +8,7 @@ import inspect
 import pytest
 
 from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, dhw_cycles, experiments, floor_learn,
-                                       floor_model, floor_plan, kpi, live, publisher, summaries, telemetry, web)
+                                       g13_exec, floor_model, floor_plan, kpi, live, publisher, summaries, telemetry, web)
 from heiko_predictive_control.analyzers import anomalies, curve, dhw, dhw_slot
 import heiko_predictive_control.analyzers as analyzers_pkg
 
@@ -116,3 +116,11 @@ def test_decision_endpoint_never_calls_a_service(monkeypatch):
                                        reason="x", confidence="niska", ttl_h=6, param_key="curve_shift",
                                        from_value=0.0, to_value=-1.0)], now)
     assert advisor.decide(conn, pid, "zatwierdzona", now + timedelta(minutes=1))["ok"]
+
+
+def test_g13_exec_writes_only_through_experiments_write():
+    """Szczyt G13: zapis do pompy wyłącznie przez `experiments._write` (jedyne `call_service` z allowlistą)."""
+    source = inspect.getsource(g13_exec)
+    assert _uses(ast.parse(source), WRITE_NAMES) == []
+    assert "call_service" not in source
+    assert "experiments._write" in source

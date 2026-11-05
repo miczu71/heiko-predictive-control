@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, ha_client, heating_runs, kpi, layout,
+from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, g13_exec, ha_client, heating_runs, kpi, layout,
                summaries, tariff_feed, telemetry)
 from . import attic as attic_mod
 from . import db as dbm
@@ -371,6 +371,18 @@ def main() -> None:
         finally:
             c.close()
 
+    def run_g13_peak() -> None:
+        """Tryb „Szczyt G13” (domyślnie wyłączony): przesunięcie krzywej w oknach 13–21 w dni robocze."""
+        c = dbm.get_conn(db_path)
+        try:
+            info = g13_exec.run(c, dbm.get_all_settings(c), datetime.now())
+            if info is not None:
+                logger.info("Szczyt G13: %s", info)
+        except Exception:
+            logger.exception("Krok trybu Szczyt G13 nieudany")
+        finally:
+            c.close()
+
     def recover_tests() -> None:
         """Test „w toku” sprzed restartu add-onu nie jest wznawiany — powrót do wartości wyjściowej."""
         c = dbm.get_conn(db_path)
@@ -439,6 +451,8 @@ def main() -> None:
     scheduler.add_job(run_advisor, "cron", hour=0, minute=30, max_instances=1, coalesce=True)   # po streszczeniach dobowych
     scheduler.add_job(recover_tests, "date", run_date=datetime.now() + timedelta(seconds=15))
     scheduler.add_job(run_tests, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=30),
+                       max_instances=1, coalesce=True)
+    scheduler.add_job(run_g13_peak, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=45),
                        max_instances=1, coalesce=True)
     scheduler.add_job(refit_model, "cron", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(bootstrap_model, "date", run_date=datetime.now() + timedelta(seconds=20))
