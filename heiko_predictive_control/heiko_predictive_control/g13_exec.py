@@ -169,6 +169,7 @@ def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict |
         st["last"] = {"ts": now.isoformat(timespec="seconds"), "reason": decision.reason, "target": decision.target}
 
     if decision.event == "bezpiecznik":
+        st["trips"] = [*(st.get("trips") or [])[-29:], today]          # historia do kafla na pulpicie
         experiments._notify(settings, f"Tryb Szczyt G13: pokój poniżej {cfg.min_room_c:g} °C przez 15 min — wracam do "
                                       "bazowego do 21:00.", notify, TITLE)
     wrote = None

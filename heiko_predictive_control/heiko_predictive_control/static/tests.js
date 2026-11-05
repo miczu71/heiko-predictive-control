@@ -46,7 +46,7 @@ function renderKinds() {
     <details><summary>Kiedy test się przerwie</summary><ul class="effects">${(k.abort_conditions || data.abort_conditions).map(c => `<li>${esc(c)}</li>`).join("")}</ul></details>`;
     return `<div class="lens-col"><article class="proposal test-kind${p ? " passed" : ""}" data-kind="${esc(k.key)}">
     <h3>${esc(k.title)}</h3>
-    ${p ? `<p><span class="badge ok">wykonany ${when(p.ended)} · ${p.verdict ? `werdykt ${esc(p.verdict)} · ` : ""}zapisy ${p.confirmed}/${p.writes} potwierdzone</span></p>
+    ${p ? `<p><span class="badge ok">wykonany ${when(p.ended)} · ${p.verdict ? `werdykt ${esc(p.verdict)} · ` : ""}${k.key === "bezwladnosc" ? (p.identified ? "model zidentyfikowany · " : "model niezidentyfikowany · ") : ""}zapisy ${p.confirmed}/${p.writes} potwierdzone</span></p>
     <details><summary>Szczegóły</summary>${body}</details>` : body}
     <div class="actions">${k.blocked
       ? `<button type="button" disabled>${label}</button><span class="blocked">${esc(k.blocked)}</span>`

@@ -1,0 +1,68 @@
+"""Tryb „Szczyt G13” (E4): widok dla pulpitu — stan, następna zmiana, energia strefy szczytu, bezpiecznik."""
+import json
+from datetime import date, datetime
+
+import pytest
+
+from heiko_predictive_control import db as dbm
+from heiko_predictive_control import g13_exec, g13_view
+from tests.test_g13_exec import FRI, ON, at, feed
+
+WD = lambda d: d.weekday() < 5
+
+
+@pytest.fixture
+def conn():
+    c = dbm.get_conn(":memory:")
+    dbm.migrate(c)
+    return c
+
+
+def run(conn, start_iso, zones):
+    conn.execute("INSERT INTO heating_runs (start, end, data) VALUES (?, ?, ?)",
+                 (start_iso, start_iso, json.dumps({"zones": zones})))
+    conn.commit()
+
+
+def test_wylaczony_bez_nastepnej_zmiany(conn):
+    feed(conn, at(10), True)
+    v = g13_view.build(conn, {}, at(10), WD)
+    assert (v["status"], v["enabled"], v["next"]) == ("off", False, None)
+
+
+def test_nastepna_zmiana_w_dzien_roboczy(conn):
+    feed(conn, at(14), True)
+    v = g13_view.build(conn, ON, at(14), WD)
+    assert v["status"] == "active" and v["next"] == {"at": "16:00", "value": "-4"}
+    assert g13_view.build(conn, ON, at(22), WD)["next"] is None
+
+
+def test_dzien_wolny_brak_nastepnej(conn):
+    feed(conn, at(10), False)
+    assert g13_view.build(conn, ON, at(10), WD)["next"] is None
+
+
+def test_wstrzymany_i_bezpiecznik_tylko_dzis(conn):
+    feed(conn, at(10), True)
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"suspended_day": FRI.isoformat()})
+    assert g13_view.build(conn, ON, at(10), WD)["status"] == "suspended"
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"tripped": True, "day": FRI.isoformat()})
+    assert g13_view.build(conn, ON, at(10), WD)["status"] == "tripped"
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"tripped": True, "day": "2026-11-05", "suspended_day": "2026-11-05"})
+    assert g13_view.build(conn, ON, at(10), WD)["status"] == "active"
+
+
+def test_energia_strefy_szczytu_dzis_i_tydzien(conn):
+    feed(conn, at(10), True)
+    run(conn, "2026-11-06T16:30:00+00:00", {"evening_peak": {"kwh": 2.0, "pln": 3.0}, "other": {"kwh": 5.0, "pln": 3.1}})
+    run(conn, "2026-11-02T16:00:00+00:00", {"evening_peak": {"kwh": 1.5, "pln": 2.25}})
+    run(conn, "2026-10-20T16:00:00+00:00", {"evening_peak": {"kwh": 9.0, "pln": 9.0}})      # poza 7 dniami
+    v = g13_view.build(conn, ON, at(10), WD)
+    assert v["today"] == {"kwh": 2.0, "pln": 3.0}
+    assert v["week"] == {"kwh": 3.5, "pln": 5.25}
+
+
+def test_zadzialania_bezpiecznika_7_dni(conn):
+    feed(conn, at(10), True)
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"trips": ["2026-10-30", "2026-11-02", "2026-11-06"]})
+    assert g13_view.build(conn, ON, at(10), WD)["trips_7d"] == 2

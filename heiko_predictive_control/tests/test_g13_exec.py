@@ -162,6 +162,7 @@ def test_breaker_returns_to_base_with_single_notification(conn):
     for now in (at(16, 20), at(16, 25), at(17)):
         go(conn, pump, now, room_c=20.0)
     assert pump.calls == [1.0, -4.0, 0.0] and len(pump.notes) == 1
+    assert dbm.get_setting(conn, g13.STATE_KEY)["trips"] == [FRI.isoformat()]      # jedno zadziałanie na dobę
 
 
 def test_missing_room_reading_does_not_trip_breaker(conn):

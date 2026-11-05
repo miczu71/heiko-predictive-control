@@ -30,6 +30,15 @@
   </div>
 </section>
 
+<section class="day-tile g13-tile" id="g13-tile" aria-labelledby="g13-title">
+  <div class="day-head">
+    <h2 id="g13-title">Szczyt G13: podłogówka 16–21</h2>
+    <span class="badge" id="g13-badge">ładowanie…</span>
+  </div>
+  <div id="g13-body" class="day-body" aria-live="polite"></div>
+  <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+</section>
+
 <section class="day-tile" id="day-tile" aria-labelledby="day-title">
   <div class="day-head">
     <h2 id="day-title">Doba: koszt ogrzewania</h2>
@@ -63,4 +72,5 @@
 {% block scripts %}
 <script src="{{ base }}/static/dashboard.js?v={{ version }}"></script>
 <script src="{{ base }}/static/day.js?v={{ version }}"></script>
+<script src="{{ base }}/static/g13.js?v={{ version }}"></script>
 {% endblock %}

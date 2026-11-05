@@ -794,3 +794,16 @@ def test_api_costs_400_days_allowed(tmp_path):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["days"] == 400 and data["group"] == "month" and data["buckets"][-1]["in_progress"] is False
+
+
+def test_api_g13_and_dashboard_tile(client):
+    data = client.get("/api/g13").get_json()
+    assert data["status"] == "off" and data["enabled"] is False
+    assert set(data) >= {"today", "week", "trips_7d", "next", "status_label"}
+    assert 'id="g13-tile"' in client.get("/").get_data(as_text=True)
+
+
+def test_options_page_has_g13_fields_with_defaults(client):
+    html = client.get("/options").get_data(as_text=True)
+    assert 'name="g13_peak_enabled"' in html and 'name="g13_peak_min_room_c"' in html
+    assert 'value="20.5"' in html and 'name="g13_peak_peak_shift" value="-4"' in html

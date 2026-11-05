@@ -395,6 +395,7 @@ img { max-width: 100%; }
 .badge.kind-eksperyment, .badge.kind-test { border-color: #c9821e; }
 .badge.kind-alert { border-color: #b3372f; }
 .badge.ok { border-color: #3f8a4f; }
+.badge.warn { border-color: #c9821e; }
 .badge.conf-niska { color: #b3372f; }
 .room-picks { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0; }
 .room-pick { display: flex; align-items: center; gap: 6px; }
@@ -523,6 +524,7 @@ img { max-width: 100%; }
 .hd-body { padding: 0 12px 10px; }
 .heat-summary .stat-strip { margin-bottom: 8px; }
 .day-tile a { color: var(--accent); }
+.g13-tile .sub { margin: 6px 0 0; }
 
 /* Zakładka „Koszty” */
 .k-controls { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-end; margin: 8px 0; }

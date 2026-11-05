@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, costs, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
-from . import floor_model, kpi
+from . import floor_model, g13_view, kpi
 from . import db as dbm
 from .tariff import default_is_workday
 
@@ -167,6 +167,17 @@ def create_app(db_path: str,
             attic_room=attic_room, attic_eq=attic_eq, pump_eq=pump_eq,
             live=live_data(settings),
         )
+
+    @app.get("/api/g13")
+    def api_g13():
+        """Kafel „Szczyt G13” na pulpicie (E4): stan trybu, następna zmiana, energia strefy szczytu, bezpiecznik."""
+        settings = get_settings()
+        now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None)
+        conn = db_conn()
+        try:
+            return jsonify(g13_view.build(conn, settings, now, is_workday))
+        finally:
+            conn.close()
 
     @app.get("/api/live")
     def api_live():
