@@ -177,12 +177,8 @@ def test_failed_recompute_drops_the_old_clock_baseline():
 def test_baseline_evening_only_counts_16_21_workdays():
     stats = _winter_stats(days=28)
     b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", evening_only=True)
-    # tydzień: 5 dni × 5 h popołudniowego szczytu × 1,0 = 25 kWh; reszta 168−25 = 143 h w mieszance 1,0/0,5
-    peak_h_g12 = 5 * 14
-    other = 70 - 25                                      # godziny G12w-szczytu poza 16–21 liczą się jak „poza”
-    total = 70 + 49
-    assert b["overall"] == pytest.approx(25 / total, abs=0.005)
-    assert other == 45
+    # tydzień: 5 dni × 5 h popołudniowego szczytu × 1,0 = 25 kWh z 70 + 49 kWh łącznie
+    assert b["overall"] == pytest.approx(25 / (70 + 49), abs=0.005)
 
 
 def test_recent_kpi_uses_evening_zone_only():
@@ -197,3 +193,26 @@ def test_recent_kpi_uses_evening_zone_only():
         _cycle(conn, datetime(2026, 1, 14, h), energy_kwh=4.0, tariff_peak=0)
     k = kpi.recent_kpi(conn, datetime(2026, 1, 15, 8, 0), None)
     assert k["share"] == pytest.approx(4.0 / 16.0, abs=0.001)    # tylko 17:00; poranny szczyt nie liczy się
+
+
+def test_recent_kpi_fallback_window_without_feed_rows():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    # bez wierszy tariff_hours: tylko środa 17:00 to szczyt popołudniowy (stary poranny szczyt i sobota — nie)
+    _cycle(conn, datetime(2026, 1, 14, 17), energy_kwh=4.0, tariff_peak=1)     # środa
+    _cycle(conn, datetime(2026, 1, 14, 12), energy_kwh=4.0, tariff_peak=1)     # poranny szczyt zapisany jako 1
+    _cycle(conn, datetime(2026, 1, 10, 17), energy_kwh=4.0, tariff_peak=1)     # sobota
+    _cycle(conn, datetime(2026, 1, 14, 3), energy_kwh=4.0, tariff_peak=0)
+    k = kpi.recent_kpi(conn, datetime(2026, 1, 15, 8, 0), None)
+    assert k["share"] == pytest.approx(4.0 / 16.0, abs=0.001)
+
+
+def test_v2_baseline_from_previous_release_is_recomputed():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    dbm.set_setting(conn, "peak_baseline", {"overall": 0.4, "kwh": 1.0, "hours": 1, "v": 2})
+    settings = {"heiko_bootstrap_outdoor_entity": "sensor.owm", "pump_energy_entity": "sensor.energy"}
+    stats = _winter_stats(days=28, start=datetime(2025, 12, 1, tzinfo=timezone.utc))
+    stats["sensor.power_meter_consumption"] = [{"start": r["start"], "change": 5.0} for r in stats["sensor.energy"]]
+    b = kpi.ensure_peak_baseline(conn, settings, datetime(2026, 9, 26, 12, 0), get_statistics=lambda *a: stats)
+    assert b["v"] == 3 and b["overall"] == pytest.approx(25 / 119, abs=0.005)

@@ -265,9 +265,9 @@ def test_api_plan_returns_kpi_with_baseline(tmp_path):
     rows[1]["ts"] = (now - timedelta(hours=2)).isoformat()
     app = _app_with_db(tmp_path, {**SETTINGS, "peak_baseline": baseline}, rows)
     conn = dbm.get_conn(str(tmp_path / "t.db"))
-    for t, zone in ((now, "evening_peak"), (now - timedelta(hours=2), "other")):
+    for t, zone, gross in ((now, "evening_peak", 1.4961), (now - timedelta(hours=2), "other", 0.6257)):
         conn.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
-                     "VALUES (?, 'G13', ?, 1, 'mid', 1.4961, 'document', 'x')", (t.strftime("%Y-%m-%dT%H"), zone))
+                     "VALUES (?, 'G13', ?, 1, 'mid', ?, 'document', 'x')", (t.strftime("%Y-%m-%dT%H"), zone, gross))
     conn.commit()
     conn.close()
     data = app.test_client().get("/api/plan").get_json()

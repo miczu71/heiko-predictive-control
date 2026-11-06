@@ -115,12 +115,12 @@ function svgChart(plan, active) {
 function renderKpi(data) {
   const k = data.kpi, b = data.kpi_baseline;
   const pct = (v) => (v == null ? "—" : `${(v * 100).toFixed(1).replace(".", ",")}%`);
+  const label = document.getElementById("kpi-title");
+  if (label) label.textContent = `Udział energii w szczycie popołudniowym${data.peak_price == null ? "" : ` (stawka ${data.peak_price.toFixed(2).replace(".", ",")} zł/kWh)`} — zmierzony`;
   if (!b) {
     return `<p class="note">Baza z zimy jest jeszcze liczona (pierwsze uruchomienie, kilka minut).</p>`;
   }
   const base = `Szczyt = tylko popołudniowy (dni robocze 16–21), liczony z poboru z sieci; baza z zimy ma to samo okno. Zima sprzed sterowania: ${pct(b.overall)} energii w szczycie popołudniowym (${b.hours} h danych, ${esc(b.at.slice(0, 10))}).`;
-  const label = document.getElementById("kpi-title");
-  if (label) label.textContent = `Udział energii w szczycie popołudniowym${data.peak_price == null ? "" : ` (stawka ${data.peak_price.toFixed(2).replace(".", ",")} zł/kWh)`} — zmierzony`;
   if (!k) {
     return `<p>Za mało energii w ostatnich 7 dniach (poza sezonem grzewczym) — KPI pojawi się, gdy pompa zacznie grzać.</p>
       <p class="note">${base}</p>`;
