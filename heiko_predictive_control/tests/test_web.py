@@ -254,7 +254,7 @@ def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
 
 
 def test_api_plan_returns_kpi_with_baseline(tmp_path):
-    from datetime import datetime
+    from datetime import datetime, timedelta
     now = datetime.now()
     rows = [{"ts": now.isoformat(), "loop": "heiko", "active_profile": "ekonomia", "write_enabled": 0,
              "energy_kwh": 3.0, "tariff_peak": 1, "outdoor_temp_c": 2.0},
@@ -262,8 +262,16 @@ def test_api_plan_returns_kpi_with_baseline(tmp_path):
              "energy_kwh": 7.0, "tariff_peak": 0, "outdoor_temp_c": 2.0}]
     baseline = {"overall": 0.5, "hours": 4000, "kwh": 1800.0, "at": "2026-09-26T06:00",
                 "by_class": {"3": {"share": 0.5, "hours": 500, "kwh": 200.0}}}
-    data = _app_with_db(tmp_path, {**SETTINGS, "peak_baseline": baseline}, rows).test_client() \
-        .get("/api/plan").get_json()
+    rows[1]["ts"] = (now - timedelta(hours=2)).isoformat()
+    app = _app_with_db(tmp_path, {**SETTINGS, "peak_baseline": baseline}, rows)
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    for t, zone in ((now, "evening_peak"), (now - timedelta(hours=2), "other")):
+        conn.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                     "VALUES (?, 'G13', ?, 1, 'mid', 1.4961, 'document', 'x')", (t.strftime("%Y-%m-%dT%H"), zone))
+    conn.commit()
+    conn.close()
+    data = app.test_client().get("/api/plan").get_json()
+    assert data["peak_price"] == 1.5
     assert data["kpi"]["share"] == pytest.approx(0.3) and data["kpi"]["delta_pp"] == pytest.approx(-20.0)
     assert data["kpi_baseline"]["overall"] == 0.5 and data["kpi_baseline"]["hours"] == 4000
 
@@ -807,3 +815,14 @@ def test_options_page_has_g13_fields_with_defaults(client):
     html = client.get("/options").get_data(as_text=True)
     assert 'name="g13_peak_enabled"' in html and 'name="g13_peak_min_room_c"' in html
     assert 'value="20.5"' in html and 'name="g13_peak_peak_shift" value="-4"' in html
+
+
+def test_tariff_from_hour_g13_zones():
+    from types import SimpleNamespace
+    from heiko_predictive_control.live import tariff_from_hour
+    h = lambda zone, peak, gross: SimpleNamespace(zone=zone, is_peak=peak, gross=gross)
+    assert tariff_from_hour(h("morning_peak", True, 0.9048)) == {"peak": True, "label": "Szczyt poranny", "price": "0,90 PLN/kWh"}
+    assert tariff_from_hour(h("evening_peak", True, 1.49605))["label"] == "Szczyt popołudniowy"
+    assert tariff_from_hour(h("other", False, 0.6257)) == {"peak": False, "label": "Poza szczytem", "price": "0,63 PLN/kWh"}
+    assert tariff_from_hour(h(None, True, 1.0))["label"] == "Szczyt"          # G12w / brak strefy
+    assert tariff_from_hour(h(None, False, 1.0))["label"] == "Poza szczytem"

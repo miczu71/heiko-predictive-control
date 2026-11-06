@@ -92,11 +92,17 @@ def test_ensure_peak_baseline_stores_once_and_retries_without_stats():
     assert calls == []                                                 # raz policzona — bez ponownego pobierania
 
 
+def _zone(conn, ts, zone):
+    conn.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                 "VALUES (?, 'G13', ?, ?, 'mid', 1.0, 'document', 'x')", (ts.strftime("%Y-%m-%dT%H"), zone, int(zone != "other")))
+
+
 def test_recent_kpi_reads_last_week_from_cycles():
     conn = dbm.get_conn(":memory:")
     dbm.migrate(conn)
     now = datetime(2026, 1, 14, 12, 0)
     for i in range(40):
+        _zone(conn, now - timedelta(hours=i), "evening_peak" if i % 2 else "other")
         dbm.insert_cycle(conn, {"ts": (now - timedelta(hours=i)).isoformat(), "loop": "heiko",
                                 "active_profile": "ekonomia", "write_enabled": 0, "energy_kwh": 0.5,
                                 "tariff_peak": i % 2, "outdoor_temp_c": 2.0})
@@ -133,7 +139,7 @@ def test_old_clock_only_baseline_is_recomputed_once():
     b = kpi.ensure_peak_baseline(conn, settings, datetime(2026, 9, 26, 12, 0),
                                  get_statistics=lambda ids, *a: asked.append(ids) or stats)
     assert "sensor.power_meter_consumption" in asked[0]
-    assert b["overall"] == pytest.approx(70 / 119, abs=0.005) and b["v"] == kpi.BASELINE_VERSION
+    assert b["overall"] == pytest.approx(25 / 119, abs=0.005) and b["v"] == kpi.BASELINE_VERSION
 
 
 def _cycle(conn, ts, **kw):
@@ -145,7 +151,8 @@ def test_recent_kpi_takes_grid_share_per_hour_like_the_lts_baseline():
     conn = dbm.get_conn(":memory:")
     dbm.migrate(conn)
     now = datetime(2026, 1, 14, 12, 0)                               # środa
-    hour = datetime(2026, 1, 14, 10, 0)                              # szczyt
+    hour = datetime(2026, 1, 14, 10, 0)                              # szczyt (strefa popołudniowa z feedu)
+    _zone(conn, hour, "evening_peak")
     for i, (imp, grid) in enumerate([(2.0, 0.5), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]):
         _cycle(conn, hour + timedelta(minutes=15 * i), energy_kwh=0.5, tariff_peak=1,
                grid_kwh=grid, grid_import_kwh=imp)
@@ -165,3 +172,28 @@ def test_failed_recompute_drops_the_old_clock_baseline():
     assert kpi.ensure_peak_baseline(conn, settings, datetime(2026, 9, 26, 12, 0),
                                     get_statistics=lambda *a: None) is None
     assert not dbm.get_setting(conn, "peak_baseline")                # nie porównujemy z bazą zegarową
+
+
+def test_baseline_evening_only_counts_16_21_workdays():
+    stats = _winter_stats(days=28)
+    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", evening_only=True)
+    # tydzień: 5 dni × 5 h popołudniowego szczytu × 1,0 = 25 kWh; reszta 168−25 = 143 h w mieszance 1,0/0,5
+    peak_h_g12 = 5 * 14
+    other = 70 - 25                                      # godziny G12w-szczytu poza 16–21 liczą się jak „poza”
+    total = 70 + 49
+    assert b["overall"] == pytest.approx(25 / total, abs=0.005)
+    assert other == 45
+
+
+def test_recent_kpi_uses_evening_zone_only():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    # środa 14.01.2026: 12:00 = poranny szczyt, 17:00 = popołudniowy; oba mają zapisane tariff_peak = 1
+    _zone(conn, datetime(2026, 1, 14, 12), "morning_peak")
+    _zone(conn, datetime(2026, 1, 14, 17), "evening_peak")
+    for h in (12, 17):
+        _cycle(conn, datetime(2026, 1, 14, h), energy_kwh=4.0, tariff_peak=1)
+    for h in (3, 4):
+        _cycle(conn, datetime(2026, 1, 14, h), energy_kwh=4.0, tariff_peak=0)
+    k = kpi.recent_kpi(conn, datetime(2026, 1, 15, 8, 0), None)
+    assert k["share"] == pytest.approx(4.0 / 16.0, abs=0.001)    # tylko 17:00; poranny szczyt nie liczy się

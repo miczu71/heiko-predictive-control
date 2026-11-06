@@ -134,9 +134,13 @@ def create_app(db_path: str,
             row = dbm.latest_cycle(conn, "attic")
             totals = dbm.attic_today_totals(conn, date.today().isoformat())
             heiko_row = dbm.latest_cycle(conn, "heiko")
-            status = tariff_feed.for_settings(conn, settings, is_workday).status()
+            feed = tariff_feed.for_settings(conn, settings, is_workday)
+            status = feed.status()
+            hour = feed.at(datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None))
         finally:
             conn.close()
+        if hour is not None and status["source"] != "fallback":
+            data["tariff"] = live.tariff_from_hour(hour)
         data["tariff_source"] = status["source"]
         data["tariff_status"] = status
         if heiko_row is not None:
@@ -277,6 +281,9 @@ def create_app(db_path: str,
         baseline = settings.get("peak_baseline")
         try:
             recent = kpi.recent_kpi(conn, datetime.now(), baseline)
+            price_row = conn.execute("SELECT gross FROM tariff_hours WHERE zone = ? ORDER BY hour DESC LIMIT 1",
+                                     (kpi.EVENING_ZONE,)).fetchone()
+            peak_price = None if price_row is None else round(price_row["gross"], 2)
             status = tariff_feed.for_settings(conn, settings, is_workday).status()
             errs = [r["model_err_c"] for r in conn.execute(
                 "SELECT model_err_c FROM cycles WHERE loop = 'heiko' AND model_err_c IS NOT NULL "
@@ -293,7 +300,7 @@ def create_app(db_path: str,
             "kpi": recent,
             # Baza historyczna zostaje G12w; bieżące dni liczone są szczytem z taryfy z feedu (jeśli jest).
             "peak_basis": "G12w" if status["source"] != "feed" else (status["tariff"] or "G12w"),
-            "peak_baseline_basis": "G12w",
+            "peak_price": peak_price,
             "kpi_baseline": None if not baseline else {k: baseline.get(k) for k in ("overall", "hours", "kwh", "at")},
         })
 

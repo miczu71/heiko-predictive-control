@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1 — szczyt popołudniowy G13 na Pulpicie i w KPI
+
+- **Poprawka — kafel taryfy na Pulpicie:** pokazuje „Szczyt poranny”, „Szczyt popołudniowy” albo „Poza szczytem” (strefa i cena brutto z harmonogramu pv_roi), zamiast jednego „SZCZYT” ze starego sensora G12w. Przy nieaktualnym harmonogramie zostaje poprzedni odczyt.
+- **Zmiana — KPI „Udział energii w szczycie popołudniowym (stawka X zł/kWh)”:** do szczytu liczy się tylko strefa `evening_peak` (jedyna naprawdę droga), nie poranny szczyt. Tytuł pokazuje bieżącą stawkę szczytu popołudniowego. Baza z zimy liczona jest od nowa (okno 16–21 w dni robocze) i przez chwilę po starcie pokazuje „baza w trakcie liczenia”.
+- Znane: okno 16–21 w bazie i dla godzin bez wiersza w `tariff_hours` to zimowe przybliżenie; docelowo wszystkie taryfy z pv_roi — `docs/ROADMAP_tariff_single_source.md`.
+
 ## 0.21.0 — tryb „Szczyt G13” i naprawa wyniku testu Bezwładność
 
 - **Nowe — tryb „Szczyt G13” (domyślnie wyłączony):** w dni robocze (wg harmonogramu taryfy) o 13:00 przesunięcie krzywej = bazowe + dogrzanie (+1), o 16:00 bazowe − 4, o 21:00 powrót do bazowego. Bezpiecznik: najzimniejszy pokój stref dziennych poniżej progu (domyślnie 20,5 °C) przez 15 min → powrót do bazowego do 21:00 i powiadomienie. Zapis tylko przez istniejącą ścieżkę z potwierdzeniem ramką i wpisem w `pump_writes`; skok do ±4 dozwolony wyłącznie dla przesunięcia krzywej w tym trybie. Ręczna zmiana przesunięcia, odrzucony zapis albo brak potwierdzenia wstrzymują tryb do jutra. Tryb nie działa w trakcie testu, test nie wystartuje przy włączonym trybie, a główny wyłącznik „Sterowanie aktywne (Heiko)” gasi też tryb.

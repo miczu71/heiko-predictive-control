@@ -55,6 +55,15 @@ def fmt_price(value: Any) -> str:
     return "—" if v is None else f"{v:.2f}".replace(".", ",") + " PLN/kWh"
 
 
+ZONE_LABELS = {"morning_peak": "Szczyt poranny", "evening_peak": "Szczyt popołudniowy", "other": "Poza szczytem"}
+
+
+def tariff_from_hour(hour) -> dict:
+    """Kafel taryfy z godziny harmonogramu pv_roi (G13: szczyt poranny / popołudniowy / poza szczytem)."""
+    label = ZONE_LABELS.get(hour.zone) or ("Szczyt" if hour.is_peak else "Poza szczytem")
+    return {"peak": bool(hour.is_peak), "label": label, "price": fmt_price(hour.gross)}
+
+
 def _as_bool(state: Any) -> bool | None:
     s = str(state).strip().lower() if state is not None else ""
     if s in ("true", "on", "1"):
