@@ -811,6 +811,11 @@ def test_api_g13_and_dashboard_tile(client):
     assert 'id="g13-tile"' in client.get("/").get_data(as_text=True)
 
 
+def test_dashboard_writes_tile_without_test_says_none(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "pompa na własnej krzywej" in html and "Szczyt G13 ·" not in html
+
+
 def test_options_page_has_g13_fields_with_defaults(client):
     html = client.get("/options").get_data(as_text=True)
     assert 'name="g13_peak_enabled"' in html and 'name="g13_peak_min_room_c"' in html

@@ -23,6 +23,9 @@
     {% if writes.test %}
     <span class="stat-value">{{ writes.test.title }}</span>
     <span class="stat-sub">{% if writes.test.next_at %}następny krok {{ writes.test.next_at }} → {{ writes.test.next_value }}{% else %}ostatni krok wykonany{% endif %}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
+    {% elif writes.g13 %}
+    <span class="stat-value">Szczyt G13 · {{ writes.g13.shift|replace("-", "−") }}</span>
+    <span class="stat-sub">przesunięcie krzywej: {{ writes.g13.phase }}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
     {% else %}
     <span class="stat-value">brak</span>
     <span class="stat-sub">pompa na własnej krzywej{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
@@ -32,7 +35,7 @@
 
 <section class="day-tile g13-tile" id="g13-tile" aria-labelledby="g13-title">
   <div class="day-head">
-    <h2 id="g13-title">Szczyt G13: podłogówka 16–21</h2>
+    <h2 id="g13-title">Szczyt G13: przedgrzewanie 13–16, podłogówka 16–21</h2>
     <span class="badge" id="g13-badge">ładowanie…</span>
   </div>
   <div id="g13-body" class="day-body" aria-live="polite"></div>

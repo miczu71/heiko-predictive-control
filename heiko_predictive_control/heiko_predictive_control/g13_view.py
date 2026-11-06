@@ -36,20 +36,45 @@ def _next_change(now: datetime, workday: bool | None, cfg: g13_peak.Config) -> d
     return None
 
 
+def _now_phase(now: datetime, workday: bool | None, st: dict) -> dict | None:
+    """Faza okna i przesunięcie ostatnio zapisane przez tryb; poza oknem, w dzień wolny albo bez zapisu brak."""
+    shift = st.get("last_written")
+    if not workday or shift is None:
+        return None
+    if g13_peak.PREHEAT_FROM_H <= now.hour < g13_peak.PEAK_FROM_H:
+        phase = f"przedgrzewanie do {g13_peak.PEAK_FROM_H:02d}:00"
+    elif g13_peak.PEAK_FROM_H <= now.hour < g13_peak.WINDOW_END_H:
+        phase = f"szczyt do {g13_peak.WINDOW_END_H:02d}:00"
+    else:
+        return None
+    return {"phase": phase, "shift": f"{shift:+g}"}
+
+
+def _status(settings: dict, st: dict, today: date) -> str:
+    if not settings.get("g13_peak_enabled", False):
+        return "off"
+    if not g13_exec.active(settings):
+        return "blocked"
+    if st.get("suspended_day") == today.isoformat():
+        return "suspended"
+    if st.get("tripped") and st.get("day") == today.isoformat():
+        return "tripped"
+    return "active"
+
+
+def now_view(conn, settings: dict, now: datetime, is_workday) -> dict | None:
+    """Tylko „teraz” (faza i przesunięcie) — lekkie, bez runów; dla kafla „Zapisy do pompy” na pulpicie."""
+    st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
+    if _status(settings, st, now.date()) != "active":
+        return None
+    workday = g13_peak.workday_from_feed(tariff_feed.for_settings(conn, settings, is_workday), now.date(), now)
+    return _now_phase(now, workday, st)
+
+
 def build(conn, settings: dict, now: datetime, is_workday) -> dict:
     today = now.date()
     st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
-    enabled = bool(settings.get("g13_peak_enabled", False))
-    if not enabled:
-        status = "off"
-    elif not g13_exec.active(settings):
-        status = "blocked"
-    elif st.get("suspended_day") == today.isoformat():
-        status = "suspended"
-    elif st.get("tripped") and st.get("day") == today.isoformat():
-        status = "tripped"
-    else:
-        status = "active"
+    status = _status(settings, st, today)
     feed = tariff_feed.for_settings(conn, settings, is_workday)
     workday = g13_peak.workday_from_feed(feed, today, now)
     week_start = today - timedelta(days=WEEK_DAYS - 1)
@@ -58,9 +83,10 @@ def build(conn, settings: dict, now: datetime, is_workday) -> dict:
     week_runs = heating_runs.load_range(conn, day_bounds(week_start, tz_name)[0], day_bounds(today, tz_name)[1])
     today_runs = [r for r in week_runs if datetime.fromisoformat(r["start"]) >= today_start]
     return {
-        "enabled": enabled, "status": status, "status_label": STATUS_LABELS[status],
+        "enabled": bool(settings.get("g13_peak_enabled", False)), "status": status, "status_label": STATUS_LABELS[status],
         "workday": workday,
         "next": _next_change(now, workday, g13_exec._config(settings)) if status == "active" else None,
+        "now": _now_phase(now, workday, st) if status == "active" else None,
         "today": _zone_energy(today_runs),
         "week": _zone_energy(week_runs),
         "trips_7d": sum(1 for d in st.get("trips") or [] if d >= week_start.isoformat()),

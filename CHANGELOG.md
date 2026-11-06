@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.2 — Pulpit pokazuje aktywne przesunięcie trybu „Szczyt G13”
+
+- **Poprawka — kafel „Zapisy do pompy”:** gdy działa tryb Szczyt G13 (bez testu), pokazuje „Szczyt G13 · +1” z fazą („przedgrzewanie do 16:00”, „szczyt do 21:00”) zamiast „brak / pompa na własnej krzywej”. Kafel nadal pokazuje test w toku, gdy taki jest.
+- **Nowe — kafel „Szczyt G13”:** linia „Teraz: przesunięcie +1 (przedgrzewanie do 16:00)” z ostatniego zapisu trybu (tylko w dzień roboczy, w oknie 13–21); nagłówek wspomina przedgrzewanie 13–16.
+- Testy: 796 (wcześniej 788).
+
 ## 0.21.1 — szczyt popołudniowy G13 na Pulpicie i w KPI
 
 - **Poprawka — kafel taryfy na Pulpicie:** pokazuje „Szczyt poranny”, „Szczyt popołudniowy” albo „Poza szczytem” (strefa i cena brutto z harmonogramu pv_roi), zamiast jednego „SZCZYT” ze starego sensora G12w. Przy nieaktualnym harmonogramie zostaje poprzedni odczyt.

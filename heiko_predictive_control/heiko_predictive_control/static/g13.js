@@ -20,10 +20,14 @@ function nextLine(d) {
   return d.next ? `Następna zmiana ${esc(d.next.at)} → ${esc(String(d.next.value).replace("-", "\u2212"))}` : "Dziś bez kolejnych zmian.";
 }
 
+function nowLine(d) {
+  return d.now ? `<p class="sub">Teraz: przesunięcie ${esc(d.now.shift.replace("-", "\u2212"))} (${esc(d.now.phase)})</p>` : "";
+}
+
 function render(d) {
   badge.textContent = d.status_label;
   badge.className = "badge" + (BADGE[d.status] ? " " + BADGE[d.status] : "");
-  body.innerHTML = `<p class="sub">${nextLine(d)}</p>
+  body.innerHTML = `${nowLine(d)}<p class="sub">${nextLine(d)}</p>
     <table class="day-table"><thead><tr><th></th><th>Energia</th><th>Koszt</th></tr></thead>
     <tbody>${row("Dziś", d.today)}${row("7 dni", d.week)}</tbody></table>
     <p class="sub">Zadziałania bezpiecznika w 7 dni: ${d.trips_7d}. Energia i koszt wg stref taryfy, z zakończonych runów.</p>`;

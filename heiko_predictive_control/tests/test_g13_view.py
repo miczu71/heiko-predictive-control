@@ -37,6 +37,22 @@ def test_nastepna_zmiana_w_dzien_roboczy(conn):
     assert g13_view.build(conn, ON, at(22), WD)["next"] is None
 
 
+def test_teraz_faza_i_przesuniecie_z_ostatniego_zapisu(conn):
+    feed(conn, at(14), True)
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": 1.0})
+    assert g13_view.build(conn, ON, at(14), WD)["now"] == {"phase": "przedgrzewanie do 16:00", "shift": "+1"}
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": -4.0})
+    assert g13_view.build(conn, ON, at(17), WD)["now"] == {"phase": "szczyt do 21:00", "shift": "-4"}
+    assert g13_view.build(conn, ON, at(22), WD)["now"] is None
+    assert g13_view.build(conn, ON, at(12), WD)["now"] is None
+    assert g13_view.build(conn, {}, at(14), WD)["now"] is None
+
+
+def test_teraz_brak_bez_zapisu(conn):
+    feed(conn, at(14), True)
+    assert g13_view.build(conn, ON, at(14), WD)["now"] is None
+
+
 def test_dzien_wolny_brak_nastepnej(conn):
     feed(conn, at(10), False)
     assert g13_view.build(conn, ON, at(10), WD)["next"] is None

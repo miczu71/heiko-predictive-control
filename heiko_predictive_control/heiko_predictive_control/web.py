@@ -157,12 +157,15 @@ def create_app(db_path: str,
         try:
             heiko = dbm.latest_cycle(conn, "heiko")
             attic = dbm.latest_cycle(conn, "attic")
-            writes = {"test": _running_test_view(conn),
+            settings = get_settings()
+            now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None)
+            test = _running_test_view(conn)
+            writes = {"test": test,
+                      "g13": None if test else g13_view.now_view(conn, settings, now, is_workday),
                       "pending": conn.execute("SELECT COUNT(*) FROM proposals WHERE status = ?",
                                               (advisor.STATUS_PENDING,)).fetchone()[0]}
         finally:
             conn.close()
-        settings = get_settings()
         return render_template(
             "dashboard.html", base=base(), active="dashboard", writes=writes,
             heiko=dict(heiko) if heiko else None,
