@@ -160,8 +160,14 @@ def create_app(db_path: str,
             settings = get_settings()
             now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None)
             test = _running_test_view(conn)
+            g13_now = None
+            if not test:
+                try:
+                    g13_now = g13_view.now_view(conn, settings, now, is_workday)
+                except Exception:                      # kafel pomocniczy nie może położyć Pulpitu
+                    logger.warning("pulpit: nie udało się odczytać stanu trybu Szczyt G13", exc_info=True)
             writes = {"test": test,
-                      "g13": None if test else g13_view.now_view(conn, settings, now, is_workday),
+                      "g13": g13_now,
                       "pending": conn.execute("SELECT COUNT(*) FROM proposals WHERE status = ?",
                                               (advisor.STATUS_PENDING,)).fetchone()[0]}
         finally:

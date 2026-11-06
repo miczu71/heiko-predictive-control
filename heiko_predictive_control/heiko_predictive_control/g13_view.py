@@ -37,9 +37,10 @@ def _next_change(now: datetime, workday: bool | None, cfg: g13_peak.Config) -> d
 
 
 def _now_phase(now: datetime, workday: bool | None, st: dict) -> dict | None:
-    """Faza okna i przesunięcie ostatnio zapisane przez tryb; poza oknem, w dzień wolny albo bez zapisu brak."""
+    """Faza okna i przesunięcie krzywej (wartość bezwzględna: bazowe + dogrzanie/szczyt) ostatnio zapisane przez tryb
+    dziś; poza oknem, w dzień wolny, bez dzisiejszego zapisu albo z danymi z wczoraj brak."""
     shift = st.get("last_written")
-    if not workday or shift is None:
+    if not workday or shift is None or st.get("day") != now.date().isoformat():
         return None
     if g13_peak.PREHEAT_FROM_H <= now.hour < g13_peak.PEAK_FROM_H:
         phase = f"przedgrzewanie do {g13_peak.PEAK_FROM_H:02d}:00"
@@ -47,7 +48,8 @@ def _now_phase(now: datetime, workday: bool | None, st: dict) -> dict | None:
         phase = f"szczyt do {g13_peak.WINDOW_END_H:02d}:00"
     else:
         return None
-    return {"phase": phase, "shift": f"{shift:+g}"}
+    base = st.get("base")
+    return {"phase": phase, "shift": f"{shift:+g}", "base": None if base is None else f"{base:g}"}
 
 
 def _status(settings: dict, st: dict, today: date) -> str:

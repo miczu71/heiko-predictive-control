@@ -25,7 +25,7 @@
     <span class="stat-sub">{% if writes.test.next_at %}następny krok {{ writes.test.next_at }} → {{ writes.test.next_value }}{% else %}ostatni krok wykonany{% endif %}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
     {% elif writes.g13 %}
     <span class="stat-value">Szczyt G13 · {{ writes.g13.shift|replace("-", "−") }}</span>
-    <span class="stat-sub">przesunięcie krzywej: {{ writes.g13.phase }}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
+    <span class="stat-sub">przesunięcie krzywej{% if writes.g13.base is not none %} (bazowe {{ writes.g13.base|replace("-", "−") }}){% endif %}: {{ writes.g13.phase }}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
     {% else %}
     <span class="stat-value">brak</span>
     <span class="stat-sub">pompa na własnej krzywej{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>

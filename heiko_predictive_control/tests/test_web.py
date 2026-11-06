@@ -816,6 +816,22 @@ def test_dashboard_writes_tile_without_test_says_none(client):
     assert "pompa na własnej krzywej" in html and "Szczyt G13 ·" not in html
 
 
+def test_dashboard_writes_tile_shows_g13_shift(client, monkeypatch):
+    monkeypatch.setattr("heiko_predictive_control.g13_view.now_view",
+                        lambda *a, **k: {"phase": "szczyt do 21:00", "shift": "-4", "base": "0"})
+    html = client.get("/").get_data(as_text=True)
+    assert "Szczyt G13 · \u22124" in html and "przesunięcie krzywej (bazowe 0): szczyt do 21:00" in html
+    assert "pompa na własnej krzywej" not in html
+
+
+def test_dashboard_survives_g13_tile_failure(client, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("zły stan")
+    monkeypatch.setattr("heiko_predictive_control.g13_view.now_view", boom)
+    resp = client.get("/")
+    assert resp.status_code == 200 and "pompa na własnej krzywej" in resp.get_data(as_text=True)
+
+
 def test_options_page_has_g13_fields_with_defaults(client):
     html = client.get("/options").get_data(as_text=True)
     assert 'name="g13_peak_enabled"' in html and 'name="g13_peak_min_room_c"' in html

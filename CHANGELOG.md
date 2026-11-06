@@ -4,7 +4,8 @@
 
 - **Poprawka — kafel „Zapisy do pompy”:** gdy działa tryb Szczyt G13 (bez testu), pokazuje „Szczyt G13 · +1” z fazą („przedgrzewanie do 16:00”, „szczyt do 21:00”) zamiast „brak / pompa na własnej krzywej”. Kafel nadal pokazuje test w toku, gdy taki jest.
 - **Nowe — kafel „Szczyt G13”:** linia „Teraz: przesunięcie +1 (przedgrzewanie do 16:00)” z ostatniego zapisu trybu (tylko w dzień roboczy, w oknie 13–21); nagłówek wspomina przedgrzewanie 13–16.
-- Testy: 796 (wcześniej 788).
+- Pokazywane jest przesunięcie krzywej jako wartość bezwzględna (bazowe + dogrzanie/szczyt) z dopiskiem „bazowe X”; dane z wczoraj są ignorowane, a awaria odczytu stanu trybu nie psuje Pulpitu. Poza oknem, w dzień wolny, przy wstrzymanym/zablokowanym trybie i przy teście w toku kafel mówi jak dotąd „brak” albo pokazuje test.
+- Testy: 801 (wcześniej 788).
 
 ## 0.21.1 — szczyt popołudniowy G13 na Pulpicie i w KPI
 

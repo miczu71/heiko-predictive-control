@@ -21,7 +21,7 @@ function nextLine(d) {
 }
 
 function nowLine(d) {
-  return d.now ? `<p class="sub">Teraz: przesunięcie ${esc(d.now.shift.replace("-", "\u2212"))} (${esc(d.now.phase)})</p>` : "";
+  return d.now ? `<p class="sub">Teraz: przesunięcie krzywej ${esc(d.now.shift.replace("-", "\u2212"))}${d.now.base == null ? "" : ` (bazowe ${esc(d.now.base.replace("-", "\u2212"))})`} — ${esc(d.now.phase)}</p>` : "";
 }
 
 function render(d) {
