@@ -284,7 +284,6 @@ def create_app(db_path: str,
             price_row = conn.execute("SELECT gross FROM tariff_hours WHERE zone = ? ORDER BY hour DESC LIMIT 1",
                                      (kpi.EVENING_ZONE,)).fetchone()
             peak_price = None if price_row is None else round(price_row["gross"], 2)
-            status = tariff_feed.for_settings(conn, settings, is_workday).status()
             errs = [r["model_err_c"] for r in conn.execute(
                 "SELECT model_err_c FROM cycles WHERE loop = 'heiko' AND model_err_c IS NOT NULL "
                 "ORDER BY id DESC LIMIT 96")]
@@ -298,8 +297,6 @@ def create_app(db_path: str,
             "live_rmse_c": None if live_rmse is None else round(live_rmse, 3),
             "live_samples": len(errs),
             "kpi": recent,
-            # Baza historyczna zostaje G12w; bieżące dni liczone są szczytem z taryfy z feedu (jeśli jest).
-            "peak_basis": "G12w" if status["source"] != "feed" else (status["tariff"] or "G12w"),
             "peak_price": peak_price,
             "kpi_baseline": None if not baseline else {k: baseline.get(k) for k in ("overall", "hours", "kwh", "at")},
         })

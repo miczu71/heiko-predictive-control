@@ -43,7 +43,7 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
                         tz_name: str = DEFAULT_TZ, grid: str | None = None,
                         evening_only: bool = False) -> dict | None:
     """Udział energii w szczycie w zimie, ogółem i per klasa temp. zewn. Szczyt = dzień
-    roboczy (pn–pt, święta pomijamy) w oknach G12w, wg czasu lokalnego. Z `grid` (licznik
+    roboczy (pn–pt, święta pomijamy) w oknach G12w (z `evening_only`: tylko 16–21), wg czasu lokalnego. Z `grid` (licznik
     poboru z sieci) w szczycie liczy się tylko min(energia pompy, pobór) w tej godzinie."""
     tz = ZoneInfo(tz_name)
     temps = {r["start"]: r["mean"] for r in stats.get(outdoor, []) if r.get("mean") is not None}
@@ -157,8 +157,9 @@ def _evening_rows(conn, rows) -> list[dict]:
         d = dict(r)
         if d["tariff_peak"] is not None:
             hour = d["ts"][:13]
-            if hour in zones and zones[hour]:
-                d["tariff_peak"] = int(zones[hour] == EVENING_ZONE)
+            zone = zones.get(hour)
+            if zone:
+                d["tariff_peak"] = int(zone == EVENING_ZONE)
             else:
                 t = datetime.fromisoformat(d["ts"])
                 d["tariff_peak"] = int(is_evening_peak_hour(t.hour, default_is_workday(t.date())))
