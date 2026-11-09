@@ -957,3 +957,51 @@ def test_api_plan_peak_price_none_without_rows_or_other_zone(tmp_path, monkeypat
 
 def test_api_plan_peak_price_none_for_other_zone_now(tmp_path, monkeypatch):
     assert _plan_peak_price(tmp_path, [(0, "other", 0.6)], monkeypatch) is None
+
+
+def test_api_tail_cut_keys_and_dashboard_tile(client):
+    data = client.get("/api/tail_cut").get_json()
+    assert data["status"] == "off"
+    assert set(data) >= {"status", "status_label", "margin_k", "delay_min", "hold_min", "min_room_c", "pause_min",
+                         "tail_minutes", "cuts_today", "cuts_7d", "cuts_total", "last_cut", "last"}
+    html = client.get("/").get_data(as_text=True)
+    assert 'id="tail-cut-tile"' in html and "tail_cut.js" in html
+
+
+def test_options_page_has_tail_cut_fields(client):
+    html = client.get("/options").get_data(as_text=True)
+    assert 'name="tail_cut_enabled"' in html
+    for name in ("tail_margin_k", "tail_delay_min", "tail_min_pause_min", "tail_min_room_c", "tail_dhw_hold_min"):
+        assert f'name="{name}"' in html
+
+
+def _recording_client(tmp_path, saved):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    conn.close()
+    app = create_app(db_path, lambda: dict(SETTINGS), lambda k, v: saved.__setitem__(k, v),
+                     get_state=get_state, get_numeric=get_numeric, house=HOUSE)
+    return app.test_client()
+
+
+def test_post_settings_out_of_range_is_400_and_nothing_saved(tmp_path):
+    saved = {}
+    resp = _recording_client(tmp_path, saved).post("/api/settings", json={"g13_peak_peak_shift": -4, "tail_margin_k": 1.0})
+    assert resp.status_code == 400 and resp.get_json()["ok"] is False and resp.get_json()["errors"]
+    assert saved == {}
+
+
+def test_post_settings_tail_values_in_range_saved(tmp_path):
+    saved = {}
+    payload = {"tail_cut_enabled": True, "tail_margin_k": 1.5, "tail_delay_min": 60, "tail_min_pause_min": 30,
+               "tail_min_room_c": None, "tail_dhw_hold_min": 2}
+    resp = _recording_client(tmp_path, saved).post("/api/settings", json=payload)
+    assert resp.status_code == 200
+    assert saved == payload
+
+
+def test_post_settings_unknown_keys_unchanged(tmp_path):
+    saved = {}
+    resp = _recording_client(tmp_path, saved).post("/api/settings", json={"some_unknown_key": "x"})
+    assert resp.status_code == 200 and saved == {"some_unknown_key": "x"}

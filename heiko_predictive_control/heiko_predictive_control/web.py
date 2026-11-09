@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, costs, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
-from . import floor_model, g13_view, kpi
+from . import floor_model, g13_view, kpi, tail_cut_view
 from . import db as dbm
 from .workday import default_is_workday
 
@@ -53,6 +53,30 @@ def _running_test_view(conn) -> Optional[dict]:
         logger.warning("pulpit: nieczytelny plan testu #%s", test["id"], exc_info=True)
         view["next_at"] = view["next_value"] = None
     return view
+
+
+# Zakresy opcji liczbowych (włącznie). Klucze `tail_*` dopuszczają `None` (pusta opcja = domyślna wartość).
+SETTING_RANGES = {
+    "g13_peak_preheat_shift": (-3, 3), "g13_peak_peak_shift": (-3, 3),
+    "tail_margin_k": (0.2, 5), "tail_delay_min": (10, 240), "tail_min_pause_min": (5, 240),
+    "tail_min_room_c": (15, 26), "tail_dhw_hold_min": (1, 10),
+}
+
+
+def _validate_settings(payload: dict) -> list[str]:
+    """Błędy opcji spoza zakresu albo nieliczbowych; pusta lista = wszystko poprawne."""
+    errors = []
+    for key, (low, high) in SETTING_RANGES.items():
+        if key not in payload:
+            continue
+        value = payload[key]
+        if value is None and key.startswith("tail_"):
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            errors.append(f"{key}: oczekiwano liczby od {low:g} do {high:g}")
+        elif not low <= value <= high:
+            errors.append(f"{key}: {value:g} poza zakresem {low:g}…{high:g}")
+    return errors
 
 
 def create_app(db_path: str,
@@ -204,6 +228,17 @@ def create_app(db_path: str,
         conn = db_conn()
         try:
             return jsonify(g13_view.build(conn, settings, now))
+        finally:
+            conn.close()
+
+    @app.get("/api/tail_cut")
+    def api_tail_cut():
+        """Kafel „Ogon grzania” na pulpicie (0.22.0): stan, odliczanie i liczniki odcięć."""
+        settings = get_settings()
+        now = _local_now(settings)
+        conn = db_conn()
+        try:
+            return jsonify(tail_cut_view.build(conn, settings, now))
         finally:
             conn.close()
 
@@ -612,6 +647,9 @@ def create_app(db_path: str,
     @app.post("/api/settings")
     def api_set_settings():
         payload = request.get_json(silent=True) or {}
+        errors = _validate_settings(payload)
+        if errors:
+            return jsonify({"ok": False, "errors": errors}), 400
         for key, value in payload.items():
             set_setting(key, value)
         return jsonify({"ok": True, "settings": get_settings()})

@@ -43,6 +43,15 @@
   <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
 </section>
 
+<section class="day-tile" id="tail-cut-tile" aria-labelledby="tail-cut-title">
+  <div class="day-head">
+    <h2 id="tail-cut-title">Ogon grzania: odcinanie końcówki cyklu</h2>
+    <span class="badge" id="tail-cut-badge">ładowanie…</span>
+  </div>
+  <div id="tail-cut-body" class="day-body" aria-live="polite"></div>
+  <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+</section>
+
 <section class="day-tile" id="day-tile" aria-labelledby="day-title">
   <div class="day-head">
     <h2 id="day-title">Doba: koszt ogrzewania</h2>
@@ -77,4 +86,5 @@
 <script src="{{ base }}/static/dashboard.js?v={{ version }}"></script>
 <script src="{{ base }}/static/day.js?v={{ version }}"></script>
 <script src="{{ base }}/static/g13.js?v={{ version }}"></script>
+<script src="{{ base }}/static/tail_cut.js?v={{ version }}"></script>
 {% endblock %}

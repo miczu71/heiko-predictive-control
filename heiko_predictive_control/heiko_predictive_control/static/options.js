@@ -19,7 +19,9 @@ form.addEventListener("submit", async (ev) => {
   if (rooms.length) payload.comfort_min_entities = picked.length === rooms.length ? "" : picked.join(",");
   // Pola liczbowe jako number, nie string.
   for (const input of form.querySelectorAll('input[type=number]')) {
-    if (input.name in payload) payload[input.name] = parseFloat(payload[input.name]);
+    if (!(input.name in payload)) continue;
+    if (payload[input.name] === "") delete payload[input.name];   // puste pole = bez zmiany (null psułby walidację)
+    else payload[input.name] = parseFloat(payload[input.name]);
   }
   status.textContent = "Zapisywanie…";
   try {
