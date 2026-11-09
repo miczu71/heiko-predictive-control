@@ -36,20 +36,30 @@
 
 <section class="day-tile g13-tile" id="g13-tile" aria-labelledby="g13-title">
   <div class="day-head">
-    <h2 id="g13-title">Szczyt G13: przedgrzewanie, podłogówka w szczycie evening_peak</h2>
+    <h2 id="g13-title">Szczyt G13</h2>
     <span class="badge" id="g13-badge">ładowanie…</span>
   </div>
-  <div id="g13-body" class="day-body" aria-live="polite"></div>
-  <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+  <p class="sub" id="g13-summary" aria-live="polite"></p>
+  <details class="fold">
+    <summary>Szczegóły</summary>
+    <p class="sub">Przedgrzewanie: podłogówka nie grzeje w szczycie popołudniowym (evening_peak).</p>
+    <div id="g13-body" class="day-body"></div>
+    <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+  </details>
 </section>
 
 <section class="day-tile" id="tail-cut-tile" aria-labelledby="tail-cut-title">
   <div class="day-head">
-    <h2 id="tail-cut-title">Ogon grzania: odcinanie końcówki cyklu</h2>
+    <h2 id="tail-cut-title">Ogon grzania</h2>
     <span class="badge" id="tail-cut-badge">ładowanie…</span>
   </div>
-  <div id="tail-cut-body" class="day-body" aria-live="polite"></div>
-  <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+  <p class="sub" id="tail-cut-summary" aria-live="polite"></p>
+  <details class="fold">
+    <summary>Szczegóły</summary>
+    <p class="sub">Odcinanie końcówki cyklu grzania.</p>
+    <div id="tail-cut-body" class="day-body"></div>
+    <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+  </details>
 </section>
 
 <section class="day-tile" id="day-tile" aria-labelledby="day-title">

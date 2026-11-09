@@ -2,7 +2,8 @@
 (() => {
 const body = document.getElementById("tail-cut-body");
 const badge = document.getElementById("tail-cut-badge");
-if (!body || !badge) return;
+const summary = document.getElementById("tail-cut-summary");
+if (!body || !badge || !summary) return;
 const esc = HPC.esc;
 const BADGE = { off: "", blocked: "warn", holding: "warn", pause: "", watching: "ok" };
 
@@ -23,8 +24,8 @@ function render(d) {
   badge.textContent = d.status_label;
   badge.className = "badge" + (BADGE[d.status] ? " " + BADGE[d.status] : "");
   const last = d.last_cut ? dm(d.last_cut) : "brak";
-  body.innerHTML = `<p class="sub">${stateLine(d)}</p>
-    <table class="day-table"><thead><tr><th></th><th>Odcięcia</th></tr></thead>
+  summary.innerHTML = stateLine(d);
+  body.innerHTML = `<table class="day-table"><thead><tr><th></th><th>Odcięcia</th></tr></thead>
     <tbody><tr><th scope="row">Dziś</th><td>${esc(d.cuts_today)}</td></tr>
     <tr><th scope="row">7 dni</th><td>${esc(d.cuts_7d)}</td></tr>
     <tr><th scope="row">Łącznie</th><td>${esc(d.cuts_total)}</td></tr></tbody></table>
@@ -36,7 +37,8 @@ async function load() {
   catch (e) {
     console.error(e);
     badge.textContent = "błąd";
-    body.innerHTML = `<p class="notice-inline">Nie udało się wczytać stanu ogona grzania.</p>`;
+    summary.textContent = "Nie udało się wczytać stanu ogona grzania.";
+    body.innerHTML = "";
   }
 }
 load();

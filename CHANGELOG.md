@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.2 — kolory stref G13 na paskach energii, zwijane kafle „Szczyt G13” i „Ogon grzania”
+- **Poprawka — szare paski w „Doba: koszt ogrzewania” (i na stronie Koszty):** od 0.22.0 strefy pochodzą z pv_roi z nazwami G13 (`other`, `morning_peak`, `evening_peak`), których paleta nie znała — paski były szare, a legenda pokazywała „sieć other”. Teraz: poza szczytem = zielony, szczyt poranny = żółty, szczyt popołudniowy = czerwony, z polskimi etykietami.
+- **Zmiana — Pulpit:** kafle „Szczyt G13” i „Ogon grzania” pokazują tytuł, odznakę i jedno zdanie (następna zmiana / stan odliczania); tabele energii i kosztu, liczniki odcięć i link do Opcji są pod „Szczegóły”.
+
 ## 0.22.1 — odcinanie „ogona”: licznik nie zeruje się przy spadku Tc, domyślnie margines 0 i 120 min
 - **Zmiana — odliczanie jak w starej automatyzacji Pompa_fix:** startuje przy pierwszym `Tc > nastawa + margines` i nie zeruje się, gdy Tc chwilowo spadnie. Pompa robi „piłę” Tc (ok. 55 min, sprężarka nie staje), więc wymóg nieprzerwanego przebywania powyżej progu rzadko się spełniał. Odliczanie zeruje nadal wyjście z grzania, tryb inny niż Auto, pokój poniżej minimum, brak danych, trwający test i pauza.
 - **Zmiana — domyślne wartości:** margines nad nastawą 0 K (było 1,0), opóźnienie 120 min (było 45); zakres marginesu 0…5 K (było 0,2…5). Już zapisane opcje nie zmieniają się same — wartości ustawia się w zakładce Opcje.

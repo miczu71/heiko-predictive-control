@@ -2,7 +2,8 @@
 (() => {
 const body = document.getElementById("g13-body");
 const badge = document.getElementById("g13-badge");
-if (!body || !badge) return;
+const summary = document.getElementById("g13-summary");
+if (!body || !badge || !summary) return;
 const esc = HPC.esc, nf = HPC.nf;
 const BADGE = { off: "", blocked: "warn", suspended: "warn", tripped: "warn", active: "ok" };
 
@@ -27,7 +28,8 @@ function nowLine(d) {
 function render(d) {
   badge.textContent = d.status_label;
   badge.className = "badge" + (BADGE[d.status] ? " " + BADGE[d.status] : "");
-  body.innerHTML = `${nowLine(d)}<p class="sub">${nextLine(d)}</p>
+  summary.innerHTML = nextLine(d);
+  body.innerHTML = `${nowLine(d)}
     <table class="day-table"><thead><tr><th></th><th>Energia</th><th>Koszt</th></tr></thead>
     <tbody>${row("Dziś", d.today)}${row("7 dni", d.week)}</tbody></table>
     <p class="sub">Zadziałania bezpiecznika w 7 dni: ${d.trips_7d}. Energia i koszt wg stref taryfy, z zakończonych runów.</p>`;
@@ -38,7 +40,8 @@ async function load() {
   catch (e) {
     console.error(e);
     badge.textContent = "błąd";
-    body.innerHTML = `<p class="notice-inline">Nie udało się wczytać stanu trybu Szczyt G13.</p>`;
+    summary.textContent = "Nie udało się wczytać stanu trybu Szczyt G13.";
+    body.innerHTML = "";
   }
 }
 load();

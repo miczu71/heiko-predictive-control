@@ -18,10 +18,11 @@ const HPC = {
 };
 
 // Strefy taryfy (feed pv_roi: cheap/mid/expensive; zapas G12w: offpeak/peak) i formatowanie liczb dla kafla doby i /ogrzewanie.
-HPC.ZONE_LABEL = { cheap: "tania", mid: "średnia", expensive: "droga", offpeak: "poza szczytem", peak: "szczyt" };
-HPC.ZONE_ORDER = ["cheap", "offpeak", "mid", "peak", "expensive"];
+HPC.ZONE_LABEL = { cheap: "tania", mid: "średnia", expensive: "droga", offpeak: "poza szczytem", peak: "szczyt", other: "poza szczytem", morning_peak: "szczyt poranny", evening_peak: "szczyt popołudniowy" };
+HPC.ZONE_ORDER = ["cheap", "offpeak", "other", "mid", "morning_peak", "peak", "evening_peak", "expensive"];
+HPC.ZONE_CLASS = { cheap: "zone-cheap", offpeak: "zone-cheap", other: "zone-cheap", mid: "zone-mid", morning_peak: "zone-mid", peak: "zone-expensive", expensive: "zone-expensive", evening_peak: "zone-expensive" };
 HPC.zoneLabel = z => HPC.ZONE_LABEL[z] || z;
-HPC.zoneClass = z => HPC.ZONE_LABEL[z] ? `zone-${z}` : "zone-other";
+HPC.zoneClass = z => HPC.ZONE_CLASS[z] || "zone-other";
 HPC.nf = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toFixed(d).replace(".", ",");
 HPC.pct = v => (v === null || v === undefined) ? "—" : `${Math.round(v * 100)}%`;
 // Pochodzenie energii: `grid:<strefa>` (sieć wg strefy taryfy z chwili ładowania/poboru), `pv`, `unknown` (zawartość baterii sprzed replayu).
