@@ -18,7 +18,7 @@ const HPC = {
 };
 
 // Strefy taryfy (feed pv_roi: cheap/mid/expensive; zapas G12w: offpeak/peak) i formatowanie liczb dla kafla doby i /ogrzewanie.
-HPC.ZONE_LABEL = { cheap: "tania", mid: "średnia", expensive: "droga", offpeak: "poza szczytem", peak: "szczyt", other: "poza szczytem", morning_peak: "szczyt poranny", evening_peak: "szczyt popołudniowy" };
+HPC.ZONE_LABEL = { cheap: "tania", mid: "średnia", expensive: "droga", offpeak: "poza szczytem", peak: "szczyt", other: "poza szczytem", morning_peak: "szczyt poranny", evening_peak: "szczyt popołudniowy", no_tariff: "brak taryfy" };
 HPC.ZONE_ORDER = ["cheap", "offpeak", "other", "mid", "morning_peak", "peak", "evening_peak", "expensive"];
 HPC.ZONE_CLASS = { cheap: "zone-cheap", offpeak: "zone-cheap", other: "zone-cheap", mid: "zone-mid", morning_peak: "zone-mid", peak: "zone-expensive", expensive: "zone-expensive", evening_peak: "zone-expensive" };
 HPC.zoneLabel = z => HPC.ZONE_LABEL[z] || z;
