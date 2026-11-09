@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from . import catalog
+from . import catalog, experiments
 from . import db as dbm
 from . import ha_client
 
@@ -124,6 +124,29 @@ def _logbook_source(get_logbook, entity_id: str, changed_iso: str) -> str | None
     return source_from_logbook(entries, changed_iso)
 
 
+TAIL_CUT_SOURCE = "add-on (tail_cut)"
+_MODE_CODES_BY_STATE = {"dhw": experiments.MODE_CODES["dhw"], "auto": experiments.MODE_CODES["auto"]}
+_TAIL_CUT_WINDOW = timedelta(minutes=3)
+
+
+def _tail_cut_source(conn, key: str, changed_iso: str, new_state) -> str | None:
+    """Zmianę `working_mode` ≤ 3 min po przyjętym zapisie trybu przez add-on (`pump_writes`, `MODE_WRITE_ID`, zgodny kod)
+    oznaczamy jako zrobioną przez tail_cut. `pump_writes.ts` to czas lokalny add-onu (naiwny), `changed_iso` — UTC z HA."""
+    code = _MODE_CODES_BY_STATE.get(str(new_state).lower())
+    moment = _parse_ts(changed_iso)
+    if key != "working_mode" or code is None or moment is None:
+        return None
+    for row in conn.execute("SELECT ts FROM pump_writes WHERE entity_id = ? AND ok = 1 AND new = ?",
+                            (experiments.MODE_WRITE_ID, code)).fetchall():
+        try:
+            written = datetime.fromisoformat(row["ts"]).astimezone(timezone.utc)
+        except ValueError:
+            continue
+        if timedelta(0) <= moment - written <= _TAIL_CUT_WINDOW:
+            return TAIL_CUT_SOURCE
+    return None
+
+
 def reattribute_unknown(conn, get_logbook=ha_client.get_logbook, limit: int = 20) -> int:
     """Uzupełnia źródło dla wpisów oznaczonych „nieznane” (logbook sięga kilka dni wstecz)."""
     fixed = 0
@@ -223,7 +246,7 @@ def detect_changes(conn, states: list[dict], get_logbook=ha_client.get_logbook,
             # z logbooka; kontekst stanu to zapasowy trop tylko dla ostatniego przejścia (to jego stan).
             fallback = change_source(st.get("context")) if i == len(found) - 1 else "nieznane"
             source = _logbook_source(get_logbook, eid, ts)
-            source = source or fallback
+            source = _tail_cut_source(conn, key, ts, new) or source or fallback
             row = {"ts": ts, "key": key, "entity_id": eid, "old": old, "new": new, "source": source}
             conn.execute("INSERT INTO param_changes (ts, key, entity_id, old, new, source) "
                          "VALUES (:ts, :key, :entity_id, :old, :new, :source)", row)

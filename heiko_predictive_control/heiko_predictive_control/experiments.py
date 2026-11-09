@@ -6,7 +6,7 @@ na parze czas pracy/postoju pompy obiegowej P0 (tylko pary 1/6 i 5/5) albo — H
 propozycji Doradcy — na opóźnieniu grzałki AH (slot 52: 20–60 min, wielokrotność 5, krok ≤ 5), jeden test naraz, główny wyłącznik `heiko_enabled`. Zabezpieczenia: potwierdzenie zapisu z ramki pompy (10 min), ręczna zmiana wygrywa
 (test przerwany, nic nie nadpisujemy), komfort (najzimniejszy pokój < minimum > 30 min → powrót), restart add-onu
 w trakcie testu → powrót do wartości wyjściowej. Niezależny watchdog jest w HA (heartbeat > 45 min → przesunięcie 0) tylko dla przesunięcia krzywej — zawieszone 5/5
-to ok. 15 W, bez ryzyka."""
+to ok. 15 W, bez ryzyka. Od 0.22.0 `_write_mode` wywołuje też usługę `heiko_heatpump.set_mode` (tylko `dhw`/`auto`) dla `tail_cut`."""
 from __future__ import annotations
 
 import json
@@ -34,6 +34,9 @@ P0_DAYS = 6                                # A B A B A B, zmiana o północy
 P0_MIN_GAIN_C = 0.3                        # 5/5 wygrywa, gdy średni rozrzut stref w standby jest niższy o tyle
 P0_AVG_TOLERANCE_C = 0.1                   # „średnia stref nie spada” z tolerancją szumu pomiaru
 P0_WEATHER_BAND_C = 3.0                    # różnica średniej temp. zewn. wariantów, powyżej której pewność jest niska
+MODE_SERVICE = ("heiko_heatpump", "set_mode")   # tail_cut: tryb pracy pompy (zapis tylko przez `_write_mode`)
+MODE_CODES = {"dhw": 3, "auto": 4}                # dozwolone tryby → kod `raw_value` sensora mode_setting
+MODE_WRITE_ID = "heiko_heatpump.set_mode"         # `pump_writes.entity_id` zapisów trybu
 SLOT52_SUFFIX = "backup_source_start_delay"   # H4: opóźnienie grzałki AH (slot 52), zapis tylko po akceptacji propozycji w Doradcy
 CONFIRM_MIN = 10
 # Integracja heiko_heatpump po `set_value` od razu pokazuje nową wartość (optymistycznie), a odczyt z ramki pompy
@@ -389,6 +392,20 @@ def _write(conn, settings: dict, test_id: int | None, old: float, new: float, no
     conn.commit()
     logger.info("Zapis do pompy %s: %s → %s (%s)", entity, old, new, "przyjęty" if ok else "ODRZUCONY")
     return ok
+
+
+def _write_mode(conn, old_code: int | None, mode: str, now: datetime, writer=None) -> tuple[bool, int]:
+    """Zapis trybu pracy pompy (`dhw`/`auto`) dla `tail_cut`; drugie (obok `_write`) miejsce z wywołaniem usługi HA.
+    Nie unieważnia cudzych niepotwierdzonych wierszy; zwraca (przyjęty, id wiersza `pump_writes`)."""
+    if mode not in MODE_CODES:
+        logger.warning("Odrzucony zapis trybu pompy: %r (dozwolone: %s)", mode, ", ".join(MODE_CODES))
+        raise ValueError(f"tryb pompy {mode!r} poza allowlistą")
+    ok = (writer or ha_client.call_service)(*MODE_SERVICE, {"mode": mode})
+    cur = conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok) VALUES (?, NULL, ?, ?, ?, ?)",
+                       (_iso(now), MODE_WRITE_ID, old_code, MODE_CODES[mode], int(ok)))
+    conn.commit()
+    logger.info("Zapis trybu pompy %s: %s → %s (%s)", MODE_WRITE_ID, old_code, mode, "przyjęty" if ok else "ODRZUCONY")
+    return bool(ok), cur.lastrowid
 
 
 def write_setting(conn, entity: str, old: float, new: float, now: datetime, writer=None) -> bool:

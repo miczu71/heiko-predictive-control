@@ -728,3 +728,32 @@ def test_g13_unconfirmed_write_notifies_about_g13_mode(conn):
     assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == ex.NO_CONFIRMATION
     assert len(pump.notes) == 1 and "tryb Szczyt G13" in pump.notes[0]
     assert "-3" in pump.notes[0]
+
+
+def test_write_mode_accepts_only_dhw_and_auto(conn):
+    pump = Pump()
+    calls = []
+    writer = lambda d, s, data: calls.append((d, s, data)) or True     # noqa: E731
+    assert ex._write_mode(conn, 4, "dhw", T0, writer)[0] is True
+    assert ex._write_mode(conn, 3, "auto", T0, writer)[0] is True
+    assert calls == [("heiko_heatpump", "set_mode", {"mode": "dhw"}), ("heiko_heatpump", "set_mode", {"mode": "auto"})]
+    for bad in ("heating", "standby", ""):
+        with pytest.raises(ValueError):
+            ex._write_mode(conn, 4, bad, T0, writer)
+    assert len(calls) == 2 and pump.calls == []
+    rows = conn.execute("SELECT test_id, entity_id, old, new, ok FROM pump_writes ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [(None, ex.MODE_WRITE_ID, 4, 3, 1), (None, ex.MODE_WRITE_ID, 3, 4, 1)]
+
+
+def test_write_mode_returns_row_id_and_ok_false(conn):
+    ok, row_id = ex._write_mode(conn, 4, "dhw", T0, lambda *a: False)
+    assert ok is False
+    row = conn.execute("SELECT id, ok FROM pump_writes").fetchone()
+    assert (row["id"], row["ok"]) == (row_id, 0)
+
+
+def test_write_mode_does_not_supersede_foreign_rows(conn):
+    pump = Pump()
+    ex._write(conn, SETTINGS, None, 0.0, 1.0, T0, pump.writer)         # niepotwierdzony zapis przesunięcia
+    ex._write_mode(conn, 4, "dhw", T0 + timedelta(minutes=1), lambda *a: True)
+    assert [r[0] for r in conn.execute("SELECT confirmed_at FROM pump_writes ORDER BY id")] == [None, None]

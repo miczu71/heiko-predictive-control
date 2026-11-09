@@ -301,3 +301,38 @@ def test_extra_entities_include_grid_power_for_the_dhw_peak_advisor():
     out = telemetry.extra_entities({"outdoor_temp_entity": "sensor.out",
                                     "grid_power_entity": "sensor.power_meter_active_power"})
     assert out == ["sensor.out", "sensor.power_meter_active_power"]
+
+
+MODE_EID = "select.heiko_heat_pump_working_mode"
+
+
+def _mode_change(conn, utc_change, new_state, local_write_ts=None, write_new=3, base="Auto"):
+    from heiko_predictive_control import experiments
+    if local_write_ts:
+        conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok) VALUES (?, NULL, ?, 4, ?, 1)",
+                     (local_write_ts.isoformat(timespec="seconds"), experiments.MODE_WRITE_ID, write_new))
+        conn.commit()
+    telemetry.detect_changes(conn, [st(MODE_EID, base)], get_history=NO_HISTORY)
+    out = telemetry.detect_changes(conn, [st(MODE_EID, new_state, utc_change.isoformat())],
+                                   get_logbook=lambda *a: None, get_history=NO_HISTORY)
+    assert len(out) == 1
+    return out[0]["source"]
+
+
+def test_working_mode_change_after_tail_cut_write_is_attributed(conn):
+    local = datetime(2026, 11, 9, 12, 0, 0)
+    utc_change = (local + timedelta(minutes=1)).astimezone(timezone.utc)      # `pump_writes.ts` = czas lokalny add-onu
+    assert _mode_change(conn, utc_change, "DHW", local) == "add-on (tail_cut)"
+
+
+def test_working_mode_change_without_matching_write_keeps_source(conn):
+    local = datetime(2026, 11, 9, 12, 0, 0)
+    utc_change = (local + timedelta(minutes=1)).astimezone(timezone.utc)
+    assert _mode_change(conn, utc_change, "DHW") == "nieznane"                     # brak wiersza
+    conn2 = dbm.get_conn(":memory:")
+    dbm.migrate(conn2)
+    far = (local + timedelta(minutes=10)).astimezone(timezone.utc)
+    assert _mode_change(conn2, far, "DHW", local) == "nieznane"                    # za późno (> 3 min)
+    conn3 = dbm.get_conn(":memory:")
+    dbm.migrate(conn3)
+    assert _mode_change(conn3, utc_change, "Auto", local, write_new=3, base="DHW") == "nieznane"      # zła wartość

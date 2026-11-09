@@ -8,7 +8,7 @@ import inspect
 import pytest
 
 from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle, dhw_cycles, experiments, floor_learn,
-                                       g13_exec, floor_model, floor_plan, kpi, live, publisher, summaries, telemetry, web)
+                                       g13_exec, floor_model, floor_plan, kpi, live, publisher, summaries, tail_cut, telemetry, web)
 from heiko_predictive_control.analyzers import anomalies, curve, dhw, dhw_slot
 import heiko_predictive_control.analyzers as analyzers_pkg
 
@@ -50,8 +50,11 @@ def test_experiments_write_only_in_one_function_with_allowlist():
     """D3a: jedyne wywołanie usługi w wykonawcy testów to `_write`; allowlista = przesunięcie krzywej przez number.set_value
     (encja sprawdzana w `_write` — inna encja w Opcjach daje wyjątek, patrz test_experiments)."""
     tree = ast.parse(inspect.getsource(experiments))
-    assert _uses(tree, WRITE_NAMES, frozenset({"_write"})) == []
+    assert _uses(tree, WRITE_NAMES, frozenset({"_write", "_write_mode"})) == []
     assert _uses(ast.parse(inspect.getsource(experiments._write)), WRITE_NAMES) != []
+    assert _uses(ast.parse(inspect.getsource(experiments._write_mode)), WRITE_NAMES) != []
+    assert experiments.MODE_CODES == {"dhw": 3, "auto": 4}
+    assert experiments.MODE_SERVICE == ("heiko_heatpump", "set_mode")
     assert experiments.ALLOWED_ENTITY_SUFFIX == "heating_curve_parallel_shift"
     assert experiments.ALLOWED_SERVICE == ("number", "set_value")
     assert (experiments.SHIFT_MIN, experiments.SHIFT_MAX, experiments.MAX_STEP) == (-3, 3, 1)
@@ -124,3 +127,11 @@ def test_g13_exec_writes_only_through_experiments_write():
     assert _uses(ast.parse(source), WRITE_NAMES) == []
     assert "call_service" not in source
     assert "experiments._write" in source
+
+
+def test_tail_cut_writes_only_through_experiments_write_mode():
+    """Ogon grzania: zapis trybu wyłącznie przez `experiments._write_mode` (moduł nie ma własnego `call_service`)."""
+    source = inspect.getsource(tail_cut)
+    assert _uses(ast.parse(source), WRITE_NAMES) == []
+    assert "call_service" not in source
+    assert "experiments._write_mode" in source
