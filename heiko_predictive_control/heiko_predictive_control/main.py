@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, g13_exec, ha_client, heating_runs, kpi, layout,
-               summaries, tail_cut, tariff_feed, telemetry)
+               summaries, tail_cut, tariff_feed, telemetry, vacation_exec)
 from . import attic as attic_mod
 from . import db as dbm
 from .workday import default_is_workday
@@ -382,6 +382,18 @@ def main() -> None:
         finally:
             c.close()
 
+    def run_vacation() -> None:
+        """Tryb urlopowy (domyślnie wyłączony): krzywa obniżona o `vacation_curve_drop` przez całą dobę."""
+        c = dbm.get_conn(db_path)
+        try:
+            info = vacation_exec.run(c, dbm.get_all_settings(c), datetime.now())
+            if info is not None:
+                logger.info("Tryb urlopowy: %s", info)
+        except Exception:
+            logger.exception("Krok trybu urlopowego nieudany")
+        finally:
+            c.close()
+
     def run_tail_cut() -> None:
         """Odcinanie „ogona” grzania (domyślnie wyłączone): przełączenie Auto → CWU → Auto, co minutę."""
         c = dbm.get_conn(db_path)
@@ -476,6 +488,8 @@ def main() -> None:
     scheduler.add_job(run_tests, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=30),
                        max_instances=1, coalesce=True)
     scheduler.add_job(run_g13_peak, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=45),
+                       max_instances=1, coalesce=True)
+    scheduler.add_job(run_vacation, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=55),
                        max_instances=1, coalesce=True)
     scheduler.add_job(run_tail_cut, "interval", minutes=1, next_run_time=datetime.now() + timedelta(seconds=50),
                        max_instances=1, coalesce=True)
