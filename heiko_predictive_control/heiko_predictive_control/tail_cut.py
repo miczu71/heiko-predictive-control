@@ -31,6 +31,7 @@ AUTO_CODE = experiments.MODE_CODES["auto"]
 CONFIRM_WAIT_S = 70               # ramka pompy odświeża się co ~60 s
 ATTEMPTS = 2
 CUTS_KEPT = 60
+MAX_GAP_MIN = 15                  # dłuższa przerwa między tickami (restart, błędy odczytu) restartuje odliczanie
 
 
 def active(settings: dict) -> bool:
@@ -137,10 +138,13 @@ def _run(conn, settings, now, st, get_state, get_numeric, writer, notify, sleep)
     if not (work == HEATING_CODE and mode == AUTO_CODE and room >= _num(settings, "tail_min_room_c", 20.5)):
         st["tail_since"] = None
         return None
-    if not st.get("tail_since") and tc <= setpoint + _num(settings, "tail_margin_k", 0):
+    since_iso = st.get("tail_since")
+    if since_iso and now - datetime.fromisoformat(st.get("tail_seen") or since_iso) > timedelta(minutes=MAX_GAP_MIN):
+        since_iso = st["tail_since"] = None            # stary znacznik po przerwie w tickach — liczymy od nowa
+    if not since_iso and tc <= setpoint + _num(settings, "tail_margin_k", 0):
         return None                                    # próg jeszcze nieprzekroczony; po starcie odliczania spadek Tc go nie zeruje
-    since = datetime.fromisoformat(st["tail_since"]) if st.get("tail_since") else now
-    st["tail_since"] = _iso(since)
+    since = datetime.fromisoformat(since_iso) if since_iso else now
+    st["tail_since"], st["tail_seen"] = _iso(since), _iso(now)
     minutes = (now - since).total_seconds() / 60
     if minutes < _num(settings, "tail_delay_min", 120):
         return None

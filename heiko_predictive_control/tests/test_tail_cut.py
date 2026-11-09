@@ -16,6 +16,12 @@ TC, SETPOINT = "sensor.heiko_heat_pump_condenser_temperature", "sensor.heiko_hea
 WORK, MODE = "sensor.heiko_heat_pump_working_mode_2", tail_cut.MODE_SETTING_ENTITY
 
 
+@pytest.fixture(autouse=True)
+def _no_gap_limit(monkeypatch):
+    """Większość testów tyka rzadko (0, 45 min) — limit przerwy włącza tylko test stale_tail_since."""
+    monkeypatch.setattr(tail_cut, "MAX_GAP_MIN", 10_000)
+
+
 def at(minutes):
     return T0 + timedelta(minutes=minutes)
 
@@ -145,6 +151,19 @@ def test_margin_requires_exceeding_setpoint_plus_margin(conn):
     pump.tc = 39.1
     go(conn, pump, at(10), s)
     assert state(conn)["tail_since"] == at(10).isoformat()
+
+
+def test_stale_tail_since_after_gap_restarts_countdown(conn, monkeypatch):
+    """Restart add-onu / przerwa w tickach: stary `tail_since` nie daje natychmiastowego cięcia."""
+    monkeypatch.setattr(tail_cut, "MAX_GAP_MIN", 15)
+    pump = Pump()
+    go(conn, pump, at(0))
+    go(conn, pump, at(10))
+    assert go(conn, pump, at(60)) is None                # przerwa 50 min > 15: odliczanie od nowa, mimo 60 > 45 min
+    assert pump.calls == [] and state(conn)["tail_since"] == at(60).isoformat()
+    for m in range(61, 106):
+        go(conn, pump, at(m))
+    assert pump.calls == ["dhw"]                         # ciągłe tyki: cięcie po 45 min od at(60)
 
 
 def test_leaving_heating_clears_countdown(conn):

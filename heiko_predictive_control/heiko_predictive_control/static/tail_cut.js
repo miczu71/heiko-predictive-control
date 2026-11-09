@@ -15,7 +15,7 @@ function stateLine(d) {
   if (d.status === "holding") return `Trzymam CWU${d.last_cut ? " od " + esc(hm(d.last_cut)) : ""}, powrót do Auto po ${esc(d.hold_min)} min.`;
   if (d.status === "pause") return d.pause_until ? `Przerwa do ${esc(hm(d.pause_until))}.` : "Przerwa po odcięciu.";
   return d.tail_minutes != null
-    ? `Ogon trwa ${esc(d.tail_minutes)} min (próg ${esc(d.delay_min)} min).`
+    ? `Odliczanie ${esc(d.tail_minutes)} min (próg ${esc(d.delay_min)} min).`
     : "Czekam na ogon.";
 }
 

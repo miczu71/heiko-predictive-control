@@ -3,6 +3,7 @@
 ## 0.22.1 — odcinanie „ogona”: licznik nie zeruje się przy spadku Tc, domyślnie margines 0 i 120 min
 - **Zmiana — odliczanie jak w starej automatyzacji Pompa_fix:** startuje przy pierwszym `Tc > nastawa + margines` i nie zeruje się, gdy Tc chwilowo spadnie. Pompa robi „piłę” Tc (ok. 55 min, sprężarka nie staje), więc wymóg nieprzerwanego przebywania powyżej progu rzadko się spełniał. Odliczanie zeruje nadal wyjście z grzania, tryb inny niż Auto, pokój poniżej minimum, brak danych, trwający test i pauza.
 - **Zmiana — domyślne wartości:** margines nad nastawą 0 K (było 1,0), opóźnienie 120 min (było 45); zakres marginesu 0…5 K (było 0,2…5). Już zapisane opcje nie zmieniają się same — wartości ustawia się w zakładce Opcje.
+- **Poprawka:** po restarcie add-onu albo przerwie w odczytach dłuższej niż 15 min odliczanie startuje od nowa (stary znacznik nie daje natychmiastowego odcięcia). Kafel na Pulpicie pokazuje „Odliczanie N min” zamiast „Ogon trwa”.
 - Opcja nadal domyślnie wyłączona (`tail_cut_enabled`); odcięcie wymaga pokoju ≥ „minimum pokoju”, po odcięciu obowiązuje „przerwa po odcięciu”.
 
 ## 0.22.0 — jedno źródło taryf (pv_roi), szczyt G13 w zakresie ±3, opcjonalne odcinanie „ogona” grzania
