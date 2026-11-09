@@ -66,9 +66,9 @@
 
     <fieldset>
       <legend>Szczyt G13 — podłogówka</legend>
-      <p class="hint">W dni robocze (według harmonogramu taryfy): o 13:00 przesunięcie krzywej bazowe + wartość „dogrzanie”,
-        o 16:00 bazowe + wartość „szczyt”, o 21:00 powrót do bazowego. Gdy najzimniejszy pokój stref dziennych spadnie poniżej
-        progu na 15 min, przesunięcie wraca do bazowego do 21:00 i przychodzi powiadomienie. Ręczna zmiana przesunięcia wstrzymuje
+      <p class="hint">Szczyt „evening_peak” z taryfy pv_roi (święta, pora roku i zmiany taryfy uwzględnia harmonogram): 3 h przed nim
+        przesunięcie krzywej bazowe + wartość „dogrzanie”, w szczycie bazowe + wartość „szczyt”, po nim powrót do bazowego. Gdy najzimniejszy pokój stref dziennych spadnie poniżej
+        progu na 15 min, przesunięcie wraca do bazowego do końca szczytu i przychodzi powiadomienie. Ręczna zmiana przesunięcia wstrzymuje
         tryb do jutra. Tryb nie działa w trakcie testu, a test nie wystartuje przy włączonym trybie. Wyłączenie
         przywraca bazowe przesunięcie.</p>
       <label><input type="checkbox" name="g13_peak_enabled" {{ 'checked' if settings.g13_peak_enabled }}>
@@ -76,9 +76,9 @@
       <div class="grid2">
         <label>Bezpiecznik — minimum pokoi (°C)
           <input type="number" step="0.1" name="g13_peak_min_room_c" value="{{ settings.get('g13_peak_min_room_c', 20.5) }}"></label>
-        <label>Przesunięcie 13–16, dogrzanie (−3…3)
+        <label>Przesunięcie dogrzania (3 h przed szczytem) (−3…3)
           <input type="number" step="1" min="-3" max="3" name="g13_peak_preheat_shift" value="{{ settings.get('g13_peak_preheat_shift', 1) }}"></label>
-        <label>Przesunięcie 16–21, szczyt (−3…3)
+        <label>Przesunięcie w szczycie (−3…3)
           <input type="number" step="1" min="-3" max="3" name="g13_peak_peak_shift" value="{{ settings.get('g13_peak_peak_shift', -3) }}"></label>
       </div>
     </fieldset>

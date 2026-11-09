@@ -10,8 +10,12 @@ def at(h, m=0, day=DAY):
     return datetime(day.year, day.month, day.day, h, m)
 
 
-def step(now, state=None, *, base=0.0, workday=True, room=21.5, current=0.0, cfg=None):
-    return g.decide(now, workday=workday, current_shift=current, base_shift=base, min_room_c=room,
+WINTER = g.Window(16, 21)
+SUMMER = g.Window(19, 22)
+
+
+def step(now, state=None, *, base=0.0, window=WINTER, room=21.5, current=0.0, cfg=None):
+    return g.decide(now, window=window, current_shift=current, base_shift=base, min_room_c=room,
                     state=state or g.State(), cfg=cfg or g.Config())
 
 
@@ -54,21 +58,59 @@ def test_po_21_cofa_gdy_przesuniecie_zostalo_po_restarcie():
     assert d.target == 0.0
 
 
-# ── dzień nieroboczy i brak feedu ───────────────────────────────────────────
+# ── okno z taryfy: lato, brak szczytu, brak harmonogramu ────────────────────
 
-def test_weekend_i_swieto_nic_nie_robia():
-    d = step(at(17, day=date(2026, 11, 7)), workday=False)
-    assert d.target is None and d.reason == "dzień nieroboczy"
+def test_okno_zimowe_dogrzanie_od_13():
+    assert WINTER.preheat_from == 13
+    assert step(at(12, 59)).target is None
+    assert step(at(13)).target == 1.0 and step(at(16)).target == -3.0
+
+
+def test_okno_letnie_19_22():
+    assert SUMMER.preheat_from == 16
+    assert step(at(15), window=SUMMER).target is None
+    for h in (16, 18):
+        d = step(at(h), window=SUMMER)
+        assert d.target == 1.0 and d.reason == "dogrzanie" and d.window == SUMMER
+    for h in (19, 21):
+        d = step(at(h), window=SUMMER)
+        assert d.target == -3.0 and d.reason == "szczyt"
+    d = step(at(22), window=SUMMER, current=-3.0)
+    assert d.target == 0.0 and d.reason == "koniec okna"
+
+
+def test_dogrzanie_nie_schodzi_ponizej_zera():
+    assert g.Window(2, 5).preheat_from == 0
+    assert step(at(0), window=g.Window(2, 5)).target == 1.0
+
+
+def test_brak_szczytu_nic_nie_robi():
+    d = step(at(17, day=date(2026, 11, 7)), window=g.NO_PEAK)
+    assert d.target is None and d.reason == "brak szczytu evening_peak w taryfie"
+    assert g.NO_PEAK.empty and not WINTER.empty
+
+
+def test_okno_do_polnocy():
+    w = g.Window(20, 24)
+    assert step(at(17), window=w).target == 1.0
+    assert step(at(23, 59), window=w).target == -3.0
+
+
+def test_bezpiecznik_w_oknie_letnim():
+    s = step(at(19, 0), window=SUMMER, room=20.0).state
+    d = step(at(19, 15), s, window=SUMMER, room=20.0)
+    assert d.target == 0.0 and d.state.tripped and d.event == "bezpiecznik"
+    assert step(at(21, 0), d.state, window=SUMMER, room=22.0).target == 0.0
 
 
 def test_brak_feedu_nic_nie_robi():
-    d = step(at(17), workday=None)
+    d = step(at(17), window=None)
     assert d.target is None and d.reason == "brak harmonogramu taryfy"
 
 
 def test_brak_feedu_nie_cofa_przesuniecia_w_trakcie_okna():
     # feed zniknął o 16:30 po wejściu w szczyt — nie zgadujemy, watchdog HA pilnuje reszty
-    assert step(at(16, 30), workday=None, current=-3.0).target is None
+    assert step(at(16, 30), window=None, current=-3.0).target is None
 
 
 # ── bezpiecznik pokoi ───────────────────────────────────────────────────────
@@ -135,7 +177,7 @@ def test_restart_w_oknie_z_zapamietana_baza_daje_ten_sam_cel():
 
 
 def test_restart_w_oknie_bez_bazy_bierze_biezace_przesuniecie():
-    d = g.decide(at(14), workday=True, current_shift=1.0, base_shift=None, min_room_c=21.5,
+    d = g.decide(at(14), window=WINTER, current_shift=1.0, base_shift=None, min_room_c=21.5,
                  state=g.State(), cfg=g.Config())
     assert d.base == 1.0 and d.target == 2.0
 
@@ -145,7 +187,7 @@ def test_baza_zapamietana_gdy_podana():
     assert d.base == 0.0
 
 
-# ── dzień roboczy z feedu ───────────────────────────────────────────────────
+# ── okno z feedu ────────────────────────────────────────────────────────────
 
 class FakeFeed:
     def __init__(self, rows, source="feed"):
@@ -159,17 +201,42 @@ class FakeFeed:
 
 
 class Row:
-    def __init__(self, is_peak):
-        self.is_peak = is_peak
+    def __init__(self, zone):
+        self.zone = zone
 
 
-def test_workday_from_feed():
-    assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}), DAY, at(10)) is True
-    assert g.workday_from_feed(FakeFeed({"2026-11-07T17": Row(False)}), date(2026, 11, 7), at(10)) is False
-    assert g.workday_from_feed(FakeFeed({}), DAY, at(10)) is None                       # brak godziny
-    # nieaktualny harmonogram dalej obowiązuje (decyzja T0-1) — bramki `source` nie ma
-    assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}, source="stale"), DAY, at(10)) is True
-    assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}, source="none"), DAY, at(10)) is True
+def day_rows(peak_hours, day=DAY, skip=()):
+    return {f"{day.isoformat()}T{h:02d}": Row("evening_peak" if h in peak_hours else "other")
+            for h in range(24) if h not in skip}
+
+
+def test_window_from_feed_pelna_doba():
+    assert g.window_from_feed(FakeFeed(day_rows(range(16, 21))), DAY) == g.Window(16, 21)
+    assert g.window_from_feed(FakeFeed(day_rows(range(19, 22))), DAY) == g.Window(19, 22)
+    assert g.window_from_feed(FakeFeed(day_rows(range(20, 24))), DAY) == g.Window(20, 24)
+
+
+def test_window_from_feed_dziura_w_dobie_to_none():
+    assert g.window_from_feed(FakeFeed(day_rows(range(16, 21), skip=(3,))), DAY) is None
+    assert g.window_from_feed(FakeFeed({}), DAY) is None
+
+
+def test_window_from_feed_brak_strefy_to_no_peak():
+    assert g.window_from_feed(FakeFeed(day_rows(())), DAY) == g.NO_PEAK
+
+
+def test_window_from_feed_pierwszy_ciagly_odcinek():
+    assert g.window_from_feed(FakeFeed(day_rows((7, 8, 18, 19))), DAY) == g.Window(7, 9)
+
+
+def test_window_from_feed_swiezosc_bez_wplywu():
+    for source in ("stale", "none"):
+        assert g.window_from_feed(FakeFeed(day_rows(range(16, 21)), source=source), DAY) == WINTER
+
+
+def test_stale_godziny_i_dzien_roboczy_usuniete():
+    assert [n for n in dir(g) if n.endswith("_H")] == ["PREHEAT_LEAD_H"]
+    assert not [n for n in dir(g) if "workday" in n.lower()]
 
 
 def test_domyslny_peak_shift_to_minus_3():

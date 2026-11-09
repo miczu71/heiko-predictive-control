@@ -1,11 +1,12 @@
-"""Tryb „Szczyt G13”: w dni robocze podłogówka nie grzeje w szczycie 16–21 (zima, taryfa G13).
+"""Tryb „Szczyt G13”: podłogówka nie grzeje w szczycie `evening_peak` (okno z taryfy pv_roi, np. zimą 16–21, latem 19–22).
 
-Czysta logika, bez I/O: dostaje czas, dzień roboczy, bieżące i bazowe przesunięcie krzywej, minimum pokoi
+Czysta logika, bez I/O: dostaje czas, okno szczytu, bieżące i bazowe przesunięcie krzywej, minimum pokoi
 i stan bezpiecznika, a zwraca docelowe przesunięcie. Wykonanie (zapis do pompy, ręczna zmiana, wykluczenie
 z testami, opcje w bazie) to osobny etap — tu tylko decyzja.
 
-Okna (czas lokalny): 13:00–16:00 przesunięcie bazowe + `preheat_shift` (dogrzanie wylewki w tańszej strefie),
-16:00–21:00 bazowe + `peak_shift`, od 21:00 powrót do bazowego. Wynik jest obcięty do ±3 (allowlista zapisu).
+Okno [start, end) czyta `window_from_feed` z harmonogramu taryfy (święta, pora roku i zmiany taryfy uwzględnia
+pv_roi): od `start − 3 h` przesunięcie bazowe + `preheat_shift` (dogrzanie wylewki w tańszej strefie),
+w oknie bazowe + `peak_shift`, od końca okna powrót do bazowego. Wynik jest obcięty do ±3 (allowlista zapisu).
 Bezpiecznik: minimum pokoi stref dziennych < `min_room_c` nieprzerwanie przez 15 min → powrót do bazowego do
 końca okna (jedno zdarzenie na dobę). Brak odczytu pokoi nie wyzwala bezpiecznika i nie zeruje licznika."""
 from __future__ import annotations
@@ -13,12 +14,28 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 
-PREHEAT_FROM_H = 13
-PEAK_FROM_H = 16
-WINDOW_END_H = 21
+PREHEAT_LEAD_H = 3                          # dogrzanie startuje tyle godzin przed szczytem
+PEAK_ZONE = "evening_peak"
 BREAKER_HOLD = timedelta(minutes=15)
 SHIFT_LIMIT = 3.0                           # allowlista zapisu (experiments._write)
-WORKDAY_PROBE_H = 17                        # godzina szczytu G13: is_peak tylko w dni robocze
+
+
+@dataclass(frozen=True)
+class Window:
+    """Okno szczytu w godzinach lokalnych doby: [start, end), end ≤ 24."""
+    start: int
+    end: int
+
+    @property
+    def preheat_from(self) -> int:
+        return max(0, self.start - PREHEAT_LEAD_H)
+
+    @property
+    def empty(self) -> bool:
+        return self.start == self.end
+
+
+NO_PEAK = Window(0, 0)
 
 
 @dataclass(frozen=True)
@@ -43,41 +60,55 @@ class Decision:
     state: State
     base: float | None = None               # bazowe przesunięcie do zapamiętania (None poza oknem)
     event: str | None = None                # "bezpiecznik" tylko w ticku, w którym zadziałał
+    window: Window | None = None            # okno użyte do decyzji (do zapamiętania w stanie)
 
 
 def _clamp(v: float) -> float:
     return max(-SHIFT_LIMIT, min(SHIFT_LIMIT, v))
 
 
-def workday_from_feed(feed, day: date, now: datetime) -> bool | None:
-    """True/False z harmonogramu taryfy (szczyt o 17:00 istnieje tylko w dni robocze), bez względu na jego
-    świeżość (ostatni znany harmonogram obowiązuje); None = brak godziny w tariff_hours, wtedy tryb nic nie robi."""
-    row = feed.at(datetime(day.year, day.month, day.day, WORKDAY_PROBE_H))
-    return None if row is None else bool(row.is_peak)
+def window_from_feed(feed, day: date) -> Window | None:
+    """Pierwszy ciągły odcinek godzin `evening_peak` doby `day` z harmonogramu taryfy, bez względu na jego świeżość
+    (ostatni znany harmonogram obowiązuje). None = brak którejkolwiek godziny doby (tryb nic nie robi);
+    NO_PEAK = doba bez szczytu."""
+    zones = []
+    for h in range(24):
+        row = feed.at(datetime(day.year, day.month, day.day, h))
+        if row is None:
+            return None
+        zones.append(row.zone == PEAK_ZONE)
+    if True not in zones:
+        return NO_PEAK
+    start = zones.index(True)
+    end = start
+    while end < 24 and zones[end]:
+        end += 1
+    return Window(start, end)
 
 
-def decide(now: datetime, *, workday: bool | None, current_shift: float, base_shift: float | None,
+def decide(now: datetime, *, window: Window | None, current_shift: float, base_shift: float | None,
            min_room_c: float | None, state: State, cfg: Config) -> Decision:
     day = now.date()
     if state.day != day:
         state = State(day=day)
-    if workday is None:
+    if window is None:
         return Decision(None, "brak harmonogramu taryfy", state)
-    if not workday:
-        return Decision(None, "dzień nieroboczy", state)
+    if window.empty:
+        return Decision(None, "brak szczytu evening_peak w taryfie", state)
 
     hour = now.hour
     base = current_shift if base_shift is None else base_shift
-    if not PREHEAT_FROM_H <= hour < WINDOW_END_H:
-        if hour >= WINDOW_END_H and base_shift is not None and current_shift != base_shift:
-            return Decision(base_shift, "koniec okna", state)
-        return Decision(None, "poza oknem", state)
+    if not window.preheat_from <= hour < window.end:
+        if hour >= window.end and base_shift is not None and current_shift != base_shift:
+            return Decision(base_shift, "koniec okna", state, window=window)
+        return Decision(None, "poza oknem", state, window=window)
 
     state, event = _breaker(now, min_room_c, state, cfg)
     if state.tripped:
-        return Decision(base, "bezpiecznik", state, base, event)
-    shift = cfg.preheat_shift if hour < PEAK_FROM_H else cfg.peak_shift
-    return Decision(_clamp(base + shift), "dogrzanie" if hour < PEAK_FROM_H else "szczyt", state, base)
+        return Decision(base, "bezpiecznik", state, base, event, window)
+    preheat = hour < window.start
+    shift = cfg.preheat_shift if preheat else cfg.peak_shift
+    return Decision(_clamp(base + shift), "dogrzanie" if preheat else "szczyt", state, base, window=window)
 
 
 def _breaker(now: datetime, room: float | None, state: State, cfg: Config) -> tuple[State, str | None]:

@@ -6,7 +6,7 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import g13_exec, g13_view
-from tests.test_g13_exec import FRI, ON, at, feed
+from tests.test_g13_exec import FRI, ON, SUMMER, at, feed
 
 
 @pytest.fixture
@@ -114,3 +114,33 @@ def test_wstrzymany_gdy_glowny_wylacznik_heiko_wylaczony(conn):
     feed(conn, at(10), True)
     v = g13_view.build(conn, {**ON, "heiko_enabled": False}, at(10))
     assert v["status"] == "blocked" and v["next"] is None
+
+
+def test_okno_letnie_next_now_window(conn):
+    feed(conn, at(10), True, window=SUMMER)
+    v = g13_view.build(conn, ON, at(10))
+    assert v["workday"] is True and v["window"] == {"start": "19:00", "end": "22:00"}
+    assert v["next"] == {"at": "16:00", "value": "+1"}
+    assert g13_view.build(conn, ON, at(17))["next"] == {"at": "19:00", "value": "-3"}
+    assert g13_view.build(conn, ON, at(20))["next"] == {"at": "22:00", "value": "powrót do bazowego"}
+    assert g13_view.build(conn, ON, at(23))["next"] is None
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": -3.0, "base": 0.0, "day": FRI.isoformat()})
+    assert g13_view.build(conn, ON, at(20))["now"] == {"phase": "szczyt do 22:00", "shift": "-3", "base": "0"}
+    assert g13_view.now_view(conn, ON, at(17))["phase"] == "przedgrzewanie do 19:00"
+    assert g13_view.now_view(conn, ON, at(22)) is None
+
+
+def test_okno_do_polnocy_bez_kroku_konca(conn):
+    feed(conn, at(10), True, window=(20, 24))
+    assert g13_view.build(conn, ON, at(21))["next"] is None
+    assert g13_view.build(conn, ON, at(18))["next"] == {"at": "20:00", "value": "-3"}
+
+
+def test_brak_szczytu_i_brak_harmonogramu(conn):
+    feed(conn, at(10), False)
+    v = g13_view.build(conn, ON, at(10))
+    assert v["workday"] is False and v["window"] is None and v["next"] is None
+    conn.execute("DELETE FROM tariff_hours")
+    conn.commit()
+    v = g13_view.build(conn, ON, at(10))
+    assert v["workday"] is None and v["window"] is None and v["next"] is None

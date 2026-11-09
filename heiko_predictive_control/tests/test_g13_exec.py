@@ -43,13 +43,16 @@ def conn():
     return c
 
 
-def feed(conn, now, workday=True, with_rows=True):
-    """Harmonogram taryfy: o 17:00 szczyt (`is_peak`) tylko w dni robocze."""
+def feed(conn, now, workday=True, with_rows=True, window=(16, 21)):
+    """Harmonogram taryfy: 24 wiersze doby, `evening_peak` w oknie `window` (godziny [start, end)), poza nim `other`;
+    `workday=False` = doba bez szczytu (dzień wolny / G12w)."""
     if with_rows:
-        conn.execute("INSERT INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
-                     "VALUES (?, 'G13', 'szczyt', ?, NULL, 1.0, 'wysoka', ?) ON CONFLICT(hour) DO UPDATE SET "
-                     "is_peak = excluded.is_peak, fetched_at = excluded.fetched_at",
-                     (now.strftime("%Y-%m-%dT17"), int(workday), now.isoformat(timespec="seconds")))
+        for h in range(24):
+            zone = "evening_peak" if workday and window[0] <= h < window[1] else "other"
+            conn.execute("INSERT INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                         "VALUES (?, 'G13', ?, ?, NULL, 1.0, 'wysoka', ?) ON CONFLICT(hour) DO UPDATE SET "
+                         "zone = excluded.zone, is_peak = excluded.is_peak, fetched_at = excluded.fetched_at",
+                         (now.strftime(f"%Y-%m-%dT{h:02d}"), zone, int(zone == "evening_peak"), now.isoformat(timespec="seconds")))
         conn.commit()
 
 
@@ -59,9 +62,9 @@ def room(conn, when, value):
     conn.commit()
 
 
-def go(conn, pump, now, settings=ON, room_c=21.5, workday=True, with_feed=True, confirm=True):
+def go(conn, pump, now, settings=ON, room_c=21.5, workday=True, with_feed=True, confirm=True, window=(16, 21)):
     """Jeden przebieg jak w produkcji: potwierdzenia (experiments.tick), potem tryb."""
-    feed(conn, now, workday, with_feed)
+    feed(conn, now, workday, with_feed, window)
     if room_c is not None:
         room(conn, now, room_c)
     if confirm:
@@ -405,3 +408,57 @@ def test_migracja_zakresu_drugie_wywolanie_nic_nie_zmienia(conn):
     dbm.set_setting(conn, "g13_peak_peak_shift", -4)
     dbm._migrate_g13_range_0_22(conn)
     assert dbm.get_setting(conn, "g13_peak_peak_shift") == -4
+
+
+SUMMER = (19, 22)
+
+
+def test_summer_window_writes_at_16_19_22(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(13), at(15, 55), at(16), at(16, 5), at(19), at(19, 5), at(21, 55)):
+        go(conn, pump, now, window=SUMMER)
+    assert pump.calls == [1.0, -3.0]                           # nic o 13:00 (dogrzanie od 16:00), szczyt od 19:00
+    go(conn, pump, at(22), window=SUMMER)
+    assert pump.calls == [1.0, -3.0, 0.0]
+    assert state(conn)["window_end"] == 22
+
+
+def test_no_evening_peak_day_writes_nothing_with_reason(conn):
+    pump = Pump()
+    for h in (0, 13, 16, 17, 19, 21, 23):
+        go(conn, pump, at(h), workday=False)
+    assert pump.calls == []
+    assert state(conn)["last"]["reason"] == "brak szczytu evening_peak w taryfie"
+
+
+def test_missing_schedule_writes_nothing_with_reason(conn):
+    pump = Pump()
+    for h in (13, 17):
+        go(conn, pump, at(h), with_feed=False)
+    assert pump.calls == [] and state(conn)["last"]["reason"] == "brak harmonogramu taryfy"
+
+
+def test_return_to_base_after_feed_window_end_even_if_feed_changes(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(16), at(16, 5), at(19), at(19, 5)):
+        go(conn, pump, now, window=SUMMER)
+    assert state(conn)["window_end"] == 22
+    go(conn, pump, at(22), with_feed=False)                    # feed zniknął — wraca wg zapamiętanego końca
+    assert pump.calls == [1.0, -3.0, 0.0]
+
+
+def test_restart_keeps_window_end_from_state(conn):
+    pump = Pump(shift=-3.0)
+    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -3.0, "last_written": -3.0,
+                                          "tripped": False, "cold_since": None, "suspended_day": None, "window_end": 22})
+    go(conn, pump, at(21, 30), with_feed=False)
+    assert pump.calls == []                                    # przed końcem zapamiętanego okna nic nie cofa
+    go(conn, pump, at(22, 5), with_feed=False)
+    assert pump.calls == [0.0]
+
+
+def test_window_end_cleared_with_state_after_return(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(16), at(16, 5), at(20, 55), at(21), at(21, 5)):
+        go(conn, pump, now)
+    assert state(conn)["window_end"] is None and state(conn)["base"] is None

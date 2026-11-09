@@ -94,7 +94,7 @@ def _apply(conn, settings: dict, st: dict, current: float, target: float, now: d
 
 
 def _clear(st: dict) -> None:
-    st["base"] = st["last_written"] = st["intent"] = st["prev"] = st["maybe"] = None
+    st["base"] = st["last_written"] = st["intent"] = st["prev"] = st["maybe"] = st["window_end"] = None
 
 
 def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, writer=None, notify=None) -> dict | None:
@@ -160,7 +160,11 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
                             notify, TITLE)
         return {"reason": "ręczna zmiana", "current": current}
 
-    after_window = now.hour >= g13_peak.WINDOW_END_H or st.get("day") not in (None, today)
+    feed = tariff_feed.for_settings(conn, settings)
+    window = g13_peak.window_from_feed(feed, now.date())
+    after_window = ((window is not None and not window.empty and now.hour >= window.end)
+                    or (st.get("window_end") is not None and now.hour >= st["window_end"])
+                    or st.get("day") not in (None, today))
     if base is not None and after_window:
         if _close(current, base):
             _clear(st)
@@ -176,15 +180,15 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         return None
 
     cfg = _config(settings)
-    feed = tariff_feed.for_settings(conn, settings)
-    workday = g13_peak.workday_from_feed(feed, now.date(), now)
-    decision = g13_peak.decide(now, workday=workday, current_shift=current, base_shift=base, min_room_c=_min_room(conn, now),
+    decision = g13_peak.decide(now, window=window, current_shift=current, base_shift=base, min_room_c=_min_room(conn, now),
                                state=_breaker_state(st), cfg=cfg)
     s = decision.state
     st.update(day=s.day.isoformat() if s.day else None, cold_since=s.cold_since.isoformat() if s.cold_since else None,
               tripped=s.tripped)
     if decision.base is not None:
         st["base"] = decision.base
+    if decision.window is not None and not decision.window.empty:
+        st["window_end"] = decision.window.end
     last = st.get("last") or {}
     if (last.get("reason"), last.get("target")) != (decision.reason, decision.target):
         st["last"] = {"ts": now.isoformat(timespec="seconds"), "reason": decision.reason, "target": decision.target}
@@ -192,7 +196,7 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
     if decision.event == "bezpiecznik":
         st["trips"] = [*(st.get("trips") or [])[-29:], today]          # historia do kafla na pulpicie
         experiments._notify(settings, f"Tryb Szczyt G13: pokój poniżej {cfg.min_room_c:g} °C przez 15 min — wracam do "
-                                      "bazowego do 21:00.", notify, TITLE)
+                                      f"bazowego do {decision.window.end:02d}:00.", notify, TITLE)
     wrote = None
     if decision.target is not None and not _close(decision.target, current):
         wrote = _apply(conn, settings, st, current, decision.target, now, writer, notify)

@@ -8,9 +8,9 @@ from . import db as dbm
 from . import g13_exec, g13_peak, heating_runs, tariff_feed
 from .summaries import day_bounds
 
-PEAK_ZONE = "evening_peak"
+PEAK_ZONE = g13_peak.PEAK_ZONE
 WEEK_DAYS = 7
-STATUS_LABELS = {"off": "wyłączony", "blocked": "wstrzymany: sterowanie Heiko wyłączone", "suspended": "wstrzymany do jutra", "tripped": "bezpiecznik — bazowe do 21:00",
+STATUS_LABELS = {"off": "wyłączony", "blocked": "wstrzymany: sterowanie Heiko wyłączone", "suspended": "wstrzymany do jutra", "tripped": "bezpiecznik — bazowe do końca szczytu",
                  "active": "włączony"}
 
 
@@ -24,28 +24,30 @@ def _zone_energy(runs: list[dict]) -> dict:
     return {"kwh": round(kwh, 2), "pln": round(pln, 2)}
 
 
-def _next_change(now: datetime, workday: bool | None, cfg: g13_peak.Config) -> dict | None:
-    """Najbliższa zmiana dziś (13/16/21) z docelowym przesunięciem względem bazowego; poza dniem roboczym brak."""
-    if not workday:
+def _next_change(now: datetime, window: g13_peak.Window | None, cfg: g13_peak.Config) -> dict | None:
+    """Najbliższa zmiana dziś (dogrzanie/szczyt/koniec okna) z docelowym przesunięciem względem bazowego; bez okna brak.
+    Okno do północy nie ma kroku „koniec” (powrót przy zmianie doby)."""
+    if window is None or window.empty:
         return None
-    steps = ((g13_peak.PREHEAT_FROM_H, f"{cfg.preheat_shift:+g}"), (g13_peak.PEAK_FROM_H, f"{cfg.peak_shift:+g}"),
-             (g13_peak.WINDOW_END_H, "powrót do bazowego"))
+    steps = [(window.preheat_from, f"{cfg.preheat_shift:+g}"), (window.start, f"{cfg.peak_shift:+g}")]
+    if window.end < 24:
+        steps.append((window.end, "powrót do bazowego"))
     for hour, value in steps:
         if now.hour < hour:
             return {"at": f"{hour:02d}:00", "value": value}
     return None
 
 
-def _now_phase(now: datetime, workday: bool | None, st: dict) -> dict | None:
+def _now_phase(now: datetime, window: g13_peak.Window | None, st: dict) -> dict | None:
     """Faza okna i przesunięcie krzywej (wartość bezwzględna: bazowe + dogrzanie/szczyt) ostatnio zapisane przez tryb
-    dziś; poza oknem, w dzień wolny, bez dzisiejszego zapisu albo z danymi z wczoraj brak."""
+    dziś; poza oknem, bez szczytu w taryfie, bez dzisiejszego zapisu albo z danymi z wczoraj brak."""
     shift = st.get("last_written")
-    if not workday or shift is None or st.get("day") != now.date().isoformat():
+    if window is None or window.empty or shift is None or st.get("day") != now.date().isoformat():
         return None
-    if g13_peak.PREHEAT_FROM_H <= now.hour < g13_peak.PEAK_FROM_H:
-        phase = f"przedgrzewanie do {g13_peak.PEAK_FROM_H:02d}:00"
-    elif g13_peak.PEAK_FROM_H <= now.hour < g13_peak.WINDOW_END_H:
-        phase = f"szczyt do {g13_peak.WINDOW_END_H:02d}:00"
+    if window.preheat_from <= now.hour < window.start:
+        phase = f"przedgrzewanie do {window.start:02d}:00"
+    elif window.start <= now.hour < window.end:
+        phase = f"szczyt do {window.end:02d}:00"
     else:
         return None
     base = st.get("base")
@@ -69,8 +71,8 @@ def now_view(conn, settings: dict, now: datetime) -> dict | None:
     st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
     if _status(settings, st, now.date()) != "active":
         return None
-    workday = g13_peak.workday_from_feed(tariff_feed.for_settings(conn, settings), now.date(), now)
-    return _now_phase(now, workday, st)
+    window = g13_peak.window_from_feed(tariff_feed.for_settings(conn, settings), now.date())
+    return _now_phase(now, window, st)
 
 
 def build(conn, settings: dict, now: datetime) -> dict:
@@ -78,7 +80,7 @@ def build(conn, settings: dict, now: datetime) -> dict:
     st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
     status = _status(settings, st, today)
     feed = tariff_feed.for_settings(conn, settings)
-    workday = g13_peak.workday_from_feed(feed, today, now)
+    window = g13_peak.window_from_feed(feed, today)
     week_start = today - timedelta(days=WEEK_DAYS - 1)
     tz_name = settings.get("timezone") or "Europe/Warsaw"
     today_start, _ = day_bounds(today, tz_name)
@@ -86,9 +88,10 @@ def build(conn, settings: dict, now: datetime) -> dict:
     today_runs = [r for r in week_runs if datetime.fromisoformat(r["start"]) >= today_start]
     return {
         "enabled": bool(settings.get("g13_peak_enabled", False)), "status": status, "status_label": STATUS_LABELS[status],
-        "workday": workday,
-        "next": _next_change(now, workday, g13_exec._config(settings)) if status == "active" else None,
-        "now": _now_phase(now, workday, st) if status == "active" else None,
+        "workday": None if window is None else not window.empty,       # None = brak harmonogramu, False = brak szczytu
+        "window": None if window is None or window.empty else {"start": f"{window.start:02d}:00", "end": f"{window.end:02d}:00"},
+        "next": _next_change(now, window, g13_exec._config(settings)) if status == "active" else None,
+        "now": _now_phase(now, window, st) if status == "active" else None,
         "today": _zone_energy(today_runs),
         "week": _zone_energy(week_runs),
         "trips_7d": sum(1 for d in st.get("trips") or [] if d >= week_start.isoformat()),
