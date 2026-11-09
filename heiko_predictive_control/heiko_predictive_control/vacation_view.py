@@ -48,14 +48,14 @@ def build(conn, settings: dict, now: datetime) -> dict:
     label = STATUS_LABELS[status]
     if status == "scheduled":
         label = label.format(_dm(start))
-    drop, dhw = vacation_exec._config(settings).drop, vacation_exec.dhw_target(settings)
+    cfg, dhw = vacation_exec._config(settings), vacation_exec.dhw_target(settings)
     summary = ""
     if status != "off":
-        summary = f"Urlop{f' do {_dm(end)}' if end else ''} · krzywa −{drop} · CWU {dhw}"
+        summary = f"Urlop{f' do {_dm(end)}' if end else ''} · krzywa −{cfg.drop} · CWU {dhw}"
     since = (today - timedelta(days=TRIP_DAYS)).isoformat()
     return {
         "enabled": bool(settings.get("vacation_enabled", False)), "status": status, "status_label": label,
-        "from": start, "to": end, "drop": drop, "min_room_c": vacation_exec._config(settings).min_room_c, "dhw": dhw,
+        "from": start, "to": end, "drop": cfg.drop, "min_room_c": cfg.min_room_c, "dhw": dhw,
         "with_away": bool(settings.get("vacation_with_away", False)),
         "peak_pressing": bool(settings.get("g13_peak_enabled", False)),
         "summary": summary, "dhw_warn": st.get("dhw_warn"),

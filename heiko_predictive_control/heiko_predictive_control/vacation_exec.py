@@ -13,7 +13,7 @@ from datetime import date, datetime
 from . import db as dbm
 from . import experiments, g13_exec, g13_peak, ha_client, tariff_feed, vacation
 from .cycle import curve_shift_entity
-from .g13_exec import ROOM_MAX_AGE, _coldest_room  # noqa: F401  (ROOM_MAX_AGE re-eksport)
+from .g13_exec import _coldest_room
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ TITLE = "Heiko: tryb urlopowy"
 _EPS = 0.05
 _SHIFT_LIKE = f"%{experiments.ALLOWED_ENTITY_SUFFIX}"
 DHW_AFTER = 48                                     # nastawa CWU przywracana po urlopie (decyzja roadmapy)
-_DHW_KEYS = ("dhw_active", "dhw_before", "dhw_intent", "dhw_fail_day", "dhw_warn", "dhw_written_id")
+_DHW_KEYS = ("dhw_active", "dhw_before", "dhw_intent", "dhw_fail_day", "dhw_warn")
 
 
 def _notify_to(service: str, message: str, notify) -> None:
@@ -156,7 +156,6 @@ def _dhw_write(conn, settings: dict, st: dict, dhw: str, current: float, target:
     except ValueError as exc:
         logger.error("Tryb urlopowy: zapis CWU %s → %s odrzucony przez allowlistę: %s", current, target, exc)
         ok = False
-    st["dhw_written_id"] = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
     return ok
 
 
@@ -205,7 +204,7 @@ def _dhw_exit(conn, settings: dict, st: dict, now: datetime, get_numeric, writer
     if not _close(current, DHW_AFTER) and not _dhw_write(conn, settings, st, dhw, current, DHW_AFTER, now, writer):
         if st.get("dhw_fail_day") != now.date().isoformat():
             experiments._notify(settings, f"Tryb urlopowy wyłączony, ale powrót nastawy CWU do {DHW_AFTER} nie powiódł się "
-                                          f"(jest {current:g}) — ponawiam co 5 min; w razie potrzeby ustaw ręcznie.", notify, TITLE)
+                                          f"(jest {current:g}) — ponawiam w następnym cyklu; w razie potrzeby ustaw ręcznie.", notify, TITLE)
         st["dhw_fail_day"] = now.date().isoformat()
         dbm.set_setting(conn, STATE_KEY, st)
         return
@@ -251,7 +250,7 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
             if not wrote:                                  # stan zostaje: następny tick ponowi powrót
                 if not failed_before:
                     experiments._notify(settings, f"Tryb urlopowy wyłączony, ale powrót przesunięcia do {base:g} nie "
-                                                  "powiódł się — ponawiam co 5 min; w razie potrzeby ustaw ręcznie.", notify, TITLE)
+                                                  "powiódł się — ponawiam w następnym cyklu; w razie potrzeby ustaw ręcznie.", notify, TITLE)
                 st["return_fail_day"] = today
                 _save(conn, st, before)
                 return {"reason": "tryb wyłączony — powrót odrzucony, ponawiam", "target": base, "wrote": False}
@@ -320,7 +319,7 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
         st["trips"] = [*(st.get("trips") or [])[-29:], today]
         room_c, room_name = cold                       # decyzja „bezpiecznik” wymaga odczytu, więc cold ≠ None
         st["trip_room"] = {"name": room_name, "c": round(room_c, 1)}
-        _notify_to("notify.kacper", f"{room_name or 'najzimniejszy pokój'} ma {room_c:.1f} °C — poniżej "
+        _notify_to("notify.kacper", f"Tryb urlopowy: {room_name or 'najzimniejszy pokój'} ma {room_c:.1f} °C — poniżej "
                                     f"{cfg.min_room_c:g} °C przez 15 min, wracam do bazowego przesunięcia "
                                     f"do czasu ocieplenia.", notify)
     wrote = None

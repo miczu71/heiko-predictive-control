@@ -498,7 +498,7 @@ def create_app(db_path: str,
         conn = db_conn()
         try:
             target = now.date() - timedelta(days=1) if day == "yesterday" else now.date()
-            data = day_summary.build_day(conn, settings, get_states() or [], target, now,
+            data = day_summary.build_day(conn, settings, lambda: get_states() or [], target, now,
                                          cache=day_summary.DAY_CACHE)
         finally:
             conn.close()

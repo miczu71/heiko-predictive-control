@@ -265,7 +265,7 @@ def _standby(pump: dict | None, parts: dict[str, dict]) -> dict:
     return out
 
 
-def build_day(conn, settings: dict, states: list[dict], day: date, now: datetime,
+def build_day(conn, settings: dict, states, day: date, now: datetime,
               get_history=ha_client.get_history, cache: dict | None = None) -> dict:
     """Doba lokalna `day` (dziś albo wczoraj) z historii HA: runy przycięte do [00:00, 24:00) (run przez północ
     dzieli się między doby), licznik pompy na tym samym przedziale, a różnica do podłogi i CWU to `standby`
@@ -284,6 +284,8 @@ def build_day(conn, settings: dict, states: list[dict], day: date, now: datetime
     if not any(configured.values()):
         return _result(day, empty, configured, now)
 
+    if callable(states):                               # leniwie: pełny GET /states tylko po chybieniu cache
+        states = states()
     roles_floor, roles_dhw, roles_ac, sources, entities = _roles(settings, states, configured)
     day_start, day_end = day_bounds(day, tz_name)
     window_end = min(day_end, now)
