@@ -39,8 +39,8 @@ def build(conn, settings: dict, now: datetime) -> dict:
         tail_minutes = max(0, int((now - datetime.fromisoformat(since)).total_seconds() // 60))
     return {
         "status": status, "status_label": STATUS_LABELS[status],
-        "margin_k": tail_cut._num(settings, "tail_margin_k", 1.0),
-        "delay_min": tail_cut._num(settings, "tail_delay_min", 45),
+        "margin_k": tail_cut._num(settings, "tail_margin_k", 0),
+        "delay_min": tail_cut._num(settings, "tail_delay_min", 120),
         "hold_min": tail_cut._num(settings, "tail_dhw_hold_min", 2),
         "min_room_c": tail_cut._num(settings, "tail_min_room_c", 20.5),
         "pause_min": tail_cut._num(settings, "tail_min_pause_min", 30),

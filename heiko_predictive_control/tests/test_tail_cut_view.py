@@ -28,14 +28,14 @@ def put(conn, **state):
 def test_wylaczony_domyslne_wartosci_opcji(conn):
     v = tail_cut_view.build(conn, {}, T0)
     assert v["status"] == "off" and v["status_label"]
-    assert (v["margin_k"], v["delay_min"], v["hold_min"], v["min_room_c"], v["pause_min"]) == (1.0, 45, 2, 20.5, 30)
+    assert (v["margin_k"], v["delay_min"], v["hold_min"], v["min_room_c"], v["pause_min"]) == (0, 120, 2, 20.5, 30)
     assert v["tail_minutes"] is None and v["last_cut"] is None and v["last"] is None
     assert (v["cuts_today"], v["cuts_7d"], v["cuts_total"]) == (0, 0, 0)
 
 
 def test_pusta_opcja_daje_wartosc_domyslna(conn):
     v = tail_cut_view.build(conn, {"tail_margin_k": None, "tail_delay_min": None}, T0)
-    assert (v["margin_k"], v["delay_min"]) == (1.0, 45)
+    assert (v["margin_k"], v["delay_min"]) == (0, 120)
 
 
 def test_zablokowany_gdy_sterowanie_heiko_wylaczone(conn):

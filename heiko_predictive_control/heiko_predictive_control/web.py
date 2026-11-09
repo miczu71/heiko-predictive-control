@@ -59,7 +59,7 @@ def _running_test_view(conn) -> Optional[dict]:
 # Zakresy opcji liczbowych (włącznie). Klucze `tail_*` dopuszczają `None` (pusta opcja = domyślna wartość).
 SETTING_RANGES = {
     "g13_peak_preheat_shift": (-3, 3), "g13_peak_peak_shift": (-3, 3),
-    "tail_margin_k": (0.2, 5), "tail_delay_min": (10, 240), "tail_min_pause_min": (5, 240),
+    "tail_margin_k": (0, 5), "tail_delay_min": (10, 240), "tail_min_pause_min": (5, 240),
     "tail_min_room_c": (15, 26), "tail_dhw_hold_min": (1, 10),
 }
 

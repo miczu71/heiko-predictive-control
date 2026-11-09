@@ -1,6 +1,8 @@
 """Odcinanie „ogona” grzania (0.22.0, domyślnie wyłączone `tail_cut_enabled`): gdy pompa grzeje, a temperatura wody (Tc)
-przez `tail_delay_min` stoi powyżej nastawy + `tail_margin_k`, na chwilę przełączamy tryb pompy z Auto na CWU (`dhw`),
-by skończyć cykl grzania, i po `tail_dhw_hold_min` wracamy do Auto.
+przekroczy nastawę + `tail_margin_k` (domyślnie 0), odliczamy `tail_delay_min` (domyślnie 120) i na chwilę przełączamy tryb
+pompy z Auto na CWU (`dhw`), by skończyć cykl grzania; po `tail_dhw_hold_min` wracamy do Auto. Odliczanie (0.22.1) startuje
+przy pierwszym przekroczeniu progu i NIE zeruje się, gdy Tc chwilowo spadnie (pompa robi piłę Tc ~55 min, sprężarka nie
+staje) — jak stara automatyzacja Pompa_fix; zeruje je wyjście z grzania, tryb inny niż Auto, niski pokój, brak danych.
 
 Moduł sam nie wywołuje usług HA: tryb zapisuje wyłącznie `experiments._write_mode` (allowlista `dhw`/`auto`). Potwierdzenie
 zapisu to odczyt `raw_value` sensora `mode_setting` (nie `experiments._confirm_writes`), więc wiersz `pump_writes` zawsze
@@ -135,13 +137,12 @@ def _run(conn, settings, now, st, get_state, get_numeric, writer, notify, sleep)
     if not (work == HEATING_CODE and mode == AUTO_CODE and room >= _num(settings, "tail_min_room_c", 20.5)):
         st["tail_since"] = None
         return None
-    if tc < setpoint + _num(settings, "tail_margin_k", 1.0):
-        st["tail_since"] = None
-        return None
+    if not st.get("tail_since") and tc <= setpoint + _num(settings, "tail_margin_k", 0):
+        return None                                    # próg jeszcze nieprzekroczony; po starcie odliczania spadek Tc go nie zeruje
     since = datetime.fromisoformat(st["tail_since"]) if st.get("tail_since") else now
     st["tail_since"] = _iso(since)
     minutes = (now - since).total_seconds() / 60
-    if minutes < _num(settings, "tail_delay_min", 45):
+    if minutes < _num(settings, "tail_delay_min", 120):
         return None
 
     st["forced"], st["cut_at"], st["tail_since"] = True, _iso(now), None

@@ -85,17 +85,17 @@
 
     <fieldset>
       <legend>Ogon grzania — odcinanie końcówki cyklu</legend>
-      <p class="hint">Gdy pompa grzeje, a temperatura wody (Tc) przez „opóźnienie” minut stoi co najmniej o „margines” powyżej nastawy,
-        na „czas CWU” minut przełącza tryb z Auto na CWU, by skończyć cykl grzania, po czym wraca do Auto. Wymaga włączonego
+      <p class="hint">Gdy pompa grzeje, a temperatura wody (Tc) przekroczy nastawę o „margines”, startuje odliczanie „opóźnienia”; chwilowy
+        spadek Tc go nie zeruje. Po jego upływie na „czas CWU” minut przełącza tryb z Auto na CWU, by skończyć cykl grzania, po czym wraca do Auto. Wymaga włączonego
         „Sterowanie aktywne (Heiko)”. Opcja jest wyłączona domyślnie. Wyłączenie opcji, test w toku albo pokój zimniejszy niż
         „minimum pokoju” natychmiast przywraca Auto.</p>
       <label><input type="checkbox" name="tail_cut_enabled" {{ 'checked' if settings.tail_cut_enabled }}>
         Odcinanie ogona grzania aktywne</label>
       <div class="grid2">
-        <label>Margines nad nastawą (K) (0,2…5)
-          <input type="number" step="0.1" min="0.2" max="5" name="tail_margin_k" value="{{ settings.get('tail_margin_k', 1.0) }}"></label>
-        <label>Opóźnienie — po ilu minutach stania (min) (10…240)
-          <input type="number" step="1" min="10" max="240" name="tail_delay_min" value="{{ settings.get('tail_delay_min', 45) }}"></label>
+        <label>Margines nad nastawą (K) (0…5)
+          <input type="number" step="0.1" min="0" max="5" name="tail_margin_k" value="{{ settings.get('tail_margin_k', 0) }}"></label>
+        <label>Opóźnienie — po ilu minutach od przekroczenia progu (min) (10…240)
+          <input type="number" step="1" min="10" max="240" name="tail_delay_min" value="{{ settings.get('tail_delay_min', 120) }}"></label>
         <label>Czas CWU przed powrotem do Auto (min) (1…10)
           <input type="number" step="1" min="1" max="10" name="tail_dhw_hold_min" value="{{ settings.get('tail_dhw_hold_min', 2) }}"></label>
         <label>Przerwa po odcięciu, zanim ponownie (min) (5…240)

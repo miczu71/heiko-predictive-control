@@ -8,7 +8,8 @@ from heiko_predictive_control import experiments as ex
 from heiko_predictive_control import g13_exec, tail_cut
 
 SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
-ON = {"tail_cut_enabled": True, "heiko_enabled": True, "heiko_curve_shift_entity": SHIFT, "advisor_notify_service": "notify.x"}
+ON = {"tail_cut_enabled": True, "heiko_enabled": True, "heiko_curve_shift_entity": SHIFT, "advisor_notify_service": "notify.x",
+      "tail_delay_min": 45}
 OFF = {**ON, "tail_cut_enabled": False}
 T0 = datetime(2026, 11, 9, 12, 0)
 TC, SETPOINT = "sensor.heiko_heat_pump_condenser_temperature", "sensor.heiko_heat_pump_water_temperature_setpoint"
@@ -117,14 +118,42 @@ def test_tail_at_delay_cuts_to_dhw_and_confirms(conn):
     assert pump.sleeps == [70]
 
 
-def test_tc_below_margin_clears_tail_since(conn):
+def test_tc_not_above_threshold_never_starts_countdown(conn):
+    pump = Pump(tc=38.0)                                 # Tc == nastawa: próg (ścisłe >) niespełniony
+    go(conn, pump, at(0))
+    assert state(conn).get("tail_since") is None
+    assert go(conn, pump, at(60)) is None and pump.calls == []
+
+
+def test_tc_dip_during_countdown_does_not_reset_and_cuts(conn):
+    """Piła Tc: spadek poniżej progu po starcie odliczania NIE zeruje licznika (jak stara Pompa_fix)."""
     pump = Pump()
     go(conn, pump, at(0))
-    assert state(conn)["tail_since"] is not None
-    pump.tc = 38.9                                       # < nastawa + 1,0
-    go(conn, pump, at(10))
-    assert state(conn)["tail_since"] is None
-    pump.tc = 40.0
+    pump.tc = 37.0                                       # poniżej nastawy
+    assert go(conn, pump, at(10)) is None
+    assert state(conn)["tail_since"] == at(0).isoformat()
+    pump.tc = 38.4
+    assert go(conn, pump, at(45))["reason"] == "odcięto ogon"
+    assert pump.calls == ["dhw"]
+
+
+def test_margin_requires_exceeding_setpoint_plus_margin(conn):
+    s = {**ON, "tail_margin_k": 1.0}
+    pump = Pump(tc=38.9)                                 # < nastawa + 1,0
+    go(conn, pump, at(0), s)
+    assert state(conn).get("tail_since") is None
+    pump.tc = 39.1
+    go(conn, pump, at(10), s)
+    assert state(conn)["tail_since"] == at(10).isoformat()
+
+
+def test_leaving_heating_clears_countdown(conn):
+    pump = Pump()
+    go(conn, pump, at(0))
+    pump.work = 0                                        # Standby
+    go(conn, pump, at(20))
+    assert state(conn).get("tail_since") is None
+    pump.work = 2
     assert go(conn, pump, at(50)) is None                # odliczanie od nowa
     assert pump.calls == []
 
@@ -272,7 +301,8 @@ def test_empty_options_fall_back_to_defaults(conn):
     pump = Pump()
     s = {**ON, "tail_delay_min": None, "tail_margin_k": None, "tail_min_room_c": None}
     go(conn, pump, at(0), s)
-    go(conn, pump, at(45), s)
+    assert go(conn, pump, at(119), s) is None
+    go(conn, pump, at(120), s)
     assert pump.calls == ["dhw"]
 
 

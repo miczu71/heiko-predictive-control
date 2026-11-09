@@ -1001,6 +1001,12 @@ def test_post_settings_tail_values_in_range_saved(tmp_path):
     assert saved == payload
 
 
+def test_post_settings_tail_margin_zero_accepted(tmp_path):
+    saved = {}
+    resp = _recording_client(tmp_path, saved).post("/api/settings", json={"tail_margin_k": 0, "tail_delay_min": 120})
+    assert resp.status_code == 200 and saved == {"tail_margin_k": 0, "tail_delay_min": 120}
+
+
 def test_post_settings_unknown_keys_unchanged(tmp_path):
     saved = {}
     resp = _recording_client(tmp_path, saved).post("/api/settings", json={"some_unknown_key": "x"})
