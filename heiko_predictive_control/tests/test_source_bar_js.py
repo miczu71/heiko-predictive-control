@@ -21,19 +21,16 @@ console.log(ctx.HPC.sourceBar(sources, total));
 """
 
 
-def flex_values(sources, total):
-    out = subprocess.run(
-        ["node", "-e", SCRIPT, str(APP_JS), json.dumps([sources, total])],
-        capture_output=True, text=True, check=True,
-    ).stdout
-    return [float(chunk.split(";")[0].split('"')[0]) for chunk in out.split("flex:")[1:]]
-
-
 def bar_html(sources, total):
     return subprocess.run(
         ["node", "-e", SCRIPT, str(APP_JS), json.dumps([sources, total])],
         capture_output=True, text=True, check=True,
     ).stdout
+
+
+def flex_values(sources, total):
+    out = bar_html(sources, total)
+    return [float(chunk.split(";")[0].split('"')[0]) for chunk in out.split("flex:")[1:]]
 
 
 def test_zone_classes_and_labels_for_new_zones():
@@ -45,9 +42,6 @@ def test_zone_classes_and_labels_for_new_zones():
     for cls, label in (("zone-cheap", "sieć poza szczytem"), ("zone-mid", "sieć szczyt poranny"),
                        ("zone-expensive", "sieć szczyt popołudniowy")):
         assert f'<i class="sw {cls}"></i>{label}' in html
-    assert "sieć poza szczytem" in html
-    assert "sieć szczyt poranny" in html
-    assert "sieć szczyt popołudniowy" in html
 
 
 @pytest.mark.parametrize("sources,total", [
