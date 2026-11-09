@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from statistics import mean
 from zoneinfo import ZoneInfo
 
-from . import catalog, comfort, db as dbm, floor_learn, ha_client, live, summaries, tariff_feed
+from . import catalog, comfort, db as dbm, floor_learn, ha_client, live, summaries, tariff_feed, vacation
 from .cycle import curve_shift_entity
 
 logger = logging.getLogger(__name__)
@@ -184,6 +184,8 @@ def _plan(kind: Kind, settings: dict, now: datetime, shift: float | None, curve_
         reason = "zapis do pompy wyłączony (Opcje → „Sterowanie aktywne (Heiko)”)"
     elif settings.get("g13_peak_enabled"):
         reason = "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
+    elif vacation.is_active(settings, now.date()):
+        reason = "wyłącz tryb urlopowy (Opcje), żeby uruchomić test"
     elif running is not None:
         reason = "inny test jest w toku"
     elif is_p0 and p0 is None:

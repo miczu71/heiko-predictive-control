@@ -5,13 +5,13 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from . import db as dbm
-from . import g13_exec, g13_peak, heating_runs, tariff_feed
+from . import g13_exec, g13_peak, heating_runs, tariff_feed, vacation
 from .summaries import day_bounds
 
 PEAK_ZONE = g13_peak.PEAK_ZONE
 WEEK_DAYS = 7
 STATUS_LABELS = {"off": "wyłączony", "blocked": "wstrzymany: sterowanie Heiko wyłączone", "suspended": "wstrzymany do jutra", "tripped": "bezpiecznik — bazowe do końca szczytu",
-                 "active": "włączony"}
+                 "active": "włączony", "vacation": "urlop: szczyt −3"}
 
 
 def _zone_energy(runs: list[dict]) -> dict:
@@ -57,6 +57,8 @@ def _now_phase(now: datetime, window: g13_peak.Window | None, st: dict) -> dict 
 def _status(settings: dict, st: dict, today: date) -> str:
     if not settings.get("g13_peak_enabled", False):
         return "off"
+    if vacation.is_active(settings, today) and settings.get("heiko_enabled"):
+        return "vacation"
     if not g13_exec.active(settings):
         return "blocked"
     if st.get("suspended_day") == today.isoformat():

@@ -8,7 +8,7 @@ o `RESUME_MARGIN` (histereza). Brak odczytu nie wyzwala bezpiecznika i nie zeruj
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 SHIFT_LIMIT = 3.0                           # allowlista zapisu (experiments._write)
 BREAKER_HOLD = timedelta(minutes=15)
@@ -40,8 +40,22 @@ def _clamp(v: float) -> float:
     return max(-SHIFT_LIMIT, min(SHIFT_LIMIT, v))
 
 
+def is_active(settings: dict, today: date) -> bool:
+    """Urlop trwa, gdy włączony i `today` mieści się w [vacation_from, vacation_to] (włącznie; puste = bez ograniczenia).
+    Nieparsowalna data = nieaktywny. Nie zależy od `heiko_enabled`."""
+    if not settings.get("vacation_enabled", False):
+        return False
+    try:
+        start, end = settings.get("vacation_from") or None, settings.get("vacation_to") or None
+        if start and today < date.fromisoformat(start):
+            return False
+        return not (end and today > date.fromisoformat(end))
+    except (TypeError, ValueError):
+        return False
+
+
 def decide(now: datetime, *, current_shift: float, base_shift: float | None, min_room_c: float | None,
-           state: State, cfg: Config) -> Decision:
+           state: State, cfg: Config, in_peak: bool = False) -> Decision:
     base = current_shift if base_shift is None else base_shift
     drop = max(1, min(3, round(cfg.drop)))
     event = None
@@ -57,4 +71,6 @@ def decide(now: datetime, *, current_shift: float, base_shift: float | None, min
                 state, event = replace(state, tripped=True), "bezpiecznik"
     if state.tripped:
         return Decision(base, "bezpiecznik", state, base, event)
+    if in_peak:
+        return Decision(-SHIFT_LIMIT, "urlop: szczyt", state, base, event)
     return Decision(_clamp(base - drop), "urlop", state, base, event)

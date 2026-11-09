@@ -5,10 +5,13 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import experiments as ex
+from heiko_predictive_control import g13_exec
 from heiko_predictive_control import vacation_exec as vac
+from tests.test_g13_exec import feed
 
 SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
 DHW = "number.heiko_heat_pump_dhw_setpoint"
+AWAY = "input_boolean.away_mode"
 ON = {"vacation_enabled": True, "heiko_enabled": True, "heiko_curve_shift_entity": SHIFT, "advisor_notify_service": "notify.x"}
 OFF = {**ON, "vacation_enabled": False}
 
@@ -18,15 +21,25 @@ def at(h, m=0, day=9):
 
 
 class Pump:
-    def __init__(self, shift=0.0, confirm=True, accept=True, dhw=None, dhw_min=16, dhw_accept=True):
+    def __init__(self, shift=0.0, confirm=True, accept=True, dhw=None, dhw_min=16, dhw_accept=True, away="off",
+                 away_ok=True):
         self.shift, self.confirm, self.accept = shift, confirm, accept
+        self.away, self.away_ok, self.away_calls = away, away_ok, []
         self.dhw, self.dhw_min, self.dhw_accept = dhw, dhw_min, dhw_accept
         self.calls, self.dhw_calls, self.notes = [], [], []
 
     def get_numeric(self, entity):
         return self.shift if entity == SHIFT else self.dhw if entity == DHW else None
 
+    def away_call(self, domain, service, data):
+        self.away_calls.append((domain, service, data["entity_id"]))
+        if self.away_ok:
+            self.away = "on" if service == "turn_on" else "off"
+        return self.away_ok
+
     def get_state(self, entity):
+        if entity == AWAY:
+            return {"state": self.away, "attributes": {}}
         return {"state": str(self.dhw), "attributes": {"min": self.dhw_min}} if entity == DHW else None
 
     def writer(self, domain, service, data):
@@ -64,7 +77,7 @@ def go(conn, pump, now, settings=ON, room_c=21.5, confirm=True, room_name=None):
     if confirm:
         ex.tick(conn, settings, now, pump.get_numeric, pump.writer, pump.notify)
     return vac.run(conn, settings, now, get_numeric=pump.get_numeric, get_state=pump.get_state, writer=pump.writer,
-                   notify=pump.notify)
+                   notify=pump.notify, away_call=pump.away_call)
 
 
 def state(conn):
@@ -76,8 +89,9 @@ def test_state_key_and_title():
 
 
 def test_active_and_config_defaults():
-    assert vac.active({"vacation_enabled": True, "heiko_enabled": True})
-    assert not vac.active({"heiko_enabled": True}) and not vac.active({"vacation_enabled": True})
+    d = datetime(2026, 11, 9).date()
+    assert vac.active({"vacation_enabled": True, "heiko_enabled": True}, d)
+    assert not vac.active({"heiko_enabled": True}, d) and not vac.active({"vacation_enabled": True}, d)
     cfg = vac._config({"vacation_curve_drop": None, "vacation_min_room_c": None})
     assert (cfg.drop, cfg.min_room_c) == (2, 16.0)
     cfg = vac._config({"vacation_curve_drop": 3, "vacation_min_room_c": 17})
@@ -350,3 +364,123 @@ def test_running_test_blocks_dhw(conn):
     dbm.set_setting(conn, vac.STATE_KEY, {"dhw_active": True})
     vac.run(conn, OFF, at(13), get_numeric=pump.get_numeric, get_state=pump.get_state, writer=pump.writer, notify=pump.notify)
     assert pump.dhw_calls == []
+
+
+# ── S6: Away, daty, szczyt, przejęcie G13 ───────────────────────────────────────────────────────────
+
+AWAY_ON = {**ON, "vacation_with_away": True}
+PEAK = {**ON, "g13_peak_enabled": True, "vacation_curve_drop": 1}
+
+
+def test_away_enter_turns_on_and_owns(conn):
+    pump = Pump(away="off")
+    go(conn, pump, at(12), settings=AWAY_ON)
+    assert pump.away_calls == [("input_boolean", "turn_on", AWAY)] and pump.away == "on"
+    assert state(conn)["away_owned"] is True
+    go(conn, pump, at(12, 5), settings=AWAY_ON)
+    assert len(pump.away_calls) == 1
+
+
+def test_away_already_on_not_ours_no_turn_off(conn):
+    pump = Pump(away="on")
+    go(conn, pump, at(12), settings=AWAY_ON)
+    assert pump.away_calls == [] and not state(conn).get("away_owned")
+    go(conn, pump, at(13), settings={**AWAY_ON, "vacation_enabled": False})
+    assert pump.away_calls == [] and pump.away == "on"
+
+
+def test_away_exit_after_vacation_to_turns_off_once(conn):
+    pump = Pump(away="off")
+    s = {**AWAY_ON, "vacation_to": "2026-11-09"}
+    go(conn, pump, at(12), settings=s)
+    go(conn, pump, at(8, day=10), settings=s)
+    go(conn, pump, at(8, 5, day=10), settings=s)
+    assert [c[1] for c in pump.away_calls] == ["turn_on", "turn_off"] and pump.away == "off"
+    assert state(conn)["away_owned"] is False
+
+
+def test_away_without_flag_no_calls(conn):
+    pump = Pump(away="off")
+    go(conn, pump, at(12), settings={**ON, "vacation_with_away": False})
+    go(conn, pump, at(12, 5))
+    assert pump.away_calls == []
+
+
+def test_away_independent_of_heiko_enabled(conn):
+    pump = Pump(away="off")
+    go(conn, pump, at(12), settings={**AWAY_ON, "heiko_enabled": False})
+    assert pump.away_calls == [("input_boolean", "turn_on", AWAY)] and pump.calls == []
+
+
+def test_away_failed_call_retried(conn, caplog):
+    pump = Pump(away="off", away_ok=False)
+    with caplog.at_level("WARNING"):
+        go(conn, pump, at(12), settings=AWAY_ON)
+    assert len(pump.away_calls) == 1 and not state(conn).get("away_owned")
+    assert any("away" in r.message.lower() for r in caplog.records)
+    pump.away_ok = True
+    go(conn, pump, at(12, 5), settings=AWAY_ON)
+    assert len(pump.away_calls) == 2 and state(conn)["away_owned"] is True
+
+
+def test_dates_before_in_after_window(conn):
+    pump = Pump(shift=0.0, dhw=48.0)
+    s = {**ON, "vacation_from": "2026-11-10", "vacation_to": "2026-11-12"}
+    go(conn, pump, at(12), settings=s)
+    assert pump.calls == [] and pump.dhw_calls == []
+    go(conn, pump, at(12, day=10), settings=s)
+    go(conn, pump, at(12, 5, day=10), settings=s)
+    assert pump.calls == [-2.0] and pump.dhw_calls == [20]
+    go(conn, pump, at(12, day=12), settings=s)
+    assert pump.calls == [-2.0]
+    go(conn, pump, at(8, day=13), settings=s)
+    assert pump.calls == [-2.0, 0.0] and pump.shift == 0.0
+    assert pump.dhw_calls == [20, 48]
+
+
+def test_peak_pressure_minus_three_in_window(conn):
+    pump = Pump(shift=0.0)
+    feed(conn, at(12))
+    go(conn, pump, at(12), settings=PEAK)
+    assert pump.calls == [-1.0]
+    go(conn, pump, at(17), settings=PEAK)
+    assert pump.calls == [-1.0, -3.0] and state(conn)["last"]["reason"] == "urlop: szczyt"
+    go(conn, pump, at(21), settings=PEAK)
+    assert pump.calls == [-1.0, -3.0, -1.0]
+
+
+def test_no_peak_pressure_without_g13_peak_enabled(conn):
+    pump = Pump(shift=0.0)
+    feed(conn, at(12))
+    go(conn, pump, at(12), settings={**PEAK, "g13_peak_enabled": False})
+    go(conn, pump, at(17), settings={**PEAK, "g13_peak_enabled": False})
+    assert pump.calls == [-1.0]
+
+
+def test_breaker_in_peak_returns_to_base(conn):
+    pump = Pump(shift=0.0)
+    feed(conn, at(17))
+    go(conn, pump, at(17), settings=PEAK)
+    assert pump.calls == [-3.0]
+    for m in (10, 15, 20, 25, 30, 35):
+        go(conn, pump, at(17, m), settings=PEAK, room_c=15.0)
+    assert pump.calls == [-3.0, 0.0]
+
+
+def test_takeover_of_g13_base_on_entry_and_state_cleared(conn):
+    pump = Pump(shift=-3.0)
+    feed(conn, at(17))
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"base": 0.0, "last_written": -3.0, "window_end": 21, "day": "2026-11-09"})
+    go(conn, pump, at(17), settings=PEAK)
+    assert state(conn)["base"] == 0.0 and pump.calls == []
+    g = dbm.get_setting(conn, g13_exec.STATE_KEY)
+    assert g["base"] is None and g["last_written"] is None and g["last"]["reason"] == "urlop"
+    go(conn, pump, at(18), settings={**PEAK, "vacation_enabled": False})
+    assert pump.calls == [0.0] and pump.shift == 0.0
+
+
+def test_no_takeover_when_current_not_g13s(conn):
+    pump = Pump(shift=1.0)
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"base": 0.0, "last_written": -3.0})
+    go(conn, pump, at(12))
+    assert state(conn)["base"] == 1.0

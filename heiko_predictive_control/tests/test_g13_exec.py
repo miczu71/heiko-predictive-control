@@ -515,3 +515,41 @@ def test_window_end_cleared_with_state_after_return(conn):
     for now in (at(16), at(16, 5), at(20, 55), at(21), at(21, 5)):
         go(conn, pump, now)
     assert state(conn)["window_end"] is None and state(conn)["base"] is None
+
+
+# ── S6: urlop wyklucza G13 ───────────────────────────────────────────────────────────────────────────
+
+VAC = {**ON, "vacation_enabled": True}
+
+
+def test_vacation_blocks_g13_even_in_peak(conn):
+    pump = Pump()
+    dbm.set_setting(conn, g13.STATE_KEY, {"base": 0.0, "last_written": 1.0, "day": FRI.isoformat()})
+    before = state(conn)
+    for h in (13, 16, 18, 22):
+        assert go(conn, pump, at(h), settings=VAC) is None
+    assert pump.calls == [] and state(conn) == before
+
+
+def test_vacation_outside_dates_does_not_block_g13(conn):
+    pump = Pump()
+    s = {**VAC, "vacation_from": "2026-11-10"}
+    go(conn, pump, at(17), settings=s)
+    assert pump.calls == [-3.0]
+
+
+def test_g13_resumes_with_own_base_after_vacation(conn):
+    pump = Pump(shift=0.0)
+    go(conn, pump, at(17))
+    assert pump.calls == [-3.0]
+    for h in (18, 19):
+        assert go(conn, pump, at(h), settings=VAC) is None
+    go(conn, pump, at(20), settings={**VAC, "vacation_enabled": False})
+    go(conn, pump, at(21))
+    assert pump.calls == [-3.0, 0.0]
+
+
+def test_vacation_without_heiko_enabled_does_not_block_g13(conn):
+    pump = Pump()
+    go(conn, pump, at(17), settings={**VAC, "heiko_enabled": False})
+    assert pump.calls == []                                    # i tak nic (g13 też wymaga heiko_enabled)

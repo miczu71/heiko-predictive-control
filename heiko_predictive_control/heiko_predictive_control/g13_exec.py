@@ -10,7 +10,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from . import db as dbm
-from . import experiments, g13_peak, ha_client, tariff_feed
+from . import experiments, g13_peak, ha_client, tariff_feed, vacation
 from .cycle import curve_shift_entity
 
 logger = logging.getLogger(__name__)
@@ -115,6 +115,9 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
     st = dict(before)
     base = st.get("base")
     entity = curve_shift_entity(settings)
+
+    if vacation.is_active(settings, now.date()) and settings.get("heiko_enabled"):
+        return None                                    # urlop przejmuje krzywą (docisk szczytu robi vacation_exec)
 
     if not active(settings):
         if base is None or experiments.running_test(conn) is not None:

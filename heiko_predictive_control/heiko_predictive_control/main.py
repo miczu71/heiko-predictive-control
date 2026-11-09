@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle, dhw_cycles, experiments, floor_learn, g13_exec, ha_client, heating_runs, kpi, layout,
-               summaries, tail_cut, tariff_feed, telemetry, vacation_exec)
+               summaries, tail_cut, tariff_feed, telemetry, vacation, vacation_exec)
 from . import attic as attic_mod
 from . import db as dbm
 from .workday import default_is_workday
@@ -437,7 +437,8 @@ def main() -> None:
             now = datetime.now()
             is_workday = ha_client.get_bool_state("binary_sensor.workday")
             vacation_entity = settings.get("attic_vacation_entity")
-            on_vacation = ha_client.get_bool_state(vacation_entity) if vacation_entity else False
+            on_vacation = True if vacation.is_active(settings, now.date()) else (
+                ha_client.get_bool_state(vacation_entity) if vacation_entity else False)
             attic = cycle.run_attic_cycle(c, settings, now, is_workday, on_vacation)
             today = dbm.attic_today_totals(c, now.date().isoformat())
             state = attic_mod.AtticState.from_dict(dbm.get_setting(c, "attic_ctrl_state"))

@@ -8,16 +8,17 @@ Stan leży w bazie (`settings`, JSON) i przeżywa restart add-onu."""
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 from . import db as dbm
-from . import experiments, ha_client, vacation
+from . import experiments, g13_exec, g13_peak, ha_client, tariff_feed, vacation
 from .cycle import curve_shift_entity
 from .g13_exec import ROOM_MAX_AGE, _coldest_room  # noqa: F401  (ROOM_MAX_AGE re-eksport)
 
 logger = logging.getLogger(__name__)
 
 STATE_KEY = "vacation_state"
+AWAY_ENTITY = "input_boolean.away_mode"
 TITLE = "Heiko: tryb urlopowy"
 _EPS = 0.05
 _SHIFT_LIKE = f"%{experiments.ALLOWED_ENTITY_SUFFIX}"
@@ -54,9 +55,51 @@ def dhw_target(settings: dict) -> int:
     return max(experiments.DHW_MIN, min(experiments.DHW_MAX, int(_num(settings, "vacation_dhw_setpoint", 20))))
 
 
-def active(settings: dict) -> bool:
-    """Tryb działa tylko przy własnym przełączniku i głównym wyłączniku zapisów do pompy (`heiko_enabled`)."""
-    return bool(settings.get("vacation_enabled", False)) and bool(settings.get("heiko_enabled"))
+def active(settings: dict, today: date) -> bool:
+    """Tryb działa tylko w oknie dat urlopu (`vacation.is_active`) i przy głównym wyłączniku zapisów (`heiko_enabled`)."""
+    return vacation.is_active(settings, today) and bool(settings.get("heiko_enabled"))
+
+
+def _away(conn, settings: dict, st: dict, now: datetime, get_state, away_call) -> None:
+    """Tryb Away (`input_boolean.away_mode`): włączamy tylko gdy był wyłączony (wtedy jest „nasz”) i tylko my go
+    wyłączamy. Nieudane wywołanie: stan bez zmian, ponowienie następnym tickiem."""
+    desired = vacation.is_active(settings, now.date()) and bool(settings.get("vacation_with_away"))
+    owned = bool(st.get("away_owned"))
+    if desired and not owned:
+        if ((get_state(AWAY_ENTITY) or {}).get("state")) != "off":
+            return                                     # już włączony (nie nasz) albo brak odczytu — nie ruszamy
+        if away_call("input_boolean", "turn_on", {"entity_id": AWAY_ENTITY}):
+            st["away_owned"] = True
+            dbm.set_setting(conn, STATE_KEY, st)
+        else:
+            logger.warning("Tryb urlopowy: nie udało się włączyć %s (away) — ponowię w następnym ticku", AWAY_ENTITY)
+    elif not desired and owned:
+        if away_call("input_boolean", "turn_off", {"entity_id": AWAY_ENTITY}):
+            st["away_owned"] = False
+            dbm.set_setting(conn, STATE_KEY, st)
+        else:
+            logger.warning("Tryb urlopowy: nie udało się wyłączyć %s (away) — ponowię w następnym ticku", AWAY_ENTITY)
+
+
+def _in_peak(conn, settings: dict, now: datetime) -> bool:
+    """Szczyt `evening_peak` z taryfy trwa teraz — tylko przy włączonym trybie Szczyt G13 (docisk urlopu)."""
+    if not settings.get("g13_peak_enabled"):
+        return False
+    window = g13_peak.window_from_feed(tariff_feed.for_settings(conn, settings), now.date())
+    return window is not None and not window.empty and window.start <= now.hour < window.end
+
+
+def _take_over_g13(conn, current: float, now: datetime) -> float | None:
+    """Pierwszy tick urlopu: jeśli krzywa jest przesunięta przez G13, bazą urlopu jest baza G13, a stan G13 czyścimy
+    (G13 bez bazy nie wykona powrotu). Zwraca bazę G13 albo None (bez przejęcia)."""
+    g13 = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
+    base = g13.get("base")
+    if base is None or not any(_close(current, v) for v in g13_exec._known(g13)):
+        return None
+    g13_exec._clear(g13)
+    g13["last"] = {"ts": now.isoformat(timespec="seconds"), "reason": "urlop", "target": None}
+    dbm.set_setting(conn, g13_exec.STATE_KEY, g13)
+    return base
 
 
 def _breaker_state(st: dict) -> vacation.State:
@@ -162,19 +205,21 @@ def _dhw_exit(conn, settings: dict, st: dict, now: datetime, get_numeric, writer
 
 
 def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, get_state=ha_client.get_state,
-        writer=None, notify=None) -> dict | None:
+        writer=None, notify=None, away_call=ha_client.call_service) -> dict | None:
     with experiments._lock:                            # tick testów i tryb nie mogą się przeplatać
-        return _run(conn, settings, now, get_numeric, get_state, writer, notify)
+        return _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
 
 
-def _run(conn, settings, now, get_numeric, get_state, writer, notify) -> dict | None:
+def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call) -> dict | None:
     today = now.date().isoformat()
     before = dbm.get_setting(conn, STATE_KEY) or {}
     st = dict(before)
+    _away(conn, settings, st, now, get_state, away_call)
+    before = dict(st)
     base = st.get("base")
     entity = curve_shift_entity(settings)
 
-    if not active(settings):
+    if not active(settings, now.date()):
         if st.get("dhw_active"):
             _dhw_exit(conn, settings, st, now, get_numeric, writer, notify)
             before = dict(st)                          # stan CWU zapisany w helperze; krzywa porównuje już tylko swoje zmiany
@@ -233,11 +278,15 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify) -> dict | 
     if st.get("suspended_day") == today:
         return None
 
+    if base is None:                                   # pierwszy tick aktywacji: baza G13 zamiast przesunięcia szczytowego
+        base = _take_over_g13(conn, current, now)
+        if base is not None:
+            st["last_written"] = current               # wartość po G13 jest teraz „nasza” (powrót do bazy, gdy nic nie zapiszemy)
     cfg = _config(settings)
     cold = _coldest_room(conn, now)
     decision = vacation.decide(now, current_shift=current, base_shift=base,
                                min_room_c=None if cold is None else cold[0],
-                               state=_breaker_state(st), cfg=cfg)
+                               state=_breaker_state(st), cfg=cfg, in_peak=_in_peak(conn, settings, now))
     s = decision.state
     st.update(cold_since=s.cold_since.isoformat() if s.cold_since else None, tripped=s.tripped)
     if decision.base is not None:

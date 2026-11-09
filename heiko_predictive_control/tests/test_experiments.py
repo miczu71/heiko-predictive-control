@@ -796,3 +796,18 @@ def test_unconfirmed_dhw_write_notifies_about_dhw_not_p0(conn):
     ex._write(conn, SETTINGS, None, 48, 20, T0, pump.writer, entity=DHW, supersede=False)
     ex._confirm_writes(conn, SETTINGS, lambda e: 48.0, T0 + timedelta(minutes=ex.CONFIRM_MIN + 1), pump.notify)
     assert len(pump.notes) == 1 and "CWU" in pump.notes[0] and "20" in pump.notes[0] and "P0" not in pump.notes[0]
+
+
+def test_plan_blocks_start_when_vacation_active():
+    for kind in ("zapis", "bezwladnosc", "p0_ab"):
+        _, reason = ex._plan(ex.KINDS[kind], {**SETTINGS, "vacation_enabled": True}, T0, 0.0, kind != "zapis", None,
+                             workday, (1.0, 6.0), True)
+        assert reason == "wyłącz tryb urlopowy (Opcje), żeby uruchomić test"
+
+
+def test_start_blocked_in_vacation_and_works_outside_dates(conn):
+    pump = Pump(shift=0.0, curve="off")
+    res = ex.start(conn, {**SETTINGS, "vacation_enabled": True}, "zapis", T0, pump.get_state, pump.get_numeric, workday)
+    assert res["ok"] is False and "urlopowy" in res["error"] and ex.running_test(conn) is None
+    outside = {**SETTINGS, "vacation_enabled": True, "vacation_from": "2026-11-01", "vacation_to": "2026-11-02"}
+    assert _start(conn, pump, settings=outside)["ok"]

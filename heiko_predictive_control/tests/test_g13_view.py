@@ -153,3 +153,15 @@ def test_brak_szczytu_i_brak_harmonogramu(conn):
     conn.commit()
     v = g13_view.build(conn, ON, at(10))
     assert v["workday"] is None and v["window"] is None and v["next"] is None
+
+
+def test_status_urlop_etykieta_bez_now_next(conn):
+    feed(conn, at(17), True)
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": -3.0, "base": 0.0, "day": FRI.isoformat()})
+    on = {**ON, "vacation_enabled": True}
+    v = g13_view.build(conn, on, at(17))
+    assert v["status"] == "vacation" and v["status_label"] == "urlop: szczyt −3"
+    assert v["now"] is None and v["next"] is None
+    assert g13_view.now_view(conn, on, at(17)) is None
+    assert g13_view.build(conn, {**on, "heiko_enabled": False}, at(17))["status"] == "blocked"
+    assert g13_view.build(conn, {**on, "g13_peak_enabled": False}, at(17))["status"] == "off"
