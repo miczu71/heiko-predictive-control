@@ -34,6 +34,8 @@ options:
   # Harmonogram taryfy z pv_roi (atrybut `schedule`): cena, strefa i szczyt każdej godziny. Dwie powyższe encje
   # służą tylko jako zapas, gdy harmonogramu brak albo jest starszy niż 3 h.
   tariff_schedule_entity: "sensor.pv_roi_tracker_pv_tariff_zone"
+  # Adres API pv_roi (historia stref taryfy do bazy KPI)
+  pv_roi_url: "http://29a4454d-pv-roi-tracker:8099"
   pump_energy_entity: "sensor.energia_pompa_ciepla_energy"
   # A2: energia grzałki AH — faza C licznika pompy (jedyna faza, którą AH obciąża; potwierdzone A0)
   ah_energy_entity: "sensor.energia_pompa_ciepla_energy_c"
@@ -115,6 +117,7 @@ schema:
   tariff_state_entity: str
   tariff_price_entity: str?
   tariff_schedule_entity: str?
+  pv_roi_url: str?
   pump_energy_entity: str
   ah_energy_entity: str?
   grid_power_entity: str?

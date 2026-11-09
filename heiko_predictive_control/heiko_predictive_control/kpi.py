@@ -11,12 +11,14 @@ Funkcje czyste + `ensure_peak_baseline` (jedyne I/O: statystyki HA)."""
 from __future__ import annotations
 
 import logging
+import hashlib
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from . import db as dbm
 from . import ha_client
 from . import energy_source as es
+from . import pv_roi_client, tariff_feed
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
 from .tariff import default_is_workday, fallback_hour
 
@@ -26,7 +28,7 @@ CLASS_STEP_C = 3
 MIN_WINDOW_KWH = 5.0          # poniżej: lato / pompa prawie nie grzeje — KPI nie ma sensu
 MIN_CLASS_HOURS = 24          # klasa temperatury w bazie z mniejszą liczbą godzin -> udział ogólny
 DEFAULT_TZ = "Europe/Warsaw"
-BASELINE_VERSION = 3          # 3 = szczyt popołudniowy G13 (16–21) tylko z poboru z sieci; starsza baza liczona od nowa
+BASELINE_VERSION = 4          # 4 = szczyt = strefa evening_peak z pv_roi (historia w tariff_hours), tylko pobór z sieci; baza ma `sig` stref
 EVENING_PEAK_HOURS = (16, 21)  # TYMCZASOWE zimowe przybliżenie (baza z zimy, godziny bez feedu); docelowo strefy z pv_roi — docs/ROADMAP_tariff_single_source.md
 EVENING_ZONE = "evening_peak"
 
@@ -41,10 +43,12 @@ def outdoor_class(temp_c: float) -> int:
 
 def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
                         tz_name: str = DEFAULT_TZ, grid: str | None = None,
-                        evening_only: bool = False) -> dict | None:
+                        evening_only: bool = False, zones: dict[str, tuple] | None = None) -> dict | None:
     """Udział energii w szczycie w zimie, ogółem i per klasa temp. zewn. Szczyt = dzień
     roboczy (pn–pt, święta pomijamy) w oknach G12w (z `evening_only`: tylko 16–21), wg czasu lokalnego. Z `grid` (licznik
-    poboru z sieci) w szczycie liczy się tylko min(energia pompy, pobór) w tej godzinie."""
+    poboru z sieci) w szczycie liczy się tylko min(energia pompy, pobór) w tej godzinie.
+    Z `zones` (`'YYYY-MM-DDTHH'` czasu lokalnego -> `(strefa, is_peak)`) szczyt = strefa `evening_peak`,
+    a godzina bez wpisu jest pomijana (`evening_only` nie działa)."""
     tz = ZoneInfo(tz_name)
     temps = {r["start"]: r["mean"] for r in stats.get(outdoor, []) if r.get("mean") is not None}
     kwh = {r["start"]: r["change"] for r in stats.get(energy, []) if r.get("change") is not None}
@@ -60,10 +64,17 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
         if utc.month not in HEATING_MONTHS or to >= HEATING_MAX_OUTDOOR_C:
             continue
         local = utc.astimezone(tz)
-        # Baza historyczna z zimy sprzed feedu z pv_roi — okna z harmonogramu, nie z taryfy z chwili pomiaru.
-        workday = default_is_workday(local.date())
-        is_peak = is_evening_peak_hour(local.hour, workday) if evening_only \
-            else fallback_hour(local, workday).is_peak
+        if zones is not None:
+            entry = zones.get(tariff_feed.hour_key(local))
+            if entry is None:
+                continue
+            tariff_feed.warn_unknown_zone(entry[0], entry[1], datetime.now())
+            is_peak = entry[0] == EVENING_ZONE
+        else:
+            # Ścieżka bez stref (analysis.py): okna z harmonogramu, nie z taryfy z chwili pomiaru.
+            workday = default_is_workday(local.date())
+            is_peak = is_evening_peak_hour(local.hour, workday) if evening_only \
+                else fallback_hour(local, workday).is_peak
         from_grid = es.split(e, imported[start])[0] if start in imported else e
         cls = by_class.setdefault(outdoor_class(to), [0.0, 0.0, 0])
         cls[0] += e
@@ -150,15 +161,16 @@ def _evening_rows(conn, rows) -> list[dict]:
     Godzina bez wiersza w `tariff_hours`: okno 16–21 w dni robocze."""
     if not rows:
         return []
-    zones = {r["hour"]: r["zone"] for r in conn.execute(
-        "SELECT hour, zone FROM tariff_hours WHERE hour >= ?", (min(r["ts"] for r in rows)[:13],))}
+    zones = {r["hour"]: (r["zone"], r["is_peak"]) for r in conn.execute(
+        "SELECT hour, zone, is_peak FROM tariff_hours WHERE hour >= ?", (min(r["ts"] for r in rows)[:13],))}
     out = []
     for r in rows:
         d = dict(r)
         if d["tariff_peak"] is not None:
             hour = d["ts"][:13]
-            zone = zones.get(hour)
+            zone, feed_peak = zones.get(hour, (None, None))
             if zone:
+                tariff_feed.warn_unknown_zone(zone, feed_peak, datetime.now())
                 d["tariff_peak"] = int(zone == EVENING_ZONE)
             else:
                 t = datetime.fromisoformat(d["ts"])
@@ -167,29 +179,59 @@ def _evening_rows(conn, rows) -> list[dict]:
     return out
 
 
-def ensure_peak_baseline(conn, settings: dict, now: datetime,
-                         get_statistics=ha_client.get_statistics) -> dict | None:
-    """Raz (do skutku) policz bazę z LTS ostatniego pełnego sezonu i zapisz w `peak_baseline`."""
+def tariff_signature(conn, start_local: datetime, end_local: datetime) -> str:
+    """Odcisk (12 znaków sha1) posortowanych `(hour, tariff, zone)` z `tariff_hours` w oknie sezonu."""
+    rows = conn.execute("SELECT hour, tariff, zone FROM tariff_hours WHERE hour >= ? AND hour < ? ORDER BY hour",
+                        (tariff_feed.hour_key(start_local), tariff_feed.hour_key(end_local))).fetchall()
+    return hashlib.sha1(repr([tuple(r) for r in rows]).encode()).hexdigest()[:12]
+
+
+def _checked_recently(conn, now: datetime) -> bool:
+    try:
+        checked = datetime.fromisoformat(str(dbm.get_setting(conn, "peak_baseline_checked")))
+        return 0 <= (now - checked).total_seconds() < 24 * 3600
+    except (TypeError, ValueError):
+        return False
+
+
+def ensure_peak_baseline(conn, settings: dict, now: datetime, get_statistics=ha_client.get_statistics,
+                         fetch_history=pv_roi_client.backfill_window) -> dict | None:
+    """Baza udziału szczytu z LTS ostatniego sezonu wg stref pv_roi, sprawdzana co ≤ 24 h. Stara baza zostaje
+    do udanego zapisu nowej; porażka historii albo statystyk nie kasuje niczego."""
     existing = dbm.get_setting(conn, "peak_baseline")
-    if existing and existing.get("v") == BASELINE_VERSION:
+    current = existing if existing and existing.get("v") == BASELINE_VERSION else None
+    if current and _checked_recently(conn, now):
+        return current
+
+    tz_name = settings.get("timezone") or DEFAULT_TZ
+    start, end = season_window(now)
+    tz = ZoneInfo(tz_name)
+    start_local, end_local = (t.astimezone(tz).replace(tzinfo=None) for t in (start, end))
+    if not fetch_history(conn, settings.get("pv_roi_url") or "", start_local, end_local):
+        logger.warning("Baza udziału szczytu: historia stref z pv_roi niedostępna — zostaje poprzednia baza")
         return existing
-    if existing:                                       # baza zegarowa nie pasuje do szczytu z sieci — bez porównania,
-        dbm.set_setting(conn, "peak_baseline", None)   # dopóki nowa się nie policzy
+    sig = tariff_signature(conn, start_local, end_local)
+    stamp = now.isoformat(timespec="minutes")
+    if current and current.get("sig") == sig:
+        dbm.set_setting(conn, "peak_baseline_checked", stamp)
+        return current
 
     outdoor = settings.get("heiko_bootstrap_outdoor_entity") or settings.get("outdoor_temp_entity", "")
     energy = settings.get("pump_energy_entity", "")
     grid = es.entities(settings)["grid_import"]
-    start, end = season_window(now)
     stats = get_statistics([outdoor, energy, grid], start.isoformat(), end.isoformat())
     if stats is None:
-        logger.info("Baza udziału szczytu: statystyki niedostępne — spróbuję po restarcie")
-        return None
-    baseline = baseline_from_stats(stats, outdoor, energy, settings.get("timezone") or DEFAULT_TZ, grid=grid,
-                                  evening_only=True)
+        logger.info("Baza udziału szczytu: statystyki niedostępne — spróbuję przy następnym przebiegu")
+        return existing
+    zones = {r["hour"]: (r["zone"], r["is_peak"]) for r in conn.execute(
+        "SELECT hour, zone, is_peak FROM tariff_hours WHERE hour >= ? AND hour < ?",
+        (tariff_feed.hour_key(start_local), tariff_feed.hour_key(end_local)))}
+    baseline = baseline_from_stats(stats, outdoor, energy, tz_name, grid=grid, zones=zones)
     if baseline is None:
         logger.warning("Baza udziału szczytu: brak danych sezonu w statystykach")
-        return None
-    baseline["at"], baseline["v"] = now.isoformat(timespec="minutes"), BASELINE_VERSION
+        return existing
+    baseline["at"], baseline["v"], baseline["sig"] = stamp, BASELINE_VERSION, sig
     dbm.set_setting(conn, "peak_baseline", baseline)
-    logger.info("Baza udziału szczytu (zima): %s", {k: baseline[k] for k in ("overall", "kwh", "hours")})
+    dbm.set_setting(conn, "peak_baseline_checked", stamp)
+    logger.info("Baza udziału szczytu (zima, strefy pv_roi): %s", {k: baseline[k] for k in ("overall", "kwh", "hours")})
     return baseline

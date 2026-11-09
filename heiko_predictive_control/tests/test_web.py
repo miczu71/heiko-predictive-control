@@ -847,3 +847,34 @@ def test_tariff_from_hour_g13_zones():
     assert tariff_from_hour(h("other", False, 0.6257)) == {"peak": False, "label": "Poza szczytem", "price": "0,63 PLN/kWh"}
     assert tariff_from_hour(h(None, True, 1.0))["label"] == "Szczyt"          # G12w / brak strefy
     assert tariff_from_hour(h(None, False, 1.0))["label"] == "Poza szczytem"
+
+
+def _plan_peak_price(tmp_path, rows):
+    from datetime import datetime
+    app = _app_with_db(tmp_path, SETTINGS)
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    now = datetime.now()
+    for delta_h, zone, gross in rows:
+        from datetime import timedelta
+        t = now + timedelta(hours=delta_h)
+        conn.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                     "VALUES (?, 'G13', ?, 1, 'mid', ?, 'document', 'x')", (t.strftime("%Y-%m-%dT%H"), zone, gross))
+    conn.commit()
+    conn.close()
+    return app.test_client().get("/api/plan").get_json()["peak_price"]
+
+
+def test_api_plan_peak_price_from_current_hour_evening_row(tmp_path):
+    assert _plan_peak_price(tmp_path, [(0, "evening_peak", 1.4961)]) == 1.5
+
+
+def test_api_plan_peak_price_ignores_older_evening_row(tmp_path):
+    assert _plan_peak_price(tmp_path, [(-1, "evening_peak", 1.4961)]) is None
+
+
+def test_api_plan_peak_price_none_without_rows_or_other_zone(tmp_path):
+    assert _plan_peak_price(tmp_path, []) is None
+
+
+def test_api_plan_peak_price_none_for_other_zone_now(tmp_path):
+    assert _plan_peak_price(tmp_path, [(0, "other", 0.6)]) is None

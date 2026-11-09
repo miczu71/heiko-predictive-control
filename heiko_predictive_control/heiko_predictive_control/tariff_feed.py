@@ -25,6 +25,26 @@ _HOUR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}$")
 _BAD_STATES = ("", "unavailable", "unknown", "none")
 _warned: dict[str, str] = {}        # rodzaj -> godzina ostatniego ostrzeżenia (WARNING raz na godzinę)
 
+# Strefy, które zna pv_roi (`tariff_catalog.zone_for`): G11 `all`, G12 `day`/`night`, G12w `peak`/`offpeak`,
+# G13 `morning_peak`/`evening_peak`/`other`, G13s `{lato|zima}_{workday|dayoff}_{peak|offpeak|night}`.
+_G13S_ZONES = frozenset(f"{s}_{d}_{b}" for s in ("summer", "winter") for d in ("workday", "dayoff")
+                        for b in ("peak", "offpeak", "night"))
+KNOWN_ZONES = frozenset({"all", "day", "night", "peak", "offpeak", "morning_peak", "evening_peak", "other"}) | _G13S_ZONES
+KNOWN_PEAK_ZONES = frozenset({"day", "peak", "morning_peak", "evening_peak"}) | \
+    frozenset(z for z in _G13S_ZONES if z.endswith("_peak"))
+
+
+def warn_unknown_zone(zone: str | None, is_peak, dt: datetime) -> None:
+    """WARNING (raz na godzinę na rodzaj) dla strefy spoza `KNOWN_ZONES` oraz dla `is_peak` = 1 w strefie,
+    która nie jest szczytem popołudniowym ani znaną strefą szczytu. Nie zmienia liczenia."""
+    key = hour_key(dt)
+    if zone is not None and zone not in KNOWN_ZONES and _warned.get("zone") != key:
+        _warned["zone"] = key
+        logger.warning("Taryfa: nieznana strefa %r z pv_roi — sprawdź katalog stref", zone)
+    elif is_peak and zone in KNOWN_ZONES and zone not in KNOWN_PEAK_ZONES and _warned.get("zone_peak") != key:
+        _warned["zone_peak"] = key
+        logger.warning("Taryfa: niespójność — is_peak=1 w strefie %r, która nie jest szczytem", zone)
+
 
 @dataclass(frozen=True)
 class TariffHour:

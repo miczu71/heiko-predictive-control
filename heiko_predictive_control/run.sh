@@ -11,6 +11,7 @@ export SOLCAST_REMAINING_TODAY_ENTITY=$(jq -r '.solcast_remaining_today_entity /
 export TARIFF_STATE_ENTITY=$(jq -r '.tariff_state_entity // ""' "$CONFIG")
 export TARIFF_PRICE_ENTITY=$(jq -r '.tariff_price_entity // ""' "$CONFIG")
 export TARIFF_SCHEDULE_ENTITY=$(jq -r '.tariff_schedule_entity // ""' "$CONFIG")
+export PV_ROI_URL=$(jq -r '.pv_roi_url // ""' "$CONFIG")
 export PUMP_ENERGY_ENTITY=$(jq -r '.pump_energy_entity // ""' "$CONFIG")
 export AH_ENERGY_ENTITY=$(jq -r '.ah_energy_entity // ""' "$CONFIG")
 export GRID_POWER_ENTITY=$(jq -r '.grid_power_entity // ""' "$CONFIG")

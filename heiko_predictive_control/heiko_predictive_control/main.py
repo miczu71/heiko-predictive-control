@@ -67,6 +67,7 @@ def _options_from_env() -> dict:
         "solcast_remaining_today_entity": _env("SOLCAST_REMAINING_TODAY_ENTITY"),
         "tariff_state_entity": _env("TARIFF_STATE_ENTITY"),
         "tariff_price_entity": _env("TARIFF_PRICE_ENTITY"),
+        "pv_roi_url": _env("PV_ROI_URL", "http://29a4454d-pv-roi-tracker:8099"),
         "tariff_schedule_entity": _env("TARIFF_SCHEDULE_ENTITY", "sensor.pv_roi_tracker_pv_tariff_zone"),
         "pump_energy_entity": _env("PUMP_ENERGY_ENTITY"),
         "ah_energy_entity": _env("AH_ENERGY_ENTITY"),
@@ -214,7 +215,7 @@ def main() -> None:
             c.close()
 
     def peak_baseline() -> None:
-        """Jednorazowo (do skutku) policz bazę udziału szczytu z LTS ostatniego sezonu."""
+        """Co godzinę: baza udziału szczytu z LTS ostatniego sezonu wg stref pv_roi (ciężka praca najwyżej raz na dobę)."""
         c = dbm.get_conn(db_path)
         try:
             kpi.ensure_peak_baseline(c, dbm.get_all_settings(c), datetime.now())
@@ -457,7 +458,8 @@ def main() -> None:
     scheduler.add_job(refit_model, "cron", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(bootstrap_model, "date", run_date=datetime.now() + timedelta(seconds=20))
     scheduler.add_job(recheck_inertia, "date", run_date=datetime.now() + timedelta(seconds=40))
-    scheduler.add_job(peak_baseline, "date", run_date=datetime.now() + timedelta(seconds=45))
+    scheduler.add_job(peak_baseline, "interval", hours=1, next_run_time=datetime.now() + timedelta(seconds=45),
+                      max_instances=1, coalesce=True)
     scheduler.start()
 
     # Układ domu z prywatnej konfiguracji HA (repo add-onu jest publiczne).

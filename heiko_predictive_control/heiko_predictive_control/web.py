@@ -289,9 +289,10 @@ def create_app(db_path: str,
         conn = db_conn()
         baseline = settings.get("peak_baseline")
         try:
-            recent = kpi.recent_kpi(conn, datetime.now(), baseline)
-            price_row = conn.execute("SELECT gross FROM tariff_hours WHERE zone = ? AND hour <= ? ORDER BY hour DESC LIMIT 1",
-                                     (kpi.EVENING_ZONE, datetime.now().strftime("%Y-%m-%dT%H"))).fetchone()
+            now = datetime.now()
+            recent = kpi.recent_kpi(conn, now, baseline)
+            price_row = conn.execute("SELECT gross FROM tariff_hours WHERE zone = ? AND hour = ?",
+                                     (kpi.EVENING_ZONE, tariff_feed.hour_key(now))).fetchone()
             peak_price = None if price_row is None else round(price_row["gross"], 2)
             errs = [r["model_err_c"] for r in conn.execute(
                 "SELECT model_err_c FROM cycles WHERE loop = 'heiko' AND model_err_c IS NOT NULL "
