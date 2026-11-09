@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.22.3 — Pulpit: kafle „Szczyt G13” i „Ogon grzania” w jednym kompaktowym pasku
+- **Zmiana — Pulpit:** oba kafle stoją obok siebie w dwóch kolumnach (na telefonie jedna pod drugą), z niższym paddingiem i mniejszym nagłówkiem; zawartość i „Szczegóły” bez zmian.
+
 ## 0.22.2 — kolory stref G13 na paskach energii, zwijane kafle „Szczyt G13” i „Ogon grzania”
 - **Poprawka — szare paski w „Doba: koszt ogrzewania” (i na stronie Koszty):** od 0.22.0 strefy pochodzą z pv_roi z nazwami G13 (`other`, `morning_peak`, `evening_peak`), których paleta nie znała — paski były szare, a legenda pokazywała „sieć other”. Teraz: poza szczytem = zielony, szczyt poranny = żółty, szczyt popołudniowy = czerwony, z polskimi etykietami.
 - **Zmiana — Pulpit:** kafle „Szczyt G13” i „Ogon grzania” pokazują tytuł, odznakę i jedno zdanie (następna zmiana / stan odliczania); tabele energii i kosztu, liczniki odcięć i link do Opcji są pod „Szczegóły”.
