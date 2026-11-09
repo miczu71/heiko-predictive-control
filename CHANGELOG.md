@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.22.0 — jedno źródło taryf (pv_roi), szczyt G13 w zakresie ±3, opcjonalne odcinanie „ogona” grzania
+
+**Uwaga przy aktualizacji — usunięte opcje Supervisora:** `tariff_state_entity` i `tariff_price_entity` (stary sensor G12w). Taryfa pochodzi wyłącznie z harmonogramu pv_roi; stare wartości w opcjach add-onu są ignorowane. Nowa opcja `pv_roi_url` (domyślnie `http://29a4454d-pv-roi-tracker:8099`) służy do pobrania historii stref. Wymaga pv_roi 0.56.6 lub nowszego.
+
+- **Zmiana — szczyt G13 mieści się w zakresie pompy −3…+3:** domyślne przesunięcie szczytu to −3 (wcześniej −4 było odrzucane przez pompę). Zapisana wartość poniżej −3 jest przy starcie obcinana do −3; zapis spoza ±3 jest odrzucany z ostrzeżeniem i wpisem w „Zapisach do pompy”. Powiadomienie o niepotwierdzonym zapisie nie mówi już o „przywróceniu”.
+- **Zmiana — G13 z okien pv_roi:** szczyt to godziny strefy `evening_peak` z harmonogramu (święta, weekendy i lato bez ręcznych wyjątków); dogrzewanie zaczyna się 3 h przed szczytem. Dzień bez takiej strefy albo bez harmonogramu = brak zapisów.
+- **Zmiana — koniec zgadywania taryfy z zegara:** godzina bez wiersza w harmonogramie to jawnie „brak danych taryfy” (koszt bez wyceny, KPI pomija godzinę). Cykl Heiko i plan są pomijane, gdy pv_roi milczy dłużej niż ~12 h. Plakietka na Pulpicie: „nieaktualne od …” (ostatni znany harmonogram) albo „brak danych taryfy”.
+- **Zmiana — baza KPI v4:** liczona ze stref pv_roi (klient historii, strony po 168 h), z sygnaturą taryfy; zmiana stref/taryfy = ponowne przeliczenie. Stara baza zostaje do udanego przeliczenia, ponowna próba co godzinę.
+- **Nowe — „Ogon grzania” (domyślnie wyłączone):** po `tail_delay_min` minutach, gdy Tc stoi ponad nastawą + `tail_margin_k`, add-on przełącza pompę na CWU, a po krótkiej przerwie wraca do Auto. Opcje w zakładce Opcje, kafel na Pulpicie, zapisy w „Zapisach do pompy” ze źródłem „add-on (tail_cut)”. Włącza użytkownik (`tail_cut_enabled`). Watchdog w HA (automatyzacja poza add-onem) przywraca Auto, gdy add-on milczy.
+- **Zmiana — paleta stref paska „Doba”:** tania zielona, średnia bursztynowa, droga czerwona, PV niebieskie; w obu motywach średnia i droga są rozróżnialne.
+- **Poprawka — walidacja `POST /api/settings`:** zakresy G13 i `tail_*` oraz `pv_roi_url` (tylko `http(s)://host`) sprawdzane po stronie serwera, błąd = 400 bez zapisu.
+- Znane (nieblokujące): odcinanie ogona czeka na potwierdzenie pompy do ~140 s pod wspólnym zamkiem zapisów; ręczna zmiana trybu pompy w trakcie przerwy CWU jest nadpisywana powrotem do Auto; odliczanie ogona nie wygasa po restarcie; puste pole liczbowe w Opcjach nie przywraca wartości domyślnej; G13 wymaga pełnej doby w harmonogramie (przy braku jednej godziny tryb czeka do północy).
+- Testy: 921 (wcześniej 801).
+
 ## 0.21.2 — Pulpit pokazuje aktywne przesunięcie trybu „Szczyt G13”
 
 - **Poprawka — kafel „Zapisy do pompy”:** gdy działa tryb Szczyt G13 (bez testu), pokazuje „Szczyt G13 · +1” z fazą („przedgrzewanie do 16:00”, „szczyt do 21:00”) zamiast „brak / pompa na własnej krzywej”. Kafel nadal pokazuje test w toku, gdy taki jest.
