@@ -56,7 +56,7 @@ CATALOG: tuple[Param, ...] = (
     _n("dhw_restart_dt", "dhw_restart_dt", CLASS_A, "Histereza CWU",
        "częstość podgrzewania CWU, koszt", "K", (1, 15), (3, 10)),
     _n("dhw_setpoint", "dhw_setpoint", CLASS_A, "Nastawa CWU",
-       "koszt CWU, komfort ciepłej wody", "°C", (40, 60), (45, 55), 2,
+       "koszt CWU, komfort ciepłej wody", "°C", (16, 60), (45, 55), 2,
        "w domu zarządzana automatyzacjami (48/58 wg nadwyżki PV)"),
     _n("p0_run_time", "circulation_pump_p0_run_time", CLASS_A, "Pompa obiegowa P0: czas pracy",
        "zużycie prądu, przepływ, komfort zimą", "min", (1, 30)),

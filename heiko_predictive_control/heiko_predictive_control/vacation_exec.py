@@ -21,6 +21,8 @@ STATE_KEY = "vacation_state"
 TITLE = "Heiko: tryb urlopowy"
 _EPS = 0.05
 _SHIFT_LIKE = f"%{experiments.ALLOWED_ENTITY_SUFFIX}"
+DHW_AFTER = 48                                     # nastawa CWU przywracana po urlopie (decyzja roadmapy)
+_DHW_KEYS = ("dhw_active", "dhw_before", "dhw_intent", "dhw_fail_day", "dhw_warn", "dhw_written_id")
 
 
 def _close(a, b) -> bool:
@@ -41,6 +43,15 @@ def _num(settings: dict, key: str, default: float) -> float:
 def _config(settings: dict) -> vacation.Config:
     return vacation.Config(drop=int(_num(settings, "vacation_curve_drop", 2)),
                            min_room_c=_num(settings, "vacation_min_room_c", 16.0))
+
+
+def dhw_entity(settings: dict) -> str:
+    """Encja nastawy CWU = encja przesunięcia krzywej z podmienionym sufiksem (bez osobnej opcji)."""
+    return curve_shift_entity(settings).replace(experiments.ALLOWED_ENTITY_SUFFIX, experiments.DHW_SUFFIX)
+
+
+def dhw_target(settings: dict) -> int:
+    return max(experiments.DHW_MIN, min(experiments.DHW_MAX, int(_num(settings, "vacation_dhw_setpoint", 20))))
 
 
 def active(settings: dict) -> bool:
@@ -86,12 +97,77 @@ def _clear(st: dict) -> None:
     st["base"] = st["last_written"] = st["intent"] = st["prev"] = st["maybe"] = None
 
 
-def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, writer=None, notify=None) -> dict | None:
+def _dhw_write(conn, settings: dict, st: dict, dhw: str, current: float, target: float, now: datetime, writer) -> bool:
+    try:
+        ok = experiments._write(conn, settings, None, current, target, now, writer, entity=dhw, supersede=False)
+    except ValueError as exc:
+        logger.error("Tryb urlopowy: zapis CWU %s → %s odrzucony przez allowlistę: %s", current, target, exc)
+        ok = False
+    st["dhw_written_id"] = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
+    return ok
+
+
+def _dhw_enter(conn, settings: dict, st: dict, now: datetime, get_numeric, get_state, writer, notify) -> None:
+    """Start trybu: nastawa CWU → `vacation_dhw_setpoint`. Odrzucenie/brak odczytu nie wstrzymują krzywej."""
+    today = now.date().isoformat()
+    dhw, target = dhw_entity(settings), dhw_target(settings)
+    warn, current = None, get_numeric(dhw)
+    if current is None:
+        warn = "brak"
+    else:
+        minimum = ((get_state(dhw) or {}).get("attributes") or {}).get("min")
+        try:
+            too_high_min = minimum is not None and float(minimum) > target
+        except (TypeError, ValueError):
+            too_high_min = False
+        if too_high_min:
+            warn = "min"
+    if warn is not None:
+        if st.get("dhw_warn") != warn:
+            logger.warning("Tryb urlopowy: nastawa CWU nie do ustawienia (%s) — krzywa działa bez CWU, ponawiam co tick",
+                           "encja bez odczytu" if warn == "brak" else f"minimum encji {minimum} > cel {target}")
+        st["dhw_warn"] = warn
+    elif _close(current, target):
+        st.update(dhw_active=True, dhw_before=current, dhw_warn=None)
+    elif st.get("dhw_fail_day") != today:
+        st["dhw_intent"], st["dhw_warn"] = target, None
+        dbm.set_setting(conn, STATE_KEY, st)                     # intencja PRZED zapisem (odporność na restart)
+        if _dhw_write(conn, settings, st, dhw, current, target, now, writer):
+            st.update(dhw_active=True, dhw_before=current, dhw_warn=None)
+        else:
+            st["dhw_fail_day"] = today
+            experiments._notify(settings, f"Tryb urlopowy: HA odrzuciło zapis nastawy CWU {target:g} — pozostaje {current:g}.",
+                                notify, TITLE)
+    dbm.set_setting(conn, STATE_KEY, st)                         # dalsze wczesne `return None` w `_run` nie wołają `_save`
+
+
+def _dhw_exit(conn, settings: dict, st: dict, now: datetime, get_numeric, writer, notify) -> None:
+    """Koniec trybu: jednorazowo `DHW_AFTER`, niezależnie od krzywej i od ręcznych zmian nastawy."""
+    if experiments.running_test(conn) is not None:
+        return
+    dhw = dhw_entity(settings)
+    current = get_numeric(dhw)
+    if current is None:
+        return
+    if not _close(current, DHW_AFTER) and not _dhw_write(conn, settings, st, dhw, current, DHW_AFTER, now, writer):
+        if st.get("dhw_fail_day") != now.date().isoformat():
+            experiments._notify(settings, f"Tryb urlopowy wyłączony, ale powrót nastawy CWU do {DHW_AFTER} nie powiódł się "
+                                          f"(jest {current:g}) — ponawiam co 5 min; w razie potrzeby ustaw ręcznie.", notify, TITLE)
+        st["dhw_fail_day"] = now.date().isoformat()
+        dbm.set_setting(conn, STATE_KEY, st)
+        return
+    for key in _DHW_KEYS:
+        st.pop(key, None)
+    dbm.set_setting(conn, STATE_KEY, st)
+
+
+def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, get_state=ha_client.get_state,
+        writer=None, notify=None) -> dict | None:
     with experiments._lock:                            # tick testów i tryb nie mogą się przeplatać
-        return _run(conn, settings, now, get_numeric, writer, notify)
+        return _run(conn, settings, now, get_numeric, get_state, writer, notify)
 
 
-def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
+def _run(conn, settings, now, get_numeric, get_state, writer, notify) -> dict | None:
     today = now.date().isoformat()
     before = dbm.get_setting(conn, STATE_KEY) or {}
     st = dict(before)
@@ -99,6 +175,9 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
     entity = curve_shift_entity(settings)
 
     if not active(settings):
+        if st.get("dhw_active"):
+            _dhw_exit(conn, settings, st, now, get_numeric, writer, notify)
+            before = dict(st)                          # stan CWU zapisany w helperze; krzywa porównuje już tylko swoje zmiany
         if base is None or experiments.running_test(conn) is not None:
             return None
         current = get_numeric(entity)
@@ -121,6 +200,10 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
 
     if experiments.running_test(conn) is not None:
         return None
+
+    if not st.get("dhw_active"):                       # CWU jest od krzywej niezależne (też przy `suspended_day`)
+        _dhw_enter(conn, settings, st, now, get_numeric, get_state, writer, notify)
+        before = dict(st)
 
     mode = conn.execute("SELECT id, ok, confirmed_at FROM pump_writes WHERE test_id IS NULL AND entity_id LIKE ? "
                         "ORDER BY id DESC LIMIT 1", (_SHIFT_LIKE,)).fetchone()

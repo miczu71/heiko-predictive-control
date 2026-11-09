@@ -140,3 +140,10 @@ def test_backup_start_delay_is_class_a_with_step_5():
     assert catalog.check_class_a("backup_start_delay", 25, 30)[0] is True
     assert catalog.check_class_a("backup_start_delay", 25, 35)[0] is False             # krok > 5
     assert catalog.check_class_a("backup_start_delay", 25, 15)[0] is False             # poza zakresem A
+
+
+def test_dhw_setpoint_full_range_16_60_class_a_45_55():
+    p = catalog.BY_KEY["dhw_setpoint"] if hasattr(catalog, "BY_KEY") else next(x for x in catalog.CATALOG if x.key == "dhw_setpoint")
+    assert (p.full_min, p.full_max) == (16, 60) and (p.a_min, p.a_max) == (45, 55)
+    assert catalog.check_class_a("dhw_setpoint", 48, 44)[0] is False
+    assert catalog.check_class_a("dhw_setpoint", 55, 57)[0] is False

@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_ENTITY_SUFFIX = "heating_curve_parallel_shift"      # zapis tylko na encję przesunięcia krzywej (sprawdzane w _write)
 ALLOWED_SERVICE = ("number", "set_value")
+DHW_SUFFIX = "dhw_setpoint"                  # nastawa CWU (tryb urlopowy); NIE łapie anti_legionella_setpoint (endswith)
+DHW_MIN, DHW_MAX = 16, 60
 SHIFT_MIN, SHIFT_MAX, MAX_STEP = -3, 3, 1
 G13_MAX_STEP = 2 * SHIFT_MAX               # tryb Szczyt G13: skok w całym zakresie ±3 (tylko przesunięcie krzywej, przez `_write`)
 # Pompa obiegowa P0 (test p0_ab): zapis tylko na dwóch encjach i tylko wartości z dwóch dozwolonych par (praca, postój).
@@ -370,6 +372,7 @@ _WRITE_RULES = {
     P0_RUN_SUFFIX: lambda old, new: new in {p[0] for p in P0_PAIRS},
     P0_STOP_SUFFIX: lambda old, new: new in {p[1] for p in P0_PAIRS} and new >= 5,
     SLOT52_SUFFIX: lambda old, new: 20 <= new <= 60 and new % 5 == 0 and abs(new - old) <= 5,
+    DHW_SUFFIX: lambda old, new: DHW_MIN <= new <= DHW_MAX and new == int(new),       # krok całkowity, bez limitu skoku
 }
 
 
@@ -514,6 +517,10 @@ def _confirm_writes(conn, settings: dict, get_numeric, now: datetime, notify) ->
                 if w["test_id"] is None and w["entity_id"].endswith(ALLOWED_ENTITY_SUFFIX):
                     _notify(settings, f"Pompa nie potwierdziła zapisu przesunięcia {w['new']:g} (tryb Szczyt G13) — sprawdź ręcznie.",
                             notify, _title(None))
+                    continue
+                if w["entity_id"].endswith(DHW_SUFFIX):
+                    _notify(settings, f"Pompa nie potwierdziła zapisu nastawy CWU = {w['new']:g} — sprawdź ręcznie.",
+                            notify, "Heiko: tryb urlopowy")
                     continue
                 what = "przesunięcia" if w["entity_id"].endswith(ALLOWED_ENTITY_SUFFIX) else f"{w['entity_id']} ="
                 _notify(settings, f"Pompa nie potwierdziła przywrócenia {what} {w['new']:g} — sprawdź ręcznie.", notify,
