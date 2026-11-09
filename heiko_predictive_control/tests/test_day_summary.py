@@ -235,3 +235,97 @@ def test_aggregate_combine_public_merge_sources():
 
 def test_aggregate_without_sources_gives_empty():
     assert ds.public(ds.aggregate([{"energy_kwh": 1.0, "cost_pln": 0.5, "zones": {}}], "energy_kwh"))["sources"] == {}
+
+
+# ── h) build_day: doba od północy do północy + postój (0.23.0) ──
+
+def _midnight_history(calls=None):
+    """Run podłogi 26.10 22:00 → 27.10 02:00 (przez północ); licznik pompy 10.0 → 13.0 → 13.6 (postój)."""
+    ids = es.entities({})
+    full = {
+        MODE: [(z(21, 0, d=26), "0"), (z(22, 0, d=26), "2"), (z(2, 0), "0")],
+        "sensor.test_pump_energy": [(z(21, 55, d=26), "10.00"), (z(22, 0, d=26), "10.00"), (z(2, 0), "12.00"),
+                                    (z(11, 0), "12.50"), (z(12, 30), "12.60")],
+        ids["grid_import"]: [(z(21, 0, d=26), "100.0"), (z(12, 30), "101.0")],
+        ids["battery_discharge"]: [(z(21, 0, d=26), "50.0"), (z(12, 30), "50.0")],
+        ids["rce_price"]: [(z(21, 0, d=26), "0.30")],
+    }
+
+    def get_history(entities, start, end):
+        if calls is not None:
+            calls.append((start, end))
+        return {e: full.get(e, []) for e in entities}
+    return get_history
+
+
+SETTINGS_PUMP = {"pump_energy_entity": "sensor.test_pump_energy", "timezone": "Europe/Warsaw"}
+
+
+def _db(tmp_path):
+    conn = dbm.get_conn(str(tmp_path / "t.db"))
+    dbm.migrate(conn)
+    return conn
+
+
+def test_build_day_splits_run_across_midnight_and_adds_standby(tmp_path):
+    conn = _db(tmp_path)
+    gh = _midnight_history()
+    d26 = ds.build_day(conn, SETTINGS_PUMP, STATES, datetime(2026, 10, 26).date(), NOW, get_history=gh)
+    d27 = ds.build_day(conn, SETTINGS_PUMP, STATES, datetime(2026, 10, 27).date(), NOW, get_history=gh)
+    # 26.10: 22:00–24:00 = ~1 kWh (połowa przyrostu 2 kWh w 4 h nie jest znana — licznik skacze o 02:00)
+    assert d26["floor"]["runs"] == 1 and d27["floor"]["runs"] == 1
+    assert d26["in_progress"] is False and d27["in_progress"] is False      # cięcie o północy ≠ „w toku”
+    assert d26["floor"]["approx"] is False and d27["floor"]["approx"] is False
+    # suma pompy dobowej = przyrost licznika na dobie
+    assert d26["pump"]["kwh"] + d27["pump"]["kwh"] == pytest.approx(2.60, abs=0.01)
+    assert d27["standby"]["kwh"] >= 0 and d27["pump"]["kwh"] == pytest.approx(
+        d27["floor"]["kwh"] + d27["dhw"]["kwh"] + d27["standby"]["kwh"], abs=0.002)
+    assert d27["standby"]["kwh"] == pytest.approx(0.6, abs=0.01)           # 00:00–12:30: 12.0→12.6 minus run do 02:00
+    assert d27["total"]["kwh"] == pytest.approx(d27["pump"]["kwh"] + d27["ac"]["kwh"], abs=0.002)
+
+
+def test_build_day_today_run_still_running_is_in_progress(tmp_path):
+    conn = _db(tmp_path)
+    r = ds.build_day(conn, SETTINGS_PUMP, STATES, datetime(2026, 10, 27).date(), NOW,
+                     get_history=fake_history_factory())
+    assert r["in_progress"] is True and r["floor"]["approx"] is True
+
+
+def test_standby_never_negative_and_zero_without_counter():
+    parts = {"floor": ds.aggregate([rec(3.0, 1.0, {"cheap": zone(3.0, 1.0, 0.0)})], "energy_kwh"),
+             "dhw": ds.aggregate([], "kwh_total")}
+    pump = {"kwh": 2.0, "pln": 0.5, "pv_kwh": 0.0, "split_complete": True,
+            "zones": {"cheap": zone(2.0, 0.5, 0.0)}, "sources": {}}
+    s = ds.public(ds._standby(pump, parts))
+    assert s["kwh"] == 0 and s["pln"] == 0 and s["zones"]["cheap"]["kwh"] == 0
+    none = ds.public(ds._standby(None, parts))
+    assert none["kwh"] == 0 and none["approx"] is True
+
+
+def test_build_day_cache_per_day_with_long_ttl_for_yesterday(tmp_path):
+    conn = _db(tmp_path)
+    calls, cache = [], {}
+    gh = _midnight_history(calls)
+    y, t = datetime(2026, 10, 26).date(), datetime(2026, 10, 27).date()
+    ds.build_day(conn, SETTINGS_PUMP, STATES, y, NOW, get_history=gh, cache=cache)
+    ds.build_day(conn, SETTINGS_PUMP, STATES, t, NOW, get_history=gh, cache=cache)
+    assert len(calls) == 2 and len(cache) == 2
+    later = NOW + timedelta(seconds=400)
+    ds.build_day(conn, SETTINGS_PUMP, STATES, y, later, get_history=gh, cache=cache)     # wczoraj z cache
+    ds.build_day(conn, SETTINGS_PUMP, STATES, t, later, get_history=gh, cache=cache)     # dziś po TTL 300 s
+    assert len(calls) == 3
+
+
+def test_build_day_yesterday_without_history_falls_back_to_records(tmp_path):
+    conn = _db(tmp_path)
+    now = datetime.now(TZ)
+    y = now.date() - timedelta(days=1)
+    start = datetime(y.year, y.month, y.day, 12, tzinfo=TZ).astimezone(timezone.utc)
+    _insert(conn, "heating_runs", start, "energy_kwh", 1.0)
+    conn.commit()
+
+    def boom(*a):
+        raise RuntimeError("x")
+
+    r = ds.build_day(conn, SETTINGS, STATES, y, now, get_history=boom)
+    assert r["floor"]["kwh"] == 1.0 and r["floor"]["approx"] is True and "zapisanych runów" in r["error"]

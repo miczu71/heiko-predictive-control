@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -469,11 +469,9 @@ def create_app(db_path: str,
         now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw"))
         conn = db_conn()
         try:
-            if day == "yesterday":
-                data = day_summary.build_yesterday(conn, settings, now)
-            else:
-                data = day_summary.build_today(conn, settings, get_states() or [], now,
-                                               cache=day_summary.CACHE)
+            target = now.date() - timedelta(days=1) if day == "yesterday" else now.date()
+            data = day_summary.build_day(conn, settings, get_states() or [], target, now,
+                                         cache=day_summary.DAY_CACHE)
         finally:
             conn.close()
         return jsonify(data)

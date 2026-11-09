@@ -17,7 +17,8 @@ function row(label, d, total) {
 function render(d) {
   const notice = d.error ? `<p class="notice-inline">${esc(d.error)} — wartości mogą być niepełne.</p>` : "";
   const live = d.in_progress ? `<p class="sub">Doba trwa — runy w toku liczone do tej chwili.</p>` : "";
-  const rows = ROWS.map(([k, l]) => row(l, d[k] || { configured: false })).join("") + row("Razem", d.total, true);
+  const standby = d.standby && d.standby.kwh > 0 ? row("Postój pompy", d.standby) : "";
+  const rows = ROWS.map(([k, l]) => row(l, d[k] || { configured: false })).join("") + standby + row("Razem", d.total, true);
   body.innerHTML = `${notice}<table class="day-table"><thead><tr><th></th><th>Energia</th><th>Koszt</th><th>Z PV</th></tr></thead><tbody>${rows}</tbody></table>`
     + (d.total && d.total.kwh > 0 ? "" : `<p class="sub">Brak zużycia w tej dobie.</p>`) + live;
 }
