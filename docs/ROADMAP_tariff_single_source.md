@@ -15,7 +15,7 @@ pochodzą wyłącznie z `pv_roi_tracker`. Heiko niczego nie zgaduje z zegara.
 ## Etapy
 | Etap | Zakres | Status |
 |---|---|---|
-| T0 | Wywiad (`grill-me`): co robi Heiko przy braku pv_roi (UI „brak danych taryfy” vs ostatni znany harmonogram), jak liczyć święta, czy baza z zimy ma być przeliczana przy zmianie taryfy | DO ZROBIENIA |
+| T0 | Wywiad (`grill-me`): co robi Heiko przy braku pv_roi (UI „brak danych taryfy” vs ostatni znany harmonogram), jak liczyć święta, czy baza z zimy ma być przeliczana przy zmianie taryfy | ZROBIONE 09.11: (1) brak pv_roi = ostatni znany harmonogram + znacznik „nieaktualne od…”, godzina bez wiersza = „brak danych taryfy” (koszt bez wyceny, KPI pomija); (2) G13 ze stref pv_roi (`evening_peak`), święta i lato same; (3) baza KPI przeliczana wg bieżących stref (`BASELINE_VERSION` 4), stara zostaje do udanego przeliczenia. Realizacja: `/config/docs/ROADMAP_heiko_0_22.md` (S2–S5) |
 | T1 | pv_roi: parametr `start` (do 168 h wstecz lub dowolny zakres) w `/api/tariff/schedule` albo nowy endpoint historii; testy; wydanie pv_roi | DO ZROBIENIA |
 | T2 | Heiko: klient pv_roi (HTTP po wewnętrznym hostname add-onu) + tabela `tariff_hours` zasilana także historią; baza KPI z zimy wg stref z pv_roi (`BASELINE_VERSION` 4), bez `EVENING_PEAK_HOURS` | DO ZROBIENIA |
 | T3 | Heiko: usunięcie `fallback_hour`/`PEAK_WINDOWS`, `tariff_state_entity`, `tariff_price_entity`; tam, gdzie brak danych — jawny stan „brak danych taryfy” w UI, nie zgadnięte godziny; testy `test_tariff.py` przepisane | DO ZROBIENIA |
