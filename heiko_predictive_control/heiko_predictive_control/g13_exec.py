@@ -56,12 +56,18 @@ def _breaker_state(st: dict) -> g13_peak.State:
                           tripped=bool(st.get("tripped")))
 
 
-def _min_room(conn, now: datetime) -> tuple[float, str | None] | None:
+def _coldest_room(conn, now: datetime) -> tuple[float, str | None] | None:
     """Najzimniejszy pokój z ostatniego cyklu (temperatura, nazwa); starszy niż `ROOM_MAX_AGE` albo bez odczytu = None."""
     row = dbm.latest_cycle(conn, "heiko")
     if row is None or row["min_room_c"] is None or row["ts"] < (now - ROOM_MAX_AGE).isoformat():
         return None
     return float(row["min_room_c"]), row["min_room_name"]
+
+
+def _min_room(conn, now: datetime) -> float | None:
+    """Sama temperatura najzimniejszego pokoju (używa też `tail_cut`)."""
+    cold = _coldest_room(conn, now)
+    return None if cold is None else cold[0]
 
 
 def _save(conn, st: dict, before: dict) -> None:
@@ -181,7 +187,7 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         return None
 
     cfg = _config(settings)
-    cold = _min_room(conn, now)
+    cold = _coldest_room(conn, now)
     decision = g13_peak.decide(now, window=window, current_shift=current, base_shift=base,
                                min_room_c=None if cold is None else cold[0],
                                state=_breaker_state(st), cfg=cfg)
