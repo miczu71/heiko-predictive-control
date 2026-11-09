@@ -1021,3 +1021,44 @@ def test_post_settings_pv_roi_url_must_be_http_url(tmp_path):
     assert saved == {}
     ok = {"pv_roi_url": "http://29a4454d-pv-roi-tracker:8099"}
     assert client.post("/api/settings", json=ok).status_code == 200 and saved == ok
+
+
+# ── Tryb urlopowy (S7) ───────────────────────────────────────────────────────────────────────────────
+def test_api_vacation_keys_and_dashboard_tile(client):
+    data = client.get("/api/vacation").get_json()
+    assert data["status"] == "off" and {"status_label", "enabled", "from", "to", "drop", "min_room_c", "dhw", "with_away",
+                                        "peak_pressing", "summary", "dhw_warn", "trip_room", "trips_30d"} <= set(data)
+    html = client.get("/").get_data(as_text=True)
+    assert 'id="vacation-tile"' in html and 'id="vacation-badge"' in html and "vacation.js" in html
+
+
+def test_options_page_has_vacation_fields(client):
+    html = client.get("/options").get_data(as_text=True)
+    for name in ("vacation_enabled", "vacation_from", "vacation_to", "vacation_curve_drop", "vacation_min_room_c",
+                 "vacation_dhw_setpoint", "vacation_with_away"):
+        assert f'name="{name}"' in html
+
+
+@pytest.mark.parametrize("payload", [
+    {"vacation_curve_drop": 0}, {"vacation_curve_drop": 4}, {"vacation_curve_drop": 1.5},
+    {"vacation_dhw_setpoint": 15}, {"vacation_dhw_setpoint": 61}, {"vacation_dhw_setpoint": 20.5},
+    {"vacation_min_room_c": 9}, {"vacation_min_room_c": 26},
+    {"vacation_from": "15.11.2026"}, {"vacation_to": "jutro"}, {"vacation_from": 5},
+    {"vacation_from": "2026-11-20", "vacation_to": "2026-11-10"},
+])
+def test_post_settings_vacation_invalid_is_400(tmp_path, payload):
+    saved = {}
+    resp = _recording_client(tmp_path, saved).post("/api/settings", json=payload)
+    assert resp.status_code == 400 and resp.get_json()["errors"] and saved == {}
+
+
+@pytest.mark.parametrize("payload", [
+    {"vacation_curve_drop": 1, "vacation_dhw_setpoint": 16, "vacation_min_room_c": 10},
+    {"vacation_curve_drop": 3, "vacation_dhw_setpoint": 60, "vacation_min_room_c": 25},
+    {"vacation_from": "2026-11-10", "vacation_to": "2026-11-10"},
+    {"vacation_from": "", "vacation_to": None}, {"vacation_from": "2026-11-10", "vacation_to": ""},
+])
+def test_post_settings_vacation_valid_saved(tmp_path, payload):
+    saved = {}
+    resp = _recording_client(tmp_path, saved).post("/api/settings", json=payload)
+    assert resp.status_code == 200 and saved == payload

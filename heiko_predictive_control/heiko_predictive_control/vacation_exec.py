@@ -26,6 +26,16 @@ DHW_AFTER = 48                                     # nastawa CWU przywracana po 
 _DHW_KEYS = ("dhw_active", "dhw_before", "dhw_intent", "dhw_fail_day", "dhw_warn", "dhw_written_id")
 
 
+def _notify_to(service: str, message: str, notify) -> None:
+    (notify or ha_client.notify)(service, TITLE, message)
+
+
+def _announce_text(settings: dict) -> str:
+    end = settings.get("vacation_to") or None
+    until = f" do {date.fromisoformat(end).strftime('%d.%m')}" if end else ""
+    return f"Tryb urlopowy włączony{until}: krzywa −{_config(settings).drop}, CWU {dhw_target(settings)}."
+
+
 def _close(a, b) -> bool:
     return a is not None and b is not None and abs(a - b) < _EPS
 
@@ -219,6 +229,12 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
     base = st.get("base")
     entity = curve_shift_entity(settings)
 
+    if not vacation.is_active(settings, now.date()) and st.get("announced"):
+        _notify_to("notify.family", "Tryb urlopowy zakończony.", notify)
+        st.pop("announced", None)
+        dbm.set_setting(conn, STATE_KEY, st)
+        before = dict(st)
+
     if not active(settings, now.date()):
         if st.get("dhw_active"):
             _dhw_exit(conn, settings, st, now, get_numeric, writer, notify)
@@ -248,6 +264,11 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
 
     if not st.get("dhw_active"):                       # CWU jest od krzywej niezależne (też przy `suspended_day`)
         _dhw_enter(conn, settings, st, now, get_numeric, get_state, writer, notify)
+        before = dict(st)
+    if not st.get("announced"):
+        _notify_to("notify.family", _announce_text(settings), notify)
+        st["announced"] = today
+        dbm.set_setting(conn, STATE_KEY, st)
         before = dict(st)
 
     mode = conn.execute("SELECT id, ok, confirmed_at FROM pump_writes WHERE test_id IS NULL AND entity_id LIKE ? "
@@ -299,9 +320,9 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
         st["trips"] = [*(st.get("trips") or [])[-29:], today]
         room_c, room_name = cold                       # decyzja „bezpiecznik” wymaga odczytu, więc cold ≠ None
         st["trip_room"] = {"name": room_name, "c": round(room_c, 1)}
-        experiments._notify(settings, f"Tryb urlopowy: {room_name or 'najzimniejszy pokój'} ma {room_c:.1f} °C — poniżej "
-                                      f"{cfg.min_room_c:g} °C przez 15 min, wracam do bazowego przesunięcia "
-                                      f"do czasu ocieplenia.", notify, TITLE)
+        _notify_to("notify.kacper", f"{room_name or 'najzimniejszy pokój'} ma {room_c:.1f} °C — poniżej "
+                                    f"{cfg.min_room_c:g} °C przez 15 min, wracam do bazowego przesunięcia "
+                                    f"do czasu ocieplenia.", notify)
     wrote = None
     if decision.target is not None and not _close(decision.target, current):
         wrote = _apply(conn, settings, st, current, decision.target, now, writer, notify)

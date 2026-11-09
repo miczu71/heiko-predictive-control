@@ -15,7 +15,7 @@ from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, costs, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
-from . import floor_model, g13_view, kpi, tail_cut_view
+from . import floor_model, g13_view, kpi, tail_cut_view, vacation_view
 from . import db as dbm
 from .workday import default_is_workday
 
@@ -61,7 +61,9 @@ SETTING_RANGES = {
     "g13_peak_preheat_shift": (-3, 3), "g13_peak_peak_shift": (-3, 3),
     "tail_margin_k": (0, 5), "tail_delay_min": (10, 240), "tail_min_pause_min": (5, 240),
     "tail_min_room_c": (15, 26), "tail_dhw_hold_min": (1, 10),
+    "vacation_curve_drop": (1, 3), "vacation_min_room_c": (10, 25), "vacation_dhw_setpoint": (16, 60),
 }
+INTEGER_SETTINGS = ("vacation_curve_drop", "vacation_dhw_setpoint")
 
 
 def _validate_settings(payload: dict) -> list[str]:
@@ -77,6 +79,21 @@ def _validate_settings(payload: dict) -> list[str]:
             errors.append(f"{key}: oczekiwano liczby od {low:g} do {high:g}")
         elif not low <= value <= high:
             errors.append(f"{key}: {value:g} poza zakresem {low:g}…{high:g}")
+        elif key in INTEGER_SETTINGS and value != int(value):
+            errors.append(f"{key}: oczekiwano liczby całkowitej od {low:g} do {high:g}")
+    dates = {}
+    for key in ("vacation_from", "vacation_to"):
+        value = payload.get(key)
+        if key not in payload or value in ("", None):
+            continue
+        try:
+            if not isinstance(value, str):
+                raise ValueError
+            dates[key] = date.fromisoformat(value)
+        except ValueError:
+            errors.append(f"{key}: oczekiwano daty w formacie RRRR-MM-DD")
+    if len(dates) == 2 and dates["vacation_from"] > dates["vacation_to"]:
+        errors.append("vacation_from: data początku urlopu jest późniejsza niż data końca")
     url = payload.get("pv_roi_url")
     if url:  # trafia do requests.get po stronie add-onu — tylko http(s)://host (puste = brak klienta)
         parsed = urlparse(url) if isinstance(url, str) else None
@@ -234,6 +251,17 @@ def create_app(db_path: str,
         conn = db_conn()
         try:
             return jsonify(g13_view.build(conn, settings, now))
+        finally:
+            conn.close()
+
+    @app.get("/api/vacation")
+    def api_vacation():
+        """Kafel „Urlop” na pulpicie (S7): status, parametry, podsumowanie, bezpiecznik z 30 dni."""
+        settings = get_settings()
+        now = _local_now(settings)
+        conn = db_conn()
+        try:
+            return jsonify(vacation_view.build(conn, settings, now))
         finally:
             conn.close()
 

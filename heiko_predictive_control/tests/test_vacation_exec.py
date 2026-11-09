@@ -26,7 +26,7 @@ class Pump:
         self.shift, self.confirm, self.accept = shift, confirm, accept
         self.away, self.away_ok, self.away_calls = away, away_ok, []
         self.dhw, self.dhw_min, self.dhw_accept = dhw, dhw_min, dhw_accept
-        self.calls, self.dhw_calls, self.notes = [], [], []
+        self.calls, self.dhw_calls, self.notes, self.sent = [], [], [], []
 
     def get_numeric(self, entity):
         return self.shift if entity == SHIFT else self.dhw if entity == DHW else None
@@ -54,8 +54,14 @@ class Pump:
         return self.accept
 
     def notify(self, service, title, message):
-        self.notes.append(message)
+        self.sent.append((service, message))
+        if service != "notify.family":                  # start/koniec urlopu (S7) liczone osobno w `family`
+            self.notes.append(message)
         return True
+
+    @property
+    def family(self):
+        return [m for s, m in self.sent if s == "notify.family"]
 
 
 @pytest.fixture
@@ -484,3 +490,77 @@ def test_no_takeover_when_current_not_g13s(conn):
     dbm.set_setting(conn, g13_exec.STATE_KEY, {"base": 0.0, "last_written": -3.0})
     go(conn, pump, at(12))
     assert state(conn)["base"] == 1.0
+
+
+# ── Powiadomienia start/koniec (S7) ──────────────────────────────────────────────────────────────────
+WINDOW = {**ON, "vacation_to": "2026-11-15"}
+
+
+def test_start_announced_once_to_family(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    go(conn, pump, at(12), settings=WINDOW)
+    assert pump.family == ["Tryb urlopowy włączony do 15.11: krzywa −2, CWU 20."]
+    assert [s for s, _ in pump.sent] == ["notify.family"]
+    assert state(conn)["announced"] == "2026-11-09"
+    go(conn, pump, at(12, 5), settings=WINDOW)
+    assert len(pump.family) == 1
+
+
+def test_start_without_end_date(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    go(conn, pump, at(12))
+    assert pump.family == ["Tryb urlopowy włączony: krzywa −2, CWU 20."]
+
+
+def test_end_after_vacation_to_announced_once(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    go(conn, pump, at(12), settings=WINDOW)
+    go(conn, pump, at(12, 5), settings=WINDOW)
+    go(conn, pump, at(8, day=16), settings=WINDOW)
+    assert pump.family[-1] == "Tryb urlopowy zakończony." and len(pump.family) == 2
+    assert "announced" not in state(conn)
+    go(conn, pump, at(9, day=16), settings=WINDOW)
+    assert len(pump.family) == 2
+
+
+def test_end_when_disabled_in_settings(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    go(conn, pump, at(12))
+    go(conn, pump, at(13), settings=OFF)
+    assert pump.family[-1] == "Tryb urlopowy zakończony." and len(pump.family) == 2
+
+
+def test_no_end_notice_without_announcement(conn):
+    pump = Pump(shift=0.0)
+    go(conn, pump, at(12), settings=OFF)
+    assert pump.sent == []
+
+
+def test_master_switch_off_is_not_end_of_vacation(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    go(conn, pump, at(12))
+    go(conn, pump, at(12, 5))
+    go(conn, pump, at(12, 10), settings={**ON, "heiko_enabled": False})
+    assert len(pump.family) == 1 and state(conn)["announced"] == "2026-11-09"
+    go(conn, pump, at(12, 15))
+    assert len(pump.family) == 1
+
+
+def test_breaker_notifies_kacper(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    go(conn, pump, at(12))
+    go(conn, pump, at(12, 5))
+    for m in (10, 15, 20, 25, 30):
+        go(conn, pump, at(12, m), room_c=15.0, room_name="Salon")
+    assert [s for s, m in pump.sent if "Salon" in m] == ["notify.kacper"]
+
+
+def test_running_test_does_not_announce_start(conn):
+    pump = Pump(shift=0.0, dhw=48)
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline) VALUES ('zapis', 'w_toku', ?, '[]', 0)",
+                 (at(11).isoformat(),))
+    conn.commit()
+    room(conn, at(12), 21.5)
+    vac.run(conn, ON, at(12), get_numeric=pump.get_numeric, get_state=pump.get_state, writer=pump.writer,
+            notify=pump.notify, away_call=pump.away_call)
+    assert pump.sent == [] and "announced" not in state(conn)

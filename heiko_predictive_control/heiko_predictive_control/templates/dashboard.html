@@ -62,6 +62,20 @@
     <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
   </details>
 </section>
+
+<section class="mode-tile" id="vacation-tile" aria-labelledby="vacation-title">
+  <div class="mode-head">
+    <h2 id="vacation-title">Urlop</h2>
+    <span class="badge" id="vacation-badge">ładowanie…</span>
+  </div>
+  <p class="sub" id="vacation-summary" aria-live="polite"></p>
+  <details class="fold">
+    <summary>Szczegóły</summary>
+    <p class="sub">Całodobowa obniżka krzywej grzewczej na czas nieobecności.</p>
+    <div id="vacation-body" class="day-body"></div>
+    <p class="sub"><a href="{{ base }}/options">Włącz lub ustaw w Opcjach →</a></p>
+  </details>
+</section>
 </div>
 
 <section class="day-tile" id="day-tile" aria-labelledby="day-title">
@@ -99,4 +113,5 @@
 <script src="{{ base }}/static/day.js?v={{ version }}"></script>
 <script src="{{ base }}/static/g13.js?v={{ version }}"></script>
 <script src="{{ base }}/static/tail_cut.js?v={{ version }}"></script>
+<script src="{{ base }}/static/vacation.js?v={{ version }}"></script>
 {% endblock %}
