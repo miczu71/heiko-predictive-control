@@ -9,14 +9,12 @@ import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from statistics import mean
-from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import catalog
 from . import energy_source as es
 from . import ha_client
 from . import tariff_feed
-from .tariff import default_is_workday, fallback_hour
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +91,7 @@ def _delta(series: Series, start: datetime, end: datetime) -> float | None:
     return last - first
 
 
-def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_workday: Callable[[date], bool],
+def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo,
             grid: Series | None = None, feed: tariff_feed.TariffFeed | None = None) -> dict | None:
     """Energia z licznika: przyrost między kolejnymi próbkami przypisany do godziny lokalnej próbki końcowej.
     Z historią licznika poboru z sieci (`grid`) do szczytu liczy się tylko część pokryta z sieci."""
@@ -106,9 +104,8 @@ def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_wor
             inc = v - prev
             local = t.astimezone(tz)
             total += inc
-            hour_peak = (feed.is_peak(local.replace(tzinfo=None)) if feed is not None
-                         else fallback_hour(local, is_workday(local.date())).is_peak)
-            if hour_peak:
+            hour_peak = None if feed is None else feed.is_peak(local.replace(tzinfo=None))
+            if hour_peak:                        # None (brak danych taryfy) liczy się tylko do kwh
                 d = imported.delta(prev_t, t)
                 peak += inc if d is None else es.split(inc, d)[0]
         prev, prev_t = v, t
@@ -119,7 +116,6 @@ def _energy(series: Series, start: datetime, end: datetime, tz: ZoneInfo, is_wor
 
 
 def summarize_day(day: date, series: dict[str, Series], tz_name: str,
-                  is_workday: Callable[[date], bool] = default_is_workday,
                   feed: tariff_feed.TariffFeed | None = None) -> dict[str, dict]:
     """Streszczenia doby per temat. `series`: role → historia: mode, freq, hbh, hwtbh, p1, energy.
     Klucz `backup`: ah_min/hbh_min/hwtbh_min (minuty). Zwraca {} gdy nie ma danych trybu ani sprężarki (doba poza zasięgiem recordera)."""
@@ -157,7 +153,7 @@ def summarize_day(day: date, series: dict[str, Series], tz_name: str,
         runs = _runs(p1, lambda v: v > 0)
         out["p0"] = {"pulses": len(runs), "on_min": round(sum(runs), 1),
                      "mean_pulse_min": round(sum(runs) / len(runs), 1) if runs else None}
-    energy = _energy(series.get("energy", []), start, end, tz, is_workday, series.get("grid"), feed)
+    energy = _energy(series.get("energy", []), start, end, tz, series.get("grid"), feed)
     if energy:
         out["energy"] = energy
     return out
@@ -228,7 +224,7 @@ def p0_setting(conn, end: datetime, states: list[dict]) -> dict | None:
 
 
 def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime,
-              get_history=ha_client.get_history, is_workday: Callable[[date], bool] | None = None) -> dict[str, dict]:
+              get_history=ha_client.get_history) -> dict[str, dict]:
     """Pobiera historię doby z HA i zapisuje streszczenia (INSERT OR REPLACE). Pusty wynik = nic nie zapisujemy."""
     tel = catalog.resolve_telemetry(states)
     roles = {"mode": tel.get("working_mode"), "freq": tel.get("compressor_frequency"),
@@ -244,8 +240,7 @@ def store_day(conn, settings: dict, day: date, states: list[dict], now: datetime
     if not hist:
         return {}
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
-    is_workday = is_workday or default_is_workday
-    summary = summarize_day(day, series, tz_name, is_workday, tariff_feed.for_settings(conn, settings, is_workday))
+    summary = summarize_day(day, series, tz_name, tariff_feed.for_settings(conn, settings))
     if summary:
         extra = {"setting": p0_setting(conn, end, states)}
         samples = zone_samples(conn, settings, int(start.timestamp()), int(end.timestamp()))

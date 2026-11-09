@@ -167,7 +167,9 @@ def test_workday_from_feed():
     assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}), DAY, at(10)) is True
     assert g.workday_from_feed(FakeFeed({"2026-11-07T17": Row(False)}), date(2026, 11, 7), at(10)) is False
     assert g.workday_from_feed(FakeFeed({}), DAY, at(10)) is None                       # brak godziny
-    assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}, source="fallback"), DAY, at(10)) is None
+    # nieaktualny harmonogram dalej obowiązuje (decyzja T0-1) — bramki `source` nie ma
+    assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}, source="stale"), DAY, at(10)) is True
+    assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}, source="none"), DAY, at(10)) is True
 
 
 def test_domyslny_peak_shift_to_minus_3():

@@ -64,20 +64,20 @@ def _status(settings: dict, st: dict, today: date) -> str:
     return "active"
 
 
-def now_view(conn, settings: dict, now: datetime, is_workday) -> dict | None:
+def now_view(conn, settings: dict, now: datetime) -> dict | None:
     """Tylko „teraz” (faza i przesunięcie) — lekkie, bez runów; dla kafla „Zapisy do pompy” na pulpicie."""
     st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
     if _status(settings, st, now.date()) != "active":
         return None
-    workday = g13_peak.workday_from_feed(tariff_feed.for_settings(conn, settings, is_workday), now.date(), now)
+    workday = g13_peak.workday_from_feed(tariff_feed.for_settings(conn, settings), now.date(), now)
     return _now_phase(now, workday, st)
 
 
-def build(conn, settings: dict, now: datetime, is_workday) -> dict:
+def build(conn, settings: dict, now: datetime) -> dict:
     today = now.date()
     st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
     status = _status(settings, st, today)
-    feed = tariff_feed.for_settings(conn, settings, is_workday)
+    feed = tariff_feed.for_settings(conn, settings)
     workday = g13_peak.workday_from_feed(feed, today, now)
     week_start = today - timedelta(days=WEEK_DAYS - 1)
     tz_name = settings.get("timezone") or "Europe/Warsaw"

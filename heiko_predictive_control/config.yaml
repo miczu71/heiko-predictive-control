@@ -29,10 +29,7 @@ options:
   outdoor_temp_entity: "sensor.heiko_heat_pump_ambient_air_temperature"
   weather_entity: "weather.forecast_home"
   solcast_remaining_today_entity: "sensor.solcast_pv_forecast_forecast_remaining_today"
-  tariff_state_entity: "sensor.power_tauron_g12w_current_tariff"
-  tariff_price_entity: "sensor.power_tauron_g12w_current_price"
-  # Harmonogram taryfy z pv_roi (atrybut `schedule`): cena, strefa i szczyt każdej godziny. Dwie powyższe encje
-  # służą tylko jako zapas, gdy harmonogramu brak albo jest starszy niż 3 h.
+  # Harmonogram taryfy z pv_roi (atrybut `schedule`): cena, strefa i szczyt każdej godziny — jedyne źródło taryfy.
   tariff_schedule_entity: "sensor.pv_roi_tracker_pv_tariff_zone"
   # Adres API pv_roi (historia stref taryfy do bazy KPI)
   pv_roi_url: "http://29a4454d-pv-roi-tracker:8099"
@@ -114,8 +111,6 @@ schema:
   outdoor_temp_entity: str
   weather_entity: str?
   solcast_remaining_today_entity: str?
-  tariff_state_entity: str
-  tariff_price_entity: str?
   tariff_schedule_entity: str?
   pv_roi_url: str?
   pump_energy_entity: str

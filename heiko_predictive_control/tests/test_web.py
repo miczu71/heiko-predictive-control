@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from heiko_predictive_control import db as dbm
+from heiko_predictive_control import web
 from heiko_predictive_control.layout import EXAMPLE_PATH, parse
 from heiko_predictive_control.live import collect, ctrl_summary, fmt_temp
 from heiko_predictive_control.web import create_app
@@ -17,8 +18,6 @@ SETTINGS = {
     "day_zone_temp_entities": ",".join(ZONE),
     "attic_temp_entity": "sensor.poddasze_temperature",
     "attic_door_entity": "binary_sensor.drzwi",
-    "tariff_state_entity": "sensor.tariff",
-    "tariff_price_entity": "sensor.price",
     "heiko_setpoint_entity": "number.setpoint",
     "heiko_curve_switch_entity": "switch.curve",
     "outdoor_temp_entity": "sensor.outdoor",
@@ -35,8 +34,6 @@ STATES.update({
     "climate.salon": {"state": "heat", "attributes": {"current_temperature": 23, "temperature": 24}},
     "climate.poddasze": {"state": "off", "attributes": {"current_temperature": 24.1, "temperature": 24}},
     "sensor.heiko_heat_pump_working_mode_2": {"state": "Standby"},
-    "sensor.tariff": {"state": "True"},
-    "sensor.price": {"state": "1.2304"},
     "number.setpoint": {"state": "20"},
     "switch.curve": {"state": "off"},
     "sensor.outdoor": {"state": "13.3"},
@@ -69,7 +66,8 @@ def test_collect_values():
     assert live["equipment"]["ac_poddasze"]["on"] is False
     assert live["equipment"]["pump"] == {"state": "czuwanie", "on": False}
     assert live["heiko"]["mode"] == "czuwanie"
-    assert live["tariff"] == {"peak": True, "label": "SZCZYT", "price": "1,23 PLN/kWh"}
+    # collect nie czyta encji taryfy — kafel dopełnia `web.live_data` z harmonogramu pv_roi
+    assert live["tariff"] == {"peak": None, "label": "brak danych taryfy", "price": "—", "note": ""}
     assert live["heiko"]["curve"] == "wyłączona"
     assert live["attic"]["door"] == "otwarte"
     # średnia tylko z pokoi stref dziennych: 24.2 + 4×21.5
@@ -85,11 +83,20 @@ def test_attic_temp_override_from_settings():
         del STATES["sensor.inny"]
 
 
+def seed_hour(conn, dt, is_peak=True, gross=1.2304, zone=None, fetched_at=None):
+    conn.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                 "VALUES (?, 'G12w', ?, ?, 'expensive', ?, 'invoice', ?)",
+                 (dt.strftime("%Y-%m-%dT%H"), zone, int(is_peak), gross,
+                  (fetched_at or datetime.now()).isoformat(timespec="seconds")))
+    conn.commit()
+
+
 @pytest.fixture
 def client(tmp_path):
     db_path = str(tmp_path / "t.db")
     conn = dbm.get_conn(db_path)
     dbm.migrate(conn)
+    seed_hour(conn, web._local_now(SETTINGS))                      # bieżąca godzina: szczyt 1,2304 zł
     conn.close()
     app = create_app(db_path, lambda: dict(SETTINGS), lambda k, v: None,
                      get_state=get_state, get_numeric=get_numeric, house=HOUSE)
@@ -108,7 +115,7 @@ def test_dashboard_renders_model_with_all_hotspots(client):
         assert f'data-on="{eq.key}"' in html
     for card in ("loop_heiko", "loop_attic", "ac_salon", "room-salon"):
         assert f'<section class="detail" data-card="{card}"' in html
-    assert "SZCZYT" in html and "24,2°C" in html
+    assert "Szczyt" in html and "1,23 PLN/kWh" in html and "24,2°C" in html
     assert 'class="temp-pill' in html                     # plakietki odnośników pokoi
     assert "Tu stoi jednostka wewnętrzna pompy ciepła." in html   # notatka pokoju z układu
     assert 'class="notice"' not in html                    # brak ostrzeżeń układu
@@ -132,7 +139,64 @@ def test_api_live(client):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["rooms"]["sypialnia"]["text"] == "21,5°C"
-    assert data["tariff"]["peak"] is True
+    assert data["tariff"] == {"peak": True, "label": "Szczyt", "price": "1,23 PLN/kWh", "note": ""}
+    assert data["tariff_source"] == "feed" and data["tariff_status"]["stale_since"] is None
+
+
+def _live_tariff(tmp_path, settings=SETTINGS, seed=None):
+    db_path = str(tmp_path / "t.db")
+    conn = dbm.get_conn(db_path)
+    dbm.migrate(conn)
+    if seed:
+        seed(conn)
+    conn.close()
+    app = create_app(db_path, lambda: dict(settings), lambda k, v: None,
+                     get_state=get_state, get_numeric=get_numeric, house=HOUSE)
+    return app.test_client()
+
+
+def test_api_live_stale_feed_still_shows_hour_with_note(tmp_path):
+    old = datetime.now() - timedelta(hours=5)
+    c = _live_tariff(tmp_path, seed=lambda conn: seed_hour(conn, web._local_now(SETTINGS), False, 0.6306, fetched_at=old))
+    data = c.get("/api/live").get_json()
+    assert data["tariff"]["label"] == "Poza szczytem" and data["tariff"]["price"] == "0,63 PLN/kWh"
+    assert data["tariff"]["note"] == "nieaktualne od " + old.strftime("%H:%M %d.%m")
+    assert data["tariff_source"] == "stale" and data["tariff_status"]["stale_since"].startswith(old.strftime("%Y-%m-%dT%H:%M"))
+    html = c.get("/").get_data(as_text=True)
+    assert "taryfa: dane nieaktualne od " + old.strftime("%H:%M %d.%m") in html
+
+
+def test_api_live_without_tariff_row_says_no_data(tmp_path):
+    c = _live_tariff(tmp_path)
+    data = c.get("/api/live").get_json()
+    assert data["tariff"] == {"peak": None, "label": "brak danych taryfy", "price": "—", "note": ""}
+    assert data["tariff_source"] == "none"
+    assert "taryfa: brak danych z pv_roi" in c.get("/").get_data(as_text=True)
+
+
+def test_api_live_hour_without_row_while_feed_is_fresh_says_no_data(tmp_path):
+    other = web._local_now(SETTINGS) + timedelta(hours=40)           # świeży feed, ale nie na bieżącą godzinę
+    c = _live_tariff(tmp_path, seed=lambda conn: seed_hour(conn, other))
+    data = c.get("/api/live").get_json()
+    assert data["tariff"]["label"] == "brak danych taryfy" and data["tariff"]["price"] == "—"
+    assert data["tariff_source"] == "feed"
+
+
+def test_api_live_uses_timezone_from_settings(tmp_path):
+    """Wiersz tylko dla godziny w Europe/Warsaw: strefa UTC (inna godzina lokalna) go nie widzi."""
+    seed = lambda conn: seed_hour(conn, web._local_now({"timezone": "Europe/Warsaw"}))
+    warsaw = _live_tariff(tmp_path, {**SETTINGS, "timezone": "Europe/Warsaw"}, seed).get("/api/live").get_json()
+    assert warsaw["tariff"]["label"] == "Szczyt"
+    utc_dir = tmp_path / "utc"
+    utc_dir.mkdir()
+    utc = _live_tariff(utc_dir, {**SETTINGS, "timezone": "UTC"}, seed).get("/api/live").get_json()
+    assert utc["tariff"]["label"] == "brak danych taryfy"
+
+
+def test_local_now_follows_timezone_setting():
+    warsaw, utc = web._local_now({"timezone": "Europe/Warsaw"}), web._local_now({"timezone": "UTC"})
+    assert warsaw.tzinfo is None and utc.tzinfo is None
+    assert 3500 < (warsaw - utc).total_seconds() < 7300               # +1 h zimą, +2 h latem
 
 
 def test_ctrl_summary_formats_controller_state():
@@ -253,9 +317,10 @@ def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
     assert "steruje" not in html.split('data-card="loop_heiko"')[1].split("</section>")[0].replace("Grzaniem steruje pompa", "")
 
 
-def test_api_plan_returns_kpi_with_baseline(tmp_path):
+def test_api_plan_returns_kpi_with_baseline(tmp_path, monkeypatch):
     from datetime import datetime, timedelta
-    now = datetime.now()
+    now = datetime.now().replace(minute=30, second=0, microsecond=0)
+    monkeypatch.setattr(web, "_local_now", lambda settings: now)       # jeden zamrożony czas dla całego żądania
     rows = [{"ts": now.isoformat(), "loop": "heiko", "active_profile": "ekonomia", "write_enabled": 0,
              "energy_kwh": 3.0, "tariff_peak": 1, "outdoor_temp_c": 2.0},
             {"ts": now.isoformat(), "loop": "heiko", "active_profile": "ekonomia", "write_enabled": 0,
@@ -450,7 +515,7 @@ def _proposal_client(tmp_path, settings=None, states=None, replay=None):
     conn.close()
     app = create_app(db_path, lambda: {**SETTINGS, **(settings or {})}, lambda k, v: None,
                      get_state=get_state, get_numeric=get_numeric, house=HOUSE,
-                     get_states=lambda: states, replay_winter=replay or (lambda s, now, model: {"created": "2026-09-26T12:00", "ok": True}))
+                     get_states=lambda: states, replay_winter=replay or (lambda s, now, model, feed: {"created": "2026-09-26T12:00", "ok": True}))
     return app.test_client(), db_path
 
 
@@ -530,10 +595,23 @@ def test_replay_api_refresh_runs_in_background_and_caches(tmp_path):
     assert data["replay"]["created"] == "2026-09-26T12:00" and data["error"] is None
 
 
+def test_replay_api_passes_tariff_feed(tmp_path):
+    import time
+    from heiko_predictive_control import tariff_feed
+    seen = []
+    client, _ = _proposal_client(tmp_path, replay=lambda s, now, model, feed: seen.append(feed) or {"created": "x", "ok": True})
+    client.get("/api/advisor/replay?refresh=1")
+    for _ in range(50):
+        if seen:
+            break
+        time.sleep(0.1)
+    assert len(seen) == 1 and isinstance(seen[0], tariff_feed.TariffFeed)
+
+
 def test_replay_api_reports_failure_without_crashing(tmp_path):
     import time
 
-    def boom(settings, now, model):
+    def boom(settings, now, model, feed):
         raise RuntimeError("LTS niedostępne")
     client, _ = _proposal_client(tmp_path, replay=boom)
     client.get("/api/advisor/replay?refresh=1")
@@ -849,11 +927,12 @@ def test_tariff_from_hour_g13_zones():
     assert tariff_from_hour(h(None, False, 1.0))["label"] == "Poza szczytem"
 
 
-def _plan_peak_price(tmp_path, rows):
+def _plan_peak_price(tmp_path, rows, monkeypatch):
     from datetime import datetime
+    now = datetime(2026, 1, 14, 10, 30)
+    monkeypatch.setattr(web, "_local_now", lambda settings: now)       # wspólny czas lokalny, nie osobne datetime.now()
     app = _app_with_db(tmp_path, SETTINGS)
     conn = dbm.get_conn(str(tmp_path / "t.db"))
-    now = datetime.now()
     for delta_h, zone, gross in rows:
         from datetime import timedelta
         t = now + timedelta(hours=delta_h)
@@ -864,17 +943,17 @@ def _plan_peak_price(tmp_path, rows):
     return app.test_client().get("/api/plan").get_json()["peak_price"]
 
 
-def test_api_plan_peak_price_from_current_hour_evening_row(tmp_path):
-    assert _plan_peak_price(tmp_path, [(0, "evening_peak", 1.4961)]) == 1.5
+def test_api_plan_peak_price_from_current_hour_evening_row(tmp_path, monkeypatch):
+    assert _plan_peak_price(tmp_path, [(0, "evening_peak", 1.4961)], monkeypatch) == 1.5
 
 
-def test_api_plan_peak_price_ignores_older_evening_row(tmp_path):
-    assert _plan_peak_price(tmp_path, [(-1, "evening_peak", 1.4961)]) is None
+def test_api_plan_peak_price_ignores_older_evening_row(tmp_path, monkeypatch):
+    assert _plan_peak_price(tmp_path, [(-1, "evening_peak", 1.4961)], monkeypatch) is None
 
 
-def test_api_plan_peak_price_none_without_rows_or_other_zone(tmp_path):
-    assert _plan_peak_price(tmp_path, []) is None
+def test_api_plan_peak_price_none_without_rows_or_other_zone(tmp_path, monkeypatch):
+    assert _plan_peak_price(tmp_path, [], monkeypatch) is None
 
 
-def test_api_plan_peak_price_none_for_other_zone_now(tmp_path):
-    assert _plan_peak_price(tmp_path, [(0, "other", 0.6)]) is None
+def test_api_plan_peak_price_none_for_other_zone_now(tmp_path, monkeypatch):
+    assert _plan_peak_price(tmp_path, [(0, "other", 0.6)], monkeypatch) is None

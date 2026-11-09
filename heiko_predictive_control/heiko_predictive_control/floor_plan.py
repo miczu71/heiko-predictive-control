@@ -19,7 +19,6 @@ from datetime import datetime, timedelta
 from typing import Callable, Sequence
 
 from .floor_model import FloorModel, cop
-from .tariff import fallback_hour
 
 STEP_H = 0.25
 DELTA_GRID: tuple[float, ...] = (0.0, -1.0, 1.0, -2.0, 2.0, -3.0, 3.0)   # kolejność = preferencja
@@ -65,22 +64,16 @@ class Block:
     price_pln_kwh: float
 
 
-def build_blocks(t0: datetime, n_steps: int, is_workday: Callable[[object], bool],
-                 day_start: int, day_end: int, peak_price: float, offpeak_price: float,
-                 step_h: float = STEP_H, max_len_h: float = MAX_BLOCK_H,
-                 hour_fn: Callable[[datetime], tuple[bool, float]] | None = None) -> list[Block]:
-    """Ciągłe odcinki o tym samym (szczyt, dzień[, cena]); dłuższe niż `max_len_h` dzielone.
-    `hour_fn(t) -> (is_peak, cena)` (feed z pv_roi) ustala szczyt i cenę każdego kroku; bez niego
-    szczyt wynika z zapasu G12w, a cena z `peak_price`/`offpeak_price`."""
+def build_blocks(t0: datetime, n_steps: int, day_start: int, day_end: int,
+                 hour_fn: Callable[[datetime], tuple[bool, float]],
+                 step_h: float = STEP_H, max_len_h: float = MAX_BLOCK_H) -> list[Block]:
+    """Ciągłe odcinki o tym samym (szczyt, dzień, cena); dłuższe niż `max_len_h` dzielone.
+    `hour_fn(t) -> (is_peak, cena)` (feed z pv_roi) ustala szczyt i cenę każdego kroku."""
     max_steps = max(1, int(round(max_len_h / step_h)))
     keys = []
     for i in range(n_steps):
         t = t0 + timedelta(hours=i * step_h)
-        if hour_fn is not None:
-            peak, price = hour_fn(t)
-        else:
-            peak = fallback_hour(t, bool(is_workday(t.date()))).is_peak
-            price = peak_price if peak else offpeak_price
+        peak, price = hour_fn(t)
         keys.append((peak, day_start <= t.hour < day_end, price))
     blocks: list[Block] = []
     i = 0

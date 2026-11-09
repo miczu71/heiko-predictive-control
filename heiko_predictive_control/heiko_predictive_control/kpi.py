@@ -1,4 +1,4 @@
-"""KPI zmierzone (nie modelowane): udział energii pompy zużytej w szczycie G12w.
+"""KPI zmierzone (nie modelowane): udział energii pompy zużytej w szczycie taryfy.
 
 To jest właściwa miara przesunięcia grzania — nie zależy od modelu domu. Porównujemy
 ostatnie dni z zimą sprzed sterowania (statystyki LTS), **przy tym samym rozkładzie
@@ -20,7 +20,6 @@ from . import ha_client
 from . import energy_source as es
 from . import pv_roi_client, tariff_feed
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
-from .tariff import default_is_workday, fallback_hour
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +28,7 @@ MIN_WINDOW_KWH = 5.0          # poniżej: lato / pompa prawie nie grzeje — KPI
 MIN_CLASS_HOURS = 24          # klasa temperatury w bazie z mniejszą liczbą godzin -> udział ogólny
 DEFAULT_TZ = "Europe/Warsaw"
 BASELINE_VERSION = 4          # 4 = szczyt = strefa evening_peak z pv_roi (historia w tariff_hours), tylko pobór z sieci; baza ma `sig` stref
-EVENING_PEAK_HOURS = (16, 21)  # TYMCZASOWE zimowe przybliżenie (baza z zimy, godziny bez feedu); docelowo strefy z pv_roi — docs/ROADMAP_tariff_single_source.md
 EVENING_ZONE = "evening_peak"
-
-
-def is_evening_peak_hour(hour: int, is_workday: bool) -> bool:
-    return is_workday and EVENING_PEAK_HOURS[0] <= hour < EVENING_PEAK_HOURS[1]
 
 
 def outdoor_class(temp_c: float) -> int:
@@ -43,12 +37,11 @@ def outdoor_class(temp_c: float) -> int:
 
 def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
                         tz_name: str = DEFAULT_TZ, grid: str | None = None,
-                        evening_only: bool = False, zones: dict[str, tuple] | None = None) -> dict | None:
-    """Udział energii w szczycie w zimie, ogółem i per klasa temp. zewn. Szczyt = dzień
-    roboczy (pn–pt, święta pomijamy) w oknach G12w (z `evening_only`: tylko 16–21), wg czasu lokalnego. Z `grid` (licznik
+                        zones: dict[str, tuple] | None = None) -> dict | None:
+    """Udział energii w szczycie w zimie, ogółem i per klasa temp. zewn. Z `grid` (licznik
     poboru z sieci) w szczycie liczy się tylko min(energia pompy, pobór) w tej godzinie.
-    Z `zones` (`'YYYY-MM-DDTHH'` czasu lokalnego -> `(strefa, is_peak)`) szczyt = strefa `evening_peak`,
-    a godzina bez wpisu jest pomijana (`evening_only` nie działa)."""
+    `zones` (obowiązkowe; `'YYYY-MM-DDTHH'` czasu lokalnego -> `(strefa, is_peak)`): szczyt = strefa `evening_peak`,
+    a godzina bez wpisu jest pomijana."""
     tz = ZoneInfo(tz_name)
     temps = {r["start"]: r["mean"] for r in stats.get(outdoor, []) if r.get("mean") is not None}
     kwh = {r["start"]: r["change"] for r in stats.get(energy, []) if r.get("change") is not None}
@@ -64,17 +57,11 @@ def baseline_from_stats(stats: dict[str, list[dict]], outdoor: str, energy: str,
         if utc.month not in HEATING_MONTHS or to >= HEATING_MAX_OUTDOOR_C:
             continue
         local = utc.astimezone(tz)
-        if zones is not None:
-            entry = zones.get(tariff_feed.hour_key(local))
-            if entry is None:
-                continue
-            tariff_feed.warn_unknown_zone(entry[0], entry[1], datetime.now())
-            is_peak = entry[0] == EVENING_ZONE
-        else:
-            # Ścieżka bez stref (analysis.py): okna z harmonogramu, nie z taryfy z chwili pomiaru.
-            workday = default_is_workday(local.date())
-            is_peak = is_evening_peak_hour(local.hour, workday) if evening_only \
-                else fallback_hour(local, workday).is_peak
+        entry = zones.get(tariff_feed.hour_key(local))
+        if entry is None:
+            continue
+        tariff_feed.warn_unknown_zone(entry[0], entry[1], datetime.now())
+        is_peak = entry[0] == EVENING_ZONE
         from_grid = es.split(e, imported[start])[0] if start in imported else e
         cls = by_class.setdefault(outdoor_class(to), [0.0, 0.0, 0])
         cls[0] += e
@@ -158,7 +145,7 @@ def recent_kpi(conn, now: datetime, baseline: dict | None, days: int = 7) -> dic
 
 def _evening_rows(conn, rows) -> list[dict]:
     """Cykle z `tariff_peak` = 1 tylko w strefie popołudniowej (zapisane `tariff_peak` obejmowało też poranny szczyt).
-    Godzina bez wiersza w `tariff_hours`: okno 16–21 w dni robocze."""
+    Godzina bez wiersza w `tariff_hours`: `tariff_peak = None` (KPI pomija godzinę)."""
     if not rows:
         return []
     zones = {r["hour"]: (r["zone"], r["is_peak"]) for r in conn.execute(
@@ -173,10 +160,16 @@ def _evening_rows(conn, rows) -> list[dict]:
                 tariff_feed.warn_unknown_zone(zone, feed_peak, datetime.now())
                 d["tariff_peak"] = int(zone == EVENING_ZONE)
             else:
-                t = datetime.fromisoformat(d["ts"])
-                d["tariff_peak"] = int(is_evening_peak_hour(t.hour, default_is_workday(t.date())))
+                d["tariff_peak"] = None
         out.append(d)
     return out
+
+
+def zones_from_db(conn, start_local: datetime, end_local: datetime) -> dict:
+    """`'YYYY-MM-DDTHH'` czasu lokalnego -> `(strefa, is_peak)` z `tariff_hours` w oknie [start, end)."""
+    return {r["hour"]: (r["zone"], r["is_peak"]) for r in conn.execute(
+        "SELECT hour, zone, is_peak FROM tariff_hours WHERE hour >= ? AND hour < ?",
+        (tariff_feed.hour_key(start_local), tariff_feed.hour_key(end_local)))}
 
 
 def tariff_signature(conn, start_local: datetime, end_local: datetime) -> str:
@@ -223,9 +216,7 @@ def ensure_peak_baseline(conn, settings: dict, now: datetime, get_statistics=ha_
     if stats is None:
         logger.info("Baza udziału szczytu: statystyki niedostępne — spróbuję przy następnym przebiegu")
         return existing
-    zones = {r["hour"]: (r["zone"], r["is_peak"]) for r in conn.execute(
-        "SELECT hour, zone, is_peak FROM tariff_hours WHERE hour >= ? AND hour < ?",
-        (tariff_feed.hour_key(start_local), tariff_feed.hour_key(end_local)))}
+    zones = zones_from_db(conn, start_local, end_local)
     baseline = baseline_from_stats(stats, outdoor, energy, tz_name, grid=grid, zones=zones)
     if baseline is None:
         logger.warning("Baza udziału szczytu: brak danych sezonu w statystykach")

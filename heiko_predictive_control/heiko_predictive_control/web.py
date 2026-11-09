@@ -16,9 +16,20 @@ from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfo
                ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
 from . import floor_model, g13_view, kpi
 from . import db as dbm
-from .tariff import default_is_workday
+from .workday import default_is_workday
 
 logger = logging.getLogger(__name__)
+
+
+def _stale_label(stale_since: str | None) -> str:
+    """„HH:MM DD.MM” z ISO czasu ostatniego zapisu harmonogramu (do „nieaktualne od …”)."""
+    return datetime.fromisoformat(stale_since).strftime("%H:%M %d.%m") if stale_since else ""
+
+
+def _local_now(settings: dict) -> datetime:
+    """Teraz w strefie z ustawień (domyślnie Europe/Warsaw), jako czas lokalny bez strefy — spójny z kluczami
+    `tariff_hours`."""
+    return datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None)
 
 COSTS_MAX_DAYS = 400                   # maks. zakres /api/costs
 TRACE_CYCLES = 30                      # tyle najnowszych cykli CWU dostaje przebieg w /api/dhw_cycles (tyle rysuje UI)
@@ -107,11 +118,11 @@ def create_app(db_path: str,
         return live.reduced_enabled_label((state or {}).get("state"))
 
     def tariff_status(conn=None) -> dict:
-        """Źródło taryfy (feed z pv_roi albo zapas G12w) — dla plakietki w UI i `/api/live`."""
+        """Stan harmonogramu taryfy z pv_roi (feed / nieaktualny / brak) — dla plakietki w UI i `/api/live`."""
         own = conn is None
         conn = conn or db_conn()
         try:
-            return tariff_feed.for_settings(conn, get_settings(), is_workday).status()
+            return tariff_feed.for_settings(conn, get_settings()).status()
         finally:
             if own:
                 conn.close()
@@ -119,10 +130,11 @@ def create_app(db_path: str,
     @app.context_processor
     def inject_tariff_source():
         try:
-            return {"tariff_source": tariff_status()["source"]}
+            status = tariff_status()
+            return {"tariff_source": status["source"], "tariff_stale_since": _stale_label(status.get("stale_since"))}
         except Exception:                                   # plakietka nie może wywrócić strony
             logger.exception("Stan taryfy nieczytelny")
-            return {"tariff_source": "fallback"}
+            return {"tariff_source": "none", "tariff_stale_since": ""}
 
     def live_data(settings: dict) -> dict:
         """live.collect + stan sterowania poddaszem (z bazy) — ten sam słownik
@@ -134,13 +146,16 @@ def create_app(db_path: str,
             row = dbm.latest_cycle(conn, "attic")
             totals = dbm.attic_today_totals(conn, date.today().isoformat())
             heiko_row = dbm.latest_cycle(conn, "heiko")
-            feed = tariff_feed.for_settings(conn, settings, is_workday)
-            status = feed.status()
-            hour = feed.at(datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None))
+            feed = tariff_feed.for_settings(conn, settings)
+            now_local = _local_now(settings)
+            status = feed.status(now_local)
+            hour = feed.at(now_local)
         finally:
             conn.close()
-        if hour is not None and status["source"] != "fallback":
+        if hour is not None:
             data["tariff"] = live.tariff_from_hour(hour)
+            stale = status["source"] == "stale" and status.get("stale_since")
+            data["tariff"]["note"] = f"nieaktualne od {_stale_label(status['stale_since'])}" if stale else ""
         data["tariff_source"] = status["source"]
         data["tariff_status"] = status
         if heiko_row is not None:
@@ -158,12 +173,12 @@ def create_app(db_path: str,
             heiko = dbm.latest_cycle(conn, "heiko")
             attic = dbm.latest_cycle(conn, "attic")
             settings = get_settings()
-            now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None)
+            now = _local_now(settings)
             test = _running_test_view(conn)
             g13_now = None
             if not test:
                 try:
-                    g13_now = g13_view.now_view(conn, settings, now, is_workday)
+                    g13_now = g13_view.now_view(conn, settings, now)
                 except Exception:                      # kafel pomocniczy nie może położyć Pulpitu
                     logger.warning("pulpit: nie udało się odczytać stanu trybu Szczyt G13", exc_info=True)
             writes = {"test": test,
@@ -185,10 +200,10 @@ def create_app(db_path: str,
     def api_g13():
         """Kafel „Szczyt G13” na pulpicie (E4): stan trybu, następna zmiana, energia strefy szczytu, bezpiecznik."""
         settings = get_settings()
-        now = datetime.now(ZoneInfo(settings.get("timezone") or "Europe/Warsaw")).replace(tzinfo=None)
+        now = _local_now(settings)
         conn = db_conn()
         try:
-            return jsonify(g13_view.build(conn, settings, now, is_workday))
+            return jsonify(g13_view.build(conn, settings, now))
         finally:
             conn.close()
 
@@ -289,7 +304,7 @@ def create_app(db_path: str,
         conn = db_conn()
         baseline = settings.get("peak_baseline")
         try:
-            now = datetime.now()
+            now = _local_now(settings)
             recent = kpi.recent_kpi(conn, now, baseline)
             price_row = conn.execute("SELECT gross FROM tariff_hours WHERE zone = ? AND hour = ?",
                                      (kpi.EVENING_ZONE, tariff_feed.hour_key(now))).fetchone()
@@ -365,7 +380,7 @@ def create_app(db_path: str,
         conn = db_conn()
         try:
             cycles = dhw_cycles.load_cycles(conn, days)
-            feed = tariff_feed.for_settings(conn, get_settings(), is_workday)
+            feed = tariff_feed.for_settings(conn, get_settings())
             tz = ZoneInfo(get_settings().get("timezone") or "Europe/Warsaw")
             model = dhw_model.fit_model(cycles)
             ah = dhw_model.summarize(cycles, model, lambda t: feed.price(t.replace(tzinfo=None)), tz)
@@ -417,7 +432,7 @@ def create_app(db_path: str,
                 data = day_summary.build_yesterday(conn, settings, now)
             else:
                 data = day_summary.build_today(conn, settings, get_states() or [], now,
-                                               is_workday=is_workday, cache=day_summary.CACHE)
+                                               cache=day_summary.CACHE)
         finally:
             conn.close()
         return jsonify(data)
@@ -455,7 +470,7 @@ def create_app(db_path: str,
         try:
             data = costs.build(conn, settings, start, end, now, group,
                                today_fn=lambda: day_summary.build_today(conn, settings, get_states() or [], now,
-                                                                        is_workday=is_workday, cache=day_summary.CACHE))
+                                                                        cache=day_summary.CACHE))
         finally:
             conn.close()
         return jsonify(data)
@@ -530,7 +545,9 @@ def create_app(db_path: str,
     def _run_replay() -> None:
         conn = db_conn()
         try:
-            result = replay_winter(get_settings(), datetime.now(), floor_learn.load_model(conn))
+            settings = get_settings()
+            result = replay_winter(settings, datetime.now(), floor_learn.load_model(conn),
+                                   tariff_feed.for_settings(conn, settings))
             advisor.save_replay(conn, result)
             replay_job["error"] = result.get("error")
         except Exception as exc:                                    # odtworzenie w tle nie może wywrócić serwera

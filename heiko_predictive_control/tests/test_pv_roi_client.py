@@ -120,4 +120,4 @@ def test_latest_fetch_ignores_history_rows():
     client.backfill_window(conn, "http://pv", start, start + timedelta(hours=5), get=_server([]))
     feed = tariff_feed.TariffFeed(None, conn, None)
     assert feed._latest_fetch() is None
-    assert feed.status(datetime(2026, 1, 5, 3))["source"] == "fallback"
+    assert feed.status(datetime(2026, 1, 5, 3))["source"] == "none"

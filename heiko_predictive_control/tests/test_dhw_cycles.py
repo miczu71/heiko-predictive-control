@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from feed_stub import StubFeed
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import dhw_cycles as dc
 from heiko_predictive_control import energy_source as es
@@ -25,7 +26,7 @@ def test_cycle_without_ah():
     target = series((z(0), "48"))
     ah = series((z(0), "40.0"))
     s = {"mode": mode, "water": water, "target": target, "ah": ah}
-    cycles = dc.extract_cycles(s, z(0), z(23, 59), TZ)
+    cycles = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())
     assert len(cycles) == 1
     c = cycles[0]
     assert c["complete"] and c["duration_min"] == 30.0
@@ -44,7 +45,7 @@ def test_cycle_with_ah_cost_split_across_peak_boundary():
     ah = series((z(12, 50), "40.0"), (z(13, 9), "41.0"), (z(13, 14), "42.0"))
     energy = series((z(12, 50), "10.00"), (z(12, 55), "10.20"), (z(13, 2), "10.50"))
     s = {"mode": mode, "water": water, "target": target, "ah": ah, "energy_c": energy}
-    cycles = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)
+    cycles = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0)
     c = cycles[0]
     assert c["ah_tick_min"] == 19.0 and c["ah_min"] == 2.0
     assert c["ah_kwh"] == pytest.approx(0.5)
@@ -57,7 +58,7 @@ def test_short_cycle_has_no_deficit():
     water = series((z(7, 0), "43.0"))
     target = series((z(0), "48"))
     s = {"mode": mode, "water": water, "target": target}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())[0]
     assert c["duration_min"] == 15.0
     assert c["water_min19_c"] is None and c["deficit_c"] is None
 
@@ -65,21 +66,21 @@ def test_short_cycle_has_no_deficit():
 def test_cycle_running_past_window_end_is_incomplete():
     mode = series((z(0), "0"), (z(23, 0), "1"))                       # trwa na granicy okna
     s = {"mode": mode}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())[0]
     assert c["complete"] is False
 
 
 def test_classify_clock_target_change_and_demand():
     mode_clock = series((z(0), "0"), (z(4, 0), "1"), (z(4, 20), "0"))
     target_flat = series((z(0), "48"))
-    assert dc.extract_cycles({"mode": mode_clock, "target": target_flat}, z(0), z(23, 59), TZ)[0]["type"] == "zegar"
+    assert dc.extract_cycles({"mode": mode_clock, "target": target_flat}, z(0), z(23, 59), TZ, StubFeed())[0]["type"] == "zegar"
 
     mode_bath = series((z(0), "0"), (z(10, 30), "1"), (z(11, 0), "0"))
     target_change = series((z(0), "48"), (z(10, 28), "58"))            # cel zmieniony 2 min przed startem
-    assert dc.extract_cycles({"mode": mode_bath, "target": target_change}, z(0), z(23, 59), TZ)[0]["type"] == "zmiana celu"
+    assert dc.extract_cycles({"mode": mode_bath, "target": target_change}, z(0), z(23, 59), TZ, StubFeed())[0]["type"] == "zmiana celu"
 
     mode_demand = series((z(0), "0"), (z(10, 30), "1"), (z(11, 0), "0"))
-    assert dc.extract_cycles({"mode": mode_demand, "target": target_flat}, z(0), z(23, 59), TZ)[0]["type"] == "zapotrzebowanie"
+    assert dc.extract_cycles({"mode": mode_demand, "target": target_flat}, z(0), z(23, 59), TZ, StubFeed())[0]["type"] == "zapotrzebowanie"
 
 
 def _bath_entry(when, **ctx):
@@ -105,7 +106,7 @@ def test_classify_splits_target_change_by_bath_source():
     s = {"mode": mode, "target": target}
 
     def kind(entries):
-        return dc.extract_cycles(s, z(0), z(23, 59), TZ, bath_entries=entries)[0]["type"]
+        return dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(), bath_entries=entries)[0]["type"]
 
     assert kind([_bath_entry(z(10, 28), context_domain="notify")]) == "nadwyżka PV"
     assert kind([_bath_entry(z(10, 28), context_user_id="abc123")]) == "ręcznie (kąpiel)"
@@ -238,7 +239,7 @@ def test_segments_split_compressor_and_ah_like_cycle_of_12_oct():
                    (z(4, 19, **d), "100.64"), (z(4, 25, **d), "101.18"))
     outdoor = series((z(0, **d), "10.8"))
     s = {"mode": mode, "water": water, "target": target, "ah": ah, "energy_total": total, "outdoor": outdoor}
-    c = dc.extract_cycles(s, z(0, **d), z(23, 59, **d), TZ)[0]
+    c = dc.extract_cycles(s, z(0, **d), z(23, 59, **d), TZ, StubFeed())[0]
     assert c["v"] == dc.DATA_VERSION
     assert c["ah_tick_min"] == 19.0
     assert c["hp_seg_min"] == 13.0 and c["hp_rate_c_min"] == pytest.approx(0.662, abs=0.001)
@@ -255,7 +256,7 @@ def test_segment_of_cycle_without_ah_runs_to_the_end_and_short_ones_are_skipped(
     total = series((z(9, 5), "10.00"), (z(9, 30), "10.80"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0")),
          "energy_total": total}
-    long_c, short_c = dc.extract_cycles(s, z(0), z(23, 59), TZ)
+    long_c, short_c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())
     assert long_c["hp_seg_min"] == 25.0 and long_c["hp_rate_c_min"] == pytest.approx(0.48)
     assert long_c["hp_kw"] == pytest.approx(1.92)
     assert long_c["ah_rate_c_min"] is None and long_c["ah_total_kw"] is None and long_c["ah_seg_min"] is None
@@ -266,7 +267,7 @@ def test_cycle_record_has_minute_trace_and_v4():
     mode = series((z(0), "0"), (z(9, 0), "1"), (z(9, 5), "0"))
     water = series((z(9, 0), "40.0"), (z(9, 2), "41.0"), (z(9, 5), "44.0"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())[0]
     assert dc.DATA_VERSION == 8 and c["v"] == 8
     assert c["trace"] == [[0, 40.0], [1, 40.0], [2, 41.0], [3, 41.0], [4, 41.0], [5, 44.0]]
 
@@ -284,9 +285,9 @@ def test_group_period_uses_time_order_across_dst_offsets():
 def test_trace_is_capped_and_skips_missing_water():
     mode = series((z(0), "0"), (z(9, 0), "1"), (z(12, 0), "0"))          # 180 min
     s = {"mode": mode, "water": [], "target": series((z(0), "48")), "ah": series((z(0), "40.0"))}
-    assert dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["trace"] == []
+    assert dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())[0]["trace"] == []
     s["water"] = series((z(9, 0), "40.0"))
-    assert len(dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["trace"]) == dc.TRACE_MAX_POINTS
+    assert len(dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())[0]["trace"]) == dc.TRACE_MAX_POINTS
 
 
 def test_v2_records_are_recomputed_by_backfill(conn):
@@ -307,7 +308,7 @@ def test_ah_cost_prices_grid_battery_and_pv_parts_separately():
     rce = series((z(11), "0.25"))
     s = {"mode": mode, "water": water, "target": series((z(0), "48")), "energy_c": energy,
          "grid": grid, "discharge": discharge, "rce": rce}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0,
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0,
                           battery_cost_at=lambda t: 0.5)[0]
     assert c["ah_kwh"] == pytest.approx(0.4)
     assert c["ah_pln"] == pytest.approx(round(0.1 * 2.0 + 0.1 * 0.5 + 0.2 * 0.25, 2))
@@ -341,7 +342,7 @@ def test_ah_cost_without_battery_history_is_priced_by_tariff_and_not_split():
     s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
          "energy_c": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
          "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0)[0]
     assert c["ah_pln"] == pytest.approx(0.8)                            # 0,4 kWh × 2,0 (szczyt)
 
 
@@ -350,7 +351,7 @@ def test_total_cycle_without_discharge_history_has_no_pv_share():
     s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
          "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
          "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0)[0]
     assert c["cost_pln"] == pytest.approx(0.8) and c["pv_share"] is None
 
 
@@ -396,7 +397,7 @@ def test_total_cycle_cost_prices_grid_battery_and_pv_parts_separately():
     rce = series((z(11), "0.25"))
     s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")), "energy_total": total,
          "grid": grid, "discharge": discharge, "rce": rce}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0,
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0,
                           battery_cost_at=lambda t: 0.5)[0]
     assert c["ah_kwh"] is None and c["ah_pln"] is None                  # brak energy_c — AH nietknięte
     assert c["cost_pln"] == pytest.approx(round(0.1 * 2.0 + 0.1 * 0.5 + 0.2 * 0.25, 2))
@@ -407,7 +408,7 @@ def test_total_cycle_without_energy_total_has_no_cost_and_no_pv_share():
     mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
     s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
          "grid": series((z(11), "500.0"), (z(12, 10), "500.1")), "rce": series((z(11), "0.25"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed())[0]
     assert c["cost_pln"] is None and c["pv_share"] is None              # brak pomiaru ≠ 0
 
 
@@ -415,7 +416,7 @@ def test_total_cycle_without_grid_history_is_priced_by_tariff_and_has_no_pv_shar
     mode = series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0"))
     s = {"mode": mode, "water": series((z(12, 0), "42.0")), "target": series((z(0), "48")),
          "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0)[0]
     assert c["cost_pln"] == pytest.approx(0.8)                          # 0,4 kWh × 2,0 (szczyt), bez podziału
     assert c["pv_share"] is None
 
@@ -429,12 +430,12 @@ def test_cycle_zone_comes_from_tariff_feed_at_start(conn):
                       "net": 1.0, "confidence": "invoice"} for i in range(48)]
             return {"state": "peak", "attributes": {"schedule": hours}}
 
-    feed = dc.tariff_feed.TariffFeed(FakeHA(), conn, "sensor.tariff", None)
+    feed = dc.tariff_feed.TariffFeed(FakeHA(), conn, "sensor.tariff")
     assert feed.refresh(datetime(2026, 9, 21, 0, 0))
     mode = series((z(0), "0"), (z(9, 0), "1"), (z(9, 5), "0"))
     s = {"mode": mode, "water": series((z(9, 0), "40.0")), "target": series((z(0), "48"))}
-    assert dc.extract_cycles(s, z(0), z(23, 59), TZ, feed=feed)[0]["zone"] == "peak"
-    assert dc.extract_cycles(s, z(0), z(23, 59), TZ)[0]["zone"] is None  # bez feedu zona nieznana
+    assert dc.extract_cycles(s, z(0), z(23, 59), TZ, feed)[0]["zone"] == "peak"
+    assert dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(missing=True))[0]["zone"] is None  # bez wiersza zona nieznana
 
 
 def test_ah_cost_zones_sum_to_total_across_peak_boundary_without_feed():
@@ -442,8 +443,8 @@ def test_ah_cost_zones_sum_to_total_across_peak_boundary_without_feed():
     ah = series((z(12, 50), "40.0"), (z(13, 9), "41.0"), (z(13, 14), "42.0"))
     energy = series((z(12, 50), "10.00"), (z(12, 55), "10.20"), (z(13, 2), "10.50"))
     s = {"mode": mode, "ah": ah, "energy_c": energy, "energy_total": energy}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
-    zones = dc._cost(*dc._points(energy), z(12, 50), z(13, 22), TZ, lambda d: True, 2.0, 1.0,
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0)[0]
+    zones = dc._cost(*dc._points(energy), z(12, 50), z(13, 22), TZ, StubFeed(2.0, 1.0), 1.0,
                      grid=dc.es.Counter([]), discharge=dc.es.Counter([]), rce=dc.es.Counter([]),
                      battery_cost_at=lambda t: None)["zones"]
     assert set(zones) == {"peak", "offpeak"}
@@ -458,9 +459,9 @@ def test_zones_use_feed_zone_names_and_sum_equals_total(conn):
         conn.execute("INSERT INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
                      "VALUES (?, 'G12w', ?, 0, NULL, ?, NULL, '2026-09-21T00:00')", (hour, zone, gross))
     energy = series((z(12, 50), "10.00"), (z(12, 55), "10.20"), (z(13, 2), "10.50"))
-    cost = dc._cost(*dc._points(energy), z(12, 50), z(13, 22), TZ, lambda d: True, 2.0, 1.0,
+    cost = dc._cost(*dc._points(energy), z(12, 50), z(13, 22), TZ, feed, 1.0,
                     grid=dc.es.Counter([]), discharge=dc.es.Counter([]), rce=dc.es.Counter([]),
-                    battery_cost_at=lambda t: None, feed=feed)
+                    battery_cost_at=lambda t: None)
     zs = cost["zones"]
     assert set(zs) == {"expensive", "cheap"}
     assert sum(v["kwh"] for v in zs.values()) == pytest.approx(cost["kwh"])
@@ -493,7 +494,7 @@ def _night_battery_cycle(**kw):
          "target": series((z(0), "48")), "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
          "grid": series((z(11), "500.0"), (z(12, 10), "500.0")),
          "discharge": series((z(11), "40.0"), (z(12, 10), "40.4")), "rce": series((z(11), "0.25"))}
-    return dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0, **kw)[0]
+    return dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0, **kw)[0]
 
 
 def test_sources_battery_night_mix_prices_from_mix():
@@ -520,7 +521,7 @@ def test_sources_sum_to_kwh_and_cost_for_grid_battery_and_pv():
          "target": series((z(0), "48")), "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4")),
          "grid": series((z(11), "500.0"), (z(12, 10), "500.1")),
          "discharge": series((z(11), "40.0"), (z(12, 10), "40.1")), "rce": series((z(11), "0.25"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0,
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0,
                           mix_at=lambda t: {"pv": {"kwh": 1, "pln": 0.3}})[0]
     assert sum(x["kwh"] for x in c["sources"].values()) == pytest.approx(c["kwh_total"])
     assert sum(x["pln"] for x in c["sources"].values()) == pytest.approx(c["cost_pln"], abs=0.02)
@@ -531,5 +532,39 @@ def test_sources_sum_to_kwh_and_cost_for_grid_battery_and_pv():
 def test_sources_empty_without_source_series():
     s = {"mode": series((z(0), "0"), (z(12, 0), "1"), (z(12, 30), "0")), "water": series((z(12, 0), "42.0")),
          "target": series((z(0), "48")), "energy_total": series((z(12, 0), "10.0"), (z(12, 10), "10.4"))}
-    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, peak_price=2.0, offpeak_price=1.0)[0]
+    c = dc.extract_cycles(s, z(0), z(23, 59), TZ, StubFeed(2.0, 1.0), offpeak_price=1.0)[0]
     assert c["sources"] == {} and c["pv_share"] is None
+
+
+def _grid_battery_series():
+    mode = series((z(0), "0"), (z(12, 50), "1"), (z(13, 20), "0"))
+    energy = series((z(12, 50), "10.00"), (z(12, 55), "10.30"))
+    return mode, energy
+
+
+def test_hour_without_tariff_row_costs_zero_in_no_tariff_zone():
+    _, energy = _grid_battery_series()
+    grid = dc.es.Counter([(z(12, 50), 100.0), (z(12, 55), 100.3)])
+    cost = dc._cost(*dc._points(energy), z(12, 50), z(12, 56), TZ, StubFeed(missing=True), None,
+                    grid=grid, discharge=dc.es.Counter([(z(12, 50), 5.0), (z(12, 55), 5.0)]),
+                    rce=dc.es.Counter([(z(12, 50), 0.3), (z(12, 55), 0.3)]), battery_cost_at=lambda t: None)
+    assert cost["pln"] == 0.0 and cost["kwh"] == pytest.approx(0.3)
+    assert set(cost["zones"]) == {"no_tariff"} and "grid:no_tariff" in cost["sources"]
+    assert cost["sources"]["grid:no_tariff"]["pln"] == 0.0
+
+
+def test_hour_without_tariff_row_and_no_source_split_is_zero_and_incomplete():
+    _, energy = _grid_battery_series()
+    cost = dc._cost(*dc._points(energy), z(12, 50), z(12, 56), TZ, StubFeed(missing=True), None,
+                    grid=dc.es.Counter([]), discharge=dc.es.Counter([]), rce=dc.es.Counter([]),
+                    battery_cost_at=lambda t: None)
+    assert cost["pln"] == 0.0 and cost["split_complete"] is False and set(cost["zones"]) == {"no_tariff"}
+
+
+def test_battery_energy_with_unknown_cost_and_no_offpeak_price_costs_zero():
+    _, energy = _grid_battery_series()
+    cost = dc._cost(*dc._points(energy), z(12, 50), z(12, 56), TZ, StubFeed(2.0, 1.0), None,
+                    grid=dc.es.Counter([(z(12, 50), 100.0), (z(12, 55), 100.0)]),
+                    discharge=dc.es.Counter([(z(12, 50), 5.0), (z(12, 55), 5.3)]),
+                    rce=dc.es.Counter([(z(12, 50), 0.3), (z(12, 55), 0.3)]), battery_cost_at=lambda t: None)
+    assert cost["pln"] == 0.0 and cost["sources"]["unknown"]["kwh"] == pytest.approx(0.3)

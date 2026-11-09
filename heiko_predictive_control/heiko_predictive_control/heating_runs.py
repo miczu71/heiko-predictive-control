@@ -18,7 +18,6 @@ from . import tariff_feed
 from .dhw_cycles import (_cost, _delta, _minutes, _points, _value_at, battery_counter, mix_at, pv_share_of,
                          source_counters, source_roles)
 from .summaries import day_bounds
-from .tariff import default_is_workday, fallback_prices
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +48,7 @@ def _on_intervals(times, values, window_start, window_end) -> list[tuple[datetim
 
 
 def extract_runs(series: dict[str, Series], window_start: datetime, window_end: datetime,
-                 tz: ZoneInfo, is_workday: Callable[[date], bool] = default_is_workday,
-                 peak_price: float | None = None, offpeak_price: float | None = None,
-                 feed: tariff_feed.TariffFeed | None = None,
+                 tz: ZoneInfo, feed: tariff_feed.TariffFeed, offpeak_price: float | None = None,
                  battery_cost_at: Callable[[datetime], float | None] = lambda t: None,
                  mix_at: Callable[[datetime], dict | None] = lambda t: None) -> list[dict]:
     """Runy podłogówki w [window_start, window_end). `series`: mode (kod trybu), energy (licznik pompy), water,
@@ -59,9 +56,6 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
     z trybem przeniesionym z poprzedzającej doby albo koniec w odległości ≤ `MERGE_GAP_MIN` od końca okna) dostaje
     `complete: False`. Koszt z licznika dzielony wg źródła jak w cyklach CWU (`pv_share`); gdy brakuje serii źródeł,
     podział jest niepełny (`split_complete: False`). Bez licznika: energia 0, koszt/strefy/pv_share None."""
-    default_peak, default_offpeak = fallback_prices()
-    peak_price = default_peak if peak_price is None else peak_price
-    offpeak_price = default_offpeak if offpeak_price is None else offpeak_price
     m_times, m_values = _points(series.get("mode", []))
     e_times, e_values = _points(series.get("energy", []))
     w_times, w_values = _points(series.get("water", []))
@@ -83,9 +77,9 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
         mode0 = _value_at(m_times, m_values, window_start)
         carried = start == window_start and mode0 is not None and int(round(mode0)) == HEATING_CODE
         meter = _delta(e_times, e_values, start, end)
-        split = _cost(e_times, e_values, start, end, tz, is_workday, peak_price, offpeak_price,
-                      battery_cost_at=battery_cost_at, feed=feed, mix_at=mix_at, **sources) if e_times else None
-        hour = None if feed is None else feed.at(start.astimezone(tz).replace(tzinfo=None))
+        split = _cost(e_times, e_values, start, end, tz, feed, offpeak_price,
+                      battery_cost_at=battery_cost_at, mix_at=mix_at, **sources) if e_times else None
+        hour = feed.at(start.astimezone(tz).replace(tzinfo=None))
         runs.append({
             "v": DATA_VERSION, "start": start.isoformat(), "end": end.isoformat(),
             "complete": not edge and not carried,
@@ -105,8 +99,7 @@ def extract_runs(series: dict[str, Series], window_start: datetime, window_end: 
 
 
 def store_runs(conn, settings: dict, day: date, states: list[dict],
-               get_history=ha_client.get_history,
-               is_workday: Callable[[date], bool] | None = None) -> int:
+               get_history=ha_client.get_history) -> int:
     """Pobiera historię doby (z zapasem 12 h wstecz, by runy przez północ były kompletne) i zapisuje kompletne runy (INSERT OR REPLACE po `start`).
     Bez `pump_energy_entity` nic nie robi (przed jakimkolwiek zapytaniem)."""
     if not settings.get("pump_energy_entity"):
@@ -126,10 +119,9 @@ def store_runs(conn, settings: dict, day: date, states: list[dict],
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
     battery = battery_counter(conn, tz, fetch_start, day_end)
     mixes = mix_at(conn, tz, fetch_start, day_end)
-    is_workday = is_workday or default_is_workday
-    feed = tariff_feed.for_settings(conn, settings, is_workday)
+    feed = tariff_feed.for_settings(conn, settings)
     stored = 0
-    for r in extract_runs(series, fetch_start, day_end, tz, is_workday, feed=feed,
+    for r in extract_runs(series, fetch_start, day_end, tz, feed,
                           offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)),
                           battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)),
                           mix_at=lambda t: mixes(t.astimezone(tz).replace(tzinfo=None))):

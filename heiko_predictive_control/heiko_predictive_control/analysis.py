@@ -13,8 +13,8 @@ from zoneinfo import ZoneInfo
 from . import catalog, ha_client, summaries, telemetry
 from .comfort import min_room_entities
 from .floor_learn import HEATING_MAX_OUTDOOR_C, HEATING_MONTHS, season_window
-from .kpi import baseline_from_stats, outdoor_class
-from .tariff import fallback_hour
+from . import tariff_feed
+from .kpi import baseline_from_stats, outdoor_class, zones_from_db
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ def comfort(stats: dict, zones: list[str], outdoor: str, s: dict, tz: ZoneInfo) 
                         "below_room_min_h": int(cold_hours)}}
 
 
-def energy(stats: dict, outdoor: str, energy_entity: str, tz: ZoneInfo) -> dict | None:
+def energy(stats: dict, outdoor: str, energy_entity: str, tz: ZoneInfo, zones: dict) -> dict | None:
     """Energia pompy w sezonie: miesięcznie (kWh, stopniodni, kWh/stopniodzień), udział szczytu ogółem i wg klas temp."""
     temps = _by_start(stats.get(outdoor, []), "mean")
     kwh = _by_start(stats.get(energy_entity, []), "change")
@@ -120,7 +120,7 @@ def energy(stats: dict, outdoor: str, energy_entity: str, tz: ZoneInfo) -> dict 
         m[2] += 1
     if not months:
         return None
-    base = baseline_from_stats(stats, outdoor, energy_entity, tz.key)
+    base = baseline_from_stats(stats, outdoor, energy_entity, tz.key, zones=zones)
     return {"months": {k: {"kwh": _r(v[0], 1), "hdd": _r(v[1] / 24, 1), "hours": v[2],
                            "kwh_per_hdd": _r(v[0] / (v[1] / 24), 2) if v[1] > 0 else None}
                        for k, v in sorted(months.items())},
@@ -195,8 +195,9 @@ def own_data(sums: dict[str, dict[str, dict]], changes: dict) -> dict:
                             "kwh": avg("energy", "kwh"), "peak_share": avg("energy", "peak_share")}}
 
 
-def ideas(report: dict) -> list[str]:
-    """Hipotezy do sprawdzenia w D2 — reguły z liczb raportu, bez udawania pewności."""
+def ideas(report: dict, offpeak_h: int | None = None) -> list[str]:
+    """Hipotezy do sprawdzenia w D2 — reguły z liczb raportu, bez udawania pewności. `offpeak_h` = godziny poza
+    szczytem w pełnej dobie z taryfy (None = brak takiej doby: pomijamy „Sufit przesuwania”)."""
     out: list[str] = []
     c = report.get("comfort")
     if c:
@@ -215,15 +216,14 @@ def ideas(report: dict) -> list[str]:
     e = report.get("energy") or {}
     ps = (e.get("peak_share") or {}).get("overall")
     if ps is not None and ps > 0.35:
-        out.append(f"Koszt: {ps * 100:.0f}% energii pompy zimą szło w szczycie G12w — przesunięcie grzania ma potencjał, ale zysk zależy od bezwładności (niezmierzonej).")
+        out.append(f"Koszt: {ps * 100:.0f}% energii pompy zimą szło w szczycie wg taryfy — przesunięcie grzania ma potencjał, ale zysk zależy od bezwładności (niezmierzonej).")
     p = report.get("pump_hours") or {}
-    offpeak_h = sum(not fallback_hour(datetime(2026, 1, 14, h), True).is_peak for h in range(24))   # dzień roboczy G12w
-    heavy = [(int(k), v) for k, v in (p.get("by_class") or {}).items() if v["days"] >= 3 and v["heating_h"] is not None
-             and v["heating_h"] > offpeak_h]
+    heavy = [(int(k), v) for k, v in (p.get("by_class") or {}).items() if offpeak_h is not None and v["days"] >= 3
+             and v["heating_h"] is not None and v["heating_h"] > offpeak_h]
     if heavy:
         cold = max(k for k, _ in heavy)
         out.append(f"Sufit przesuwania: przy temp. zewn. ≤ {cold}°C grzanie zajmuje {min(v['heating_h'] for _, v in heavy):.0f}–"
-                   f"{max(v['heating_h'] for _, v in heavy):.0f} h/dobę, a poza szczytem G12w jest tylko {offpeak_h} h w dzień roboczy — "
+                   f"{max(v['heating_h'] for _, v in heavy):.0f} h/dobę, a poza szczytem wg taryfy jest tylko {offpeak_h} h w pełnej dobie — "
                    "w największe mrozy nie da się grzać wyłącznie poza szczytem (zysk z przesuwania maleje).")
     own = report.get("own") or {}
     a = own.get("avg_per_day") or {}
@@ -268,7 +268,8 @@ def compute_report(conn, settings: dict, now: datetime, get_statistics=ha_client
     season = get_statistics(list({*zones, outdoor, energy_entity} - {""}), start.isoformat(), end.isoformat())
     if season:
         report["comfort"] = comfort(season, zones, outdoor, settings, tz)
-        report["energy"] = energy(season, outdoor, energy_entity, tz)
+        start_local, end_local = (t.astimezone(tz).replace(tzinfo=None) for t in (start, end))
+        report["energy"] = energy(season, outdoor, energy_entity, tz, zones_from_db(conn, start_local, end_local))
     daily = {}
     for key, eid in (("heating", "sensor.pompa_heating"), ("hot_water", "sensor.pompa_hot_water"),
                      ("off", "sensor.pompa_off")):
@@ -282,7 +283,7 @@ def compute_report(conn, settings: dict, now: datetime, get_statistics=ha_client
         if got:
             report["cop"] = cop_by_class(got, cop_id, outdoor)
     report["own"] = own_data(summaries.load_summaries(conn), telemetry.changes_summary(conn, now))
-    report["ideas"] = ideas(report)
+    report["ideas"] = ideas(report, tariff_feed.offpeak_hours_per_day(conn))
     report["data_gaps"] = data_gaps(report, now)
     return report
 

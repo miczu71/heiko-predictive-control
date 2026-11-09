@@ -26,7 +26,6 @@ from .analyzers import KIND_ALERT, KIND_CHANGE, KIND_TEST, Draft, Snapshot, anom
 from .kpi import outdoor_class
 from .profiles import HeikoProfiles
 from . import tariff_feed
-from .tariff import default_is_workday, fallback_prices
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,6 @@ GRID_IMPORT_W = 500                # pobór z sieci od tylu W = CWU w szczycie n
 REPLAY_DECISION_HOUR = 7          # odtworzenie zimy: „decyzja” raz na dobę o tej godzinie
 REPLAY_MIN_HOURS = 20             # godzin z pełnymi danymi w oknie 24 h
 REPLAY_SAMPLES = 12
-_DEFAULT_WORKDAY: Callable = default_is_workday
 
 
 def _split(raw) -> list[str]:
@@ -104,15 +102,15 @@ def _series(conn, key: str, since: int) -> dict[int, float]:
     return {r["ts"]: r["value"] for r in rows}
 
 
-def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY, days: int = DHW_PEAK_DAYS,
+def dhw_peak_share(conn, now: datetime, days: int = DHW_PEAK_DAYS,
                    grid_key: str | None = None, feed: tariff_feed.TariffFeed | None = None) -> dict | None:
-    """Jaka część próbek trybu pracy z CWU (co 15 min) przypada na szczyt taryfy (godzina z `feed`, a bez wiersza
-    — zapas G12w) i idzie z sieci.
+    """Jaka część próbek trybu pracy z CWU (co 15 min) przypada na szczyt taryfy (godzina z `feed`;
+    próbka bez wiersza jest pomijana) i idzie z sieci.
 
     Z `grid_key` (moc licznika sieci, W: + oddawanie, − pobór) próbka w szczycie liczy się tylko przy
     poborze ≥ GRID_IMPORT_W — CWU grzane z nadwyżki PV (automatyzacja 48→58 °C, południe = szczyt 6–13)
     albo z baterii to efekt zamierzony (`pv_covered`). Próbki bez odczytu sieci są pomijane."""
-    feed = feed or tariff_feed.for_settings(conn, {}, is_workday)
+    feed = feed or tariff_feed.for_settings(conn, {})
     since = int((now - timedelta(days=days)).timestamp())
     modes = _series(conn, "working_mode", since)
     grid = _series(conn, grid_key, since) if grid_key else None
@@ -123,8 +121,11 @@ def dhw_peak_share(conn, now: datetime, is_workday: Callable = _DEFAULT_WORKDAY,
         if grid is not None and ts not in grid:
             continue
         local = datetime.fromtimestamp(ts)
+        hour_peak = feed.is_peak(local)
+        if hour_peak is None:            # brak danych taryfy: próbka wypada z udziału (nie zgadujemy)
+            continue
         total += 1
-        if not feed.is_peak(local):
+        if not hour_peak:
             continue
         if grid is not None and grid[ts] > -GRID_IMPORT_W:
             covered += 1
@@ -163,11 +164,11 @@ def _plan_inputs(conn, now: datetime) -> tuple[dict | None, dict | None]:
     return plan.get("uniform_shift"), shift or None
 
 
-def dhw_slot_inputs(conn, settings: dict, is_workday: Callable = _DEFAULT_WORKDAY) -> dict | None:
+def dhw_slot_inputs(conn, settings: dict) -> dict | None:
     """Cykle CWU z 30 dni + wycena grzałki AH (jak `web.api_dhw_cycles`) dla analizatora slotu 52; błąd → None."""
     try:
         cycles = dhw_cycles.load_cycles(conn, dhw_slot.WINDOW_DAYS)
-        feed = tariff_feed.for_settings(conn, settings, is_workday)
+        feed = tariff_feed.for_settings(conn, settings)
         tz = ZoneInfo(settings.get("timezone") or "Europe/Warsaw")
         ah = dhw_model.summarize(cycles, dhw_model.fit_model(cycles), lambda t: feed.price(t.replace(tzinfo=None)), tz)
         return {"cycles": cycles, "ah": ah}
@@ -176,8 +177,7 @@ def dhw_slot_inputs(conn, settings: dict, is_workday: Callable = _DEFAULT_WORKDA
         return None
 
 
-def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
-                   is_workday: Callable = _DEFAULT_WORKDAY) -> Snapshot:
+def build_snapshot(conn, settings: dict, now: datetime, states: list[dict]) -> Snapshot:
     by_id = {s.get("entity_id"): s for s in states}
     resolved = catalog.resolve_params(states)
     params: dict[str, float] = {}
@@ -200,11 +200,11 @@ def build_snapshot(conn, settings: dict, now: datetime, states: list[dict],
         model_identified=floor_learn.load_model(conn).identified,
         inertia_test_done=experiments.inertia_done_recently(conn, now), uniform=uniform, time_shift=time_shift,
         test_running=conn.execute("SELECT 1 FROM tests WHERE status = 'w_toku' LIMIT 1").fetchone() is not None,
-        summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now, is_workday,
+        summaries=summaries.load_summaries(conn, days=SUMMARY_DAYS), dhw_peak=dhw_peak_share(conn, now,
                                                                        grid_key=settings.get("grid_power_entity") or None,
-                                                                       feed=tariff_feed.for_settings(conn, settings, is_workday)),
+                                                                       feed=tariff_feed.for_settings(conn, settings)),
         p0_verdict=p0_verdict, outdoor3d_c=outdoor3d, p0_test_ready=p0_ready, p0_change_snoozed=p0_snoozed,
-        dhw_slot=dhw_slot_inputs(conn, settings, is_workday),
+        dhw_slot=dhw_slot_inputs(conn, settings),
         alerts_on=[(e, _friendly(by_id, e)) for e in _split(settings.get("advisor_anomaly_entities"))
                    if str((by_id.get(e) or {}).get("state", "")).lower() == "on"])
 
@@ -307,11 +307,11 @@ def notify_new(conn, settings: dict, now: datetime, notify=ha_client.notify) -> 
     return sent
 
 
-def run(conn, settings: dict, now: datetime, states: list[dict], is_workday: Callable = _DEFAULT_WORKDAY,
+def run(conn, settings: dict, now: datetime, states: list[dict],
         notify=ha_client.notify) -> dict:
     """Jeden przebieg doradcy: wygaś stare, policz analizatory, uzgodnij propozycje, powiadom."""
     expired = expire_old(conn, now)
-    drafts = run_analyzers(build_snapshot(conn, settings, now, states, is_workday))
+    drafts = run_analyzers(build_snapshot(conn, settings, now, states))
     new_ids = sync(conn, drafts, now)
     sent = notify_new(conn, settings, now, notify)
     return {"expired": expired, "drafts": len(drafts), "new": len(new_ids), "notified": sent}
@@ -319,10 +319,9 @@ def run(conn, settings: dict, now: datetime, states: list[dict], is_workday: Cal
 
 # ── decyzje (tryb próbny) ────────────────────────────────────────────────────
 
-def make_revalidator(conn, settings: dict, now: datetime, states: list[dict],
-                     is_workday: Callable = _DEFAULT_WORKDAY) -> Callable[[dict], tuple[bool, str]]:
+def make_revalidator(conn, settings: dict, now: datetime, states: list[dict]) -> Callable[[dict], tuple[bool, str]]:
     """Ponowne liczenie przy „Zatwierdź”: inny wynik analizatora albo inna wartość parametru = nie wykonujemy."""
-    snap = build_snapshot(conn, settings, now, states, is_workday)
+    snap = build_snapshot(conn, settings, now, states)
     fresh = {(d.analyzer, d.dedupe_key): d for d in run_analyzers(snap)}
 
     def check(row: dict) -> tuple[bool, str]:
@@ -411,7 +410,7 @@ def _curve_values(settings: dict, get_numeric) -> tuple[list, list]:
 
 
 def _replay_effects(settings: dict, model, amb, wat, t0: datetime, hourly: dict, tz: ZoneInfo, avg24: float,
-                    out_now: float) -> dict | None:
+                    out_now: float, feed) -> dict | None:
     """Skutki ±1 z planera dla doby odtwarzanej: prognoza = faktyczne temperatury zewnętrzne z LTS, stan początkowy
     domu w równowadze (Qf = c·(Tr − To)/g), krzywa = obecne punkty krzywej pompy."""
     n = int(cycle.HORIZON_H / fp.STEP_H)
@@ -428,9 +427,12 @@ def _replay_effects(settings: dict, model, amb, wat, t0: datetime, hourly: dict,
     day_start, day_end = int(settings.get("heiko_day_start_hour", 6)), int(settings.get("heiko_day_end_hour", 22))
     prof = HeikoProfiles.from_settings(settings).komfort
     target = float(settings.get("heiko_room_target_c", 20.6))
-    # Odtworzenie zimy z LTS: doby sprzed feedu, więc szczyt i ceny z zapasu G12w (jak baza KPI).
-    peak_price, offpeak_price = fallback_prices()
-    blocks = fp.build_blocks(t0, n, _DEFAULT_WORKDAY, day_start, day_end, peak_price, offpeak_price)
+    # Szczyt i ceny z feedu taryfy; brak wiersza w horyzoncie doby = brak skutków (doba pominięta), bez zgadywania.
+    rows = [feed.at(t0 + timedelta(hours=i * fp.STEP_H)) for i in range(n)]
+    offpeak_price = feed.offpeak_price(t0)
+    if offpeak_price is None or any(r is None for r in rows):
+        return None
+    blocks = fp.build_blocks(t0, n, day_start, day_end, lambda t: (feed.is_peak(t), feed.price(t)))
     inp = fp.PlanInputs(
         model=model, tr0_c=avg24, qf0_kw=max(0.0, model.c * (avg24 - out_now) / max(model.g, 1e-3)), t_out_c=t_out,
         base_c=base_steps, blocks=blocks, bands=fp.step_bands(t0, n, target, prof.day_c, prof.night_c, day_start, day_end),
@@ -439,7 +441,7 @@ def _replay_effects(settings: dict, model, amb, wat, t0: datetime, hourly: dict,
     return curve.uniform_effects(inp)
 
 
-def replay_winter(settings: dict, now: datetime, model, get_statistics=ha_client.get_statistics,
+def replay_winter(settings: dict, now: datetime, model, feed, get_statistics=ha_client.get_statistics,
                   get_numeric=ha_client.get_numeric_state) -> dict:
     """Co analizator krzywej zaproponowałby w zeszłym sezonie grzewczym, gdyby krzywa była wtedy włączona:
     raz na dobę o 7:00, na statystykach z poprzednich 24 h. Skutki (zł, kWh) z planera przy modelu bez
@@ -486,7 +488,7 @@ def replay_winter(settings: dict, now: datetime, model, get_statistics=ha_client
             continue                                                # dzień bez grzania — reguła zapasu nie ma sensu
         evaluated += 1
         avg24, cold24 = mean(r[0] for r in window), percentile(sorted(r[1] for r in window), 0.05)
-        uniform = _replay_effects(settings, model, amb, wat, t0, hourly, tz, avg24, window[-1][2])
+        uniform = _replay_effects(settings, model, amb, wat, t0, hourly, tz, avg24, window[-1][2], feed)
         snap = Snapshot(now=t0, target_c=target, room_min_c=room_min, avg24_c=avg24, cold24_c=cold24, curve_on=True,
                         params={curve.KEY: 0.0}, uniform=uniform,
                         model_identified=True)                      # odtworzenie liczy skutek zmiany −1, nie propozycję testu

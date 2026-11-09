@@ -2,24 +2,22 @@
 (sensor.pv_roi_tracker_pv_tariff_zone, 48 godzin od bieżącej) — zamiast G12w wpisanego na sztywno.
 
 Wiersze trafiają do tabeli `tariff_hours` (też godziny przeszłe: historia cykli i streszczeń dób wycenia się
-tym, co faktycznie obowiązywało). Brak encji, `unavailable`, pusty albo niepoprawny `schedule` oraz dane
-starsze niż 3 h = `fallback`: wtedy wołający używają zapasu G12w z `tariff.py` i widać to w UI (`status()`).
-Instancja jest tania i bezstanowa (stan w bazie), więc można ją tworzyć przy każdym użyciu."""
+tym, co faktycznie obowiązywało). Brak encji, `unavailable`, pusty albo niepoprawny `schedule` nie kasuje zapisanych wierszy: ostatni znany
+harmonogram dalej obowiązuje (UI pokazuje „nieaktualne od …” — `status()`), a godzina bez wiersza to jawne
+„brak danych taryfy” (`None`) — nic nie jest zgadywane z zegara. Instancja jest tania i bezstanowa (stan w bazie), więc można ją tworzyć przy każdym użyciu."""
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Callable
-
-from . import tariff
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ENTITY = "sensor.pv_roi_tracker_pv_tariff_zone"
 REFRESH_MIN = 5                     # nie odpytuj encji częściej
-STALE_MIN = 180                     # dane starsze niż 3 h = zapas
+STALE_MIN = 180                     # dane starsze niż 3 h = „nieaktualne” (tylko informacja w UI)
+NO_TARIFF_ZONE = "no_tariff"         # klucz strefy dla godziny bez wiersza w rozbiciach kosztu
 OFFPEAK_LOOKAHEAD_H = 36
 _HOUR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}$")
 _BAD_STATES = ("", "unavailable", "unknown", "none")
@@ -91,13 +89,11 @@ def _source_stale(generated_at, now: datetime) -> bool:
 
 
 class TariffFeed:
-    """`ha_client` = moduł z `get_state(entity)`, `db` = połączenie sqlite, `entity` = encja z `schedule`,
-    `is_workday(date) -> bool` tylko dla zapasu G12w (domyślnie pn–pt)."""
+    """`ha_client` = moduł z `get_state(entity)`, `db` = połączenie sqlite, `entity` = encja z `schedule`."""
 
-    def __init__(self, ha_client, db, entity: str | None, is_workday: Callable[[date], bool] | None = None):
+    def __init__(self, ha_client, db, entity: str | None):
         self.ha, self.db = ha_client, db
         self.entity = entity or DEFAULT_ENTITY
-        self.is_workday = is_workday or tariff.default_is_workday
 
     # ── zapis ───────────────────────────────────────────────────────────────
 
@@ -136,30 +132,33 @@ class TariffFeed:
         r = self.db.execute("SELECT * FROM tariff_hours WHERE hour = ?", (hour_key(dt),)).fetchone()
         return _row(r) if r else None
 
-    def _fallback(self, dt: datetime) -> tariff.HourSlot:
-        if self.status()["source"] == "fallback":
-            self._warn("hour", datetime.now(), "zapas G12w zamiast harmonogramu z pv_roi")
-        else:
-            logger.debug("Taryfa: brak godziny %s w tariff_hours — zapas G12w", hour_key(dt))
-        return tariff.fallback_hour(dt, self.is_workday(dt.date()))
+    def _missing(self, dt: datetime) -> None:
+        self._warn("hour", datetime.now(), f"brak danych taryfy dla godziny {hour_key(dt)}")
 
-    def is_peak(self, dt: datetime) -> bool:
+    def is_peak(self, dt: datetime) -> bool | None:
         row = self.at(dt)
-        return row.is_peak if row else self._fallback(dt).is_peak
+        if row is None:
+            self._missing(dt)
+            return None
+        return row.is_peak
 
-    def price(self, dt: datetime) -> float:
+    def price(self, dt: datetime) -> float | None:
         row = self.at(dt)
-        return row.gross if row else self._fallback(dt).price_pln_kwh
+        if row is None:
+            self._missing(dt)
+            return None
+        return row.gross
 
-    def offpeak_price(self, dt: datetime) -> float:
-        """Najtańsza cena w najbliższych 36 h (referencja „poza szczytem”); bez danych — zapas G12w."""
+    def offpeak_price(self, dt: datetime) -> float | None:
+        """Najtańsza cena w najbliższych 36 h (referencja „poza szczytem”); None, gdy w oknie nie ma żadnego wiersza."""
         start = hour_key(dt.replace(minute=0, second=0, microsecond=0))
         end = hour_key(dt + timedelta(hours=OFFPEAK_LOOKAHEAD_H))
         r = self.db.execute("SELECT MIN(gross) AS m FROM tariff_hours WHERE hour >= ? AND hour < ?",
                             (start, end)).fetchone()
         if r and r["m"] is not None:
             return float(r["m"])
-        return tariff.fallback_hour(dt.replace(hour=3), False).price_pln_kwh
+        self._missing(dt)
+        return None
 
     def day_peak_windows(self, day: date) -> list[tuple[int, int]] | None:
         """Ciągłe odcinki godzin `is_peak` [start, stop) w dobie `day`; None, gdy feed nie ma całej doby."""
@@ -180,16 +179,20 @@ class TariffFeed:
         return out
 
     def status(self, now: datetime | None = None) -> dict:
-        """`{source: 'feed'|'fallback', age_min, confidence, tariff}` — do `/api/live` i plakietki w UI."""
+        """`{source: 'feed'|'stale'|'none', age_min, stale_since, confidence, tariff}` — do `/api/live` i plakietki
+        w UI. Tylko informacja: decyzje czytają `at()` bez względu na `source` (nieaktualny harmonogram obowiązuje)."""
         now = now or datetime.now()
         latest = self._latest_fetch()
-        age = None if latest is None else round((now - latest).total_seconds() / 60.0, 1)
-        if age is None or age > STALE_MIN:
-            return {"source": "fallback", "age_min": age, "confidence": None, "tariff": "G12w"}
+        if latest is None:
+            return {"source": "none", "age_min": None, "stale_since": None, "confidence": None, "tariff": None}
+        age = round((now - latest).total_seconds() / 60.0, 1)
         r = self.db.execute("SELECT tariff, confidence FROM tariff_hours WHERE hour <= ? ORDER BY hour DESC LIMIT 1",
                             (hour_key(now),)).fetchone() or \
             self.db.execute("SELECT tariff, confidence FROM tariff_hours ORDER BY hour LIMIT 1").fetchone()
-        return {"source": "feed", "age_min": age, "confidence": r["confidence"], "tariff": r["tariff"]}
+        stale = age > STALE_MIN
+        return {"source": "stale" if stale else "feed", "age_min": age,
+                "stale_since": latest.isoformat(timespec="seconds") if stale else None,
+                "confidence": r["confidence"] if r else None, "tariff": r["tariff"] if r else None}
 
     # ── pomocnicze ──────────────────────────────────────────────────────────
 
@@ -207,8 +210,16 @@ class TariffFeed:
             logger.warning("Taryfa: %s", msg)
 
 
-def for_settings(db, settings: dict, is_workday: Callable[[date], bool] | None = None, ha_client=None) -> TariffFeed:
+def offpeak_hours_per_day(db) -> int | None:
+    """Liczba godzin `is_peak = 0` w ostatniej pełnej dobie (24 wiersze) mającej ≥1 godzinę szczytu; None, gdy
+    takiej doby nie ma."""
+    r = db.execute("SELECT substr(hour, 1, 10) AS d, COUNT(*) AS n, SUM(is_peak) AS p FROM tariff_hours "
+                   "GROUP BY d HAVING n = 24 AND p >= 1 ORDER BY d DESC LIMIT 1").fetchone()
+    return None if r is None else int(r["n"] - r["p"])
+
+
+def for_settings(db, settings: dict, ha_client=None) -> TariffFeed:
     """Feed z ustawień add-onu (`tariff_schedule_entity`)."""
     if ha_client is None:
         from . import ha_client as ha_client
-    return TariffFeed(ha_client, db, settings.get("tariff_schedule_entity") or DEFAULT_ENTITY, is_workday)
+    return TariffFeed(ha_client, db, settings.get("tariff_schedule_entity") or DEFAULT_ENTITY)

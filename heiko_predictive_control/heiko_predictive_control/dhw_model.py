@@ -99,10 +99,10 @@ def _counterfactual(cycle: dict, delta_c: float, minutes_without: float) -> list
     return [[tick, t0], [round(tick + minutes_without, 1), round(t0 + delta_c, 2)]]
 
 
-def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], tz: ZoneInfo) -> dict:
+def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float | None], tz: ZoneInfo) -> dict:
     """Kontrfaktyka odcinka z AH: to samo ogrzanie (°C) samą sprężarką. `extra_kwh`/`extra_pln` = ile
     AH dołożyła, `saved_min` = o ile krócej trwało grzanie. Cena: efektywna cena fazy AH z rekordu cyklu
-    (`ah_pln / ah_kwh`), a bez niej z godziny wejścia AH (`price_fn(lokalny czas)`)."""
+    (`ah_pln / ah_kwh`), a bez niej z godziny wejścia AH (`price_fn(lokalny czas)`); cena `None` (brak danych taryfy) = efekt bez wyceny (`extra_pln` None)."""
     if not model.get("ok"):
         return {"ok": False, "reason": model.get("reason", "brak modelu")}
     if cycle.get("ah_tick_min") is None:
@@ -125,12 +125,14 @@ def ah_effect(cycle: dict, model: dict, price_fn: Callable[[datetime], float], t
         price = ah_pln / ah_kwh
     else:
         price = price_fn(ah_start.astimezone(tz))
-    return {"ok": True, "extra_kwh": round(extra_kwh, 3), "extra_pln": round(extra_kwh * price, 2),
-            "saved_min": round(minutes_without - cycle["ah_seg_min"], 1), "price_pln_kwh": round(price, 4),
+    return {"ok": True, "extra_kwh": round(extra_kwh, 3),
+            "extra_pln": None if price is None else round(extra_kwh * price, 2),
+            "saved_min": round(minutes_without - cycle["ah_seg_min"], 1),
+            "price_pln_kwh": None if price is None else round(price, 4),
             "counterfactual": _counterfactual(cycle, delta_c, minutes_without)}
 
 
-def summarize(cycles: list[dict], model: dict, price_fn: Callable[[datetime], float], tz: ZoneInfo) -> dict:
+def summarize(cycles: list[dict], model: dict, price_fn: Callable[[datetime], float | None], tz: ZoneInfo) -> dict:
     """Suma po cyklach z AH: dodatkowe kWh/zł, zaoszczędzone minuty i cena za minutę. Cykle bez wyniku
     zostają na liście z powodem (`skipped`), żeby suma nie udawała pełnej próby."""
     rows, skipped = [], []
@@ -139,10 +141,12 @@ def summarize(cycles: list[dict], model: dict, price_fn: Callable[[datetime], fl
             continue
         eff = ah_effect(c, model, price_fn, tz)
         (rows if eff["ok"] else skipped).append({"start": c["start"], **eff})
-    pln = sum(r["extra_pln"] for r in rows)
+    priced = [r for r in rows if r["extra_pln"] is not None]      # efekt bez wyceny nie wchodzi do sumy zł
+    pln = sum(r["extra_pln"] for r in priced)
     saved = sum(r["saved_min"] for r in rows)
+    saved_priced = sum(r["saved_min"] for r in priced)
     return {"cycles_with_ah": len(rows) + len(skipped), "evaluated": len(rows), "rows": rows,
             "skipped": [{"start": s["start"], "reason": s["reason"]} for s in skipped],
             "extra_kwh": round(sum(r["extra_kwh"] for r in rows), 3), "extra_pln": round(pln, 2),
             "saved_min": round(saved, 1),
-            "pln_per_saved_min": round(pln / saved, 3) if saved >= MIN_SAVED_MIN else None}
+            "pln_per_saved_min": round(pln / saved_priced, 3) if saved_priced >= MIN_SAVED_MIN else None}

@@ -66,8 +66,7 @@ def go(conn, pump, now, settings=ON, room_c=21.5, workday=True, with_feed=True, 
         room(conn, now, room_c)
     if confirm:
         ex.tick(conn, settings, now, pump.get_numeric, pump.writer, pump.notify)
-    return g13.run(conn, settings, now, get_numeric=pump.get_numeric, writer=pump.writer, notify=pump.notify,
-                   is_workday=lambda d: d.weekday() < 5)
+    return g13.run(conn, settings, now, get_numeric=pump.get_numeric, writer=pump.writer, notify=pump.notify)
 
 
 def state(conn):

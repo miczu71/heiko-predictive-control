@@ -97,13 +97,12 @@ def _clear(st: dict) -> None:
     st["base"] = st["last_written"] = st["intent"] = st["prev"] = st["maybe"] = None
 
 
-def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, writer=None, notify=None,
-        is_workday=None) -> dict | None:
+def run(conn, settings: dict, now: datetime, *, get_numeric=ha_client.get_numeric_state, writer=None, notify=None) -> dict | None:
     with experiments._lock:                            # tick testów i tryb nie mogą się przeplatać
-        return _run(conn, settings, now, get_numeric, writer, notify, is_workday)
+        return _run(conn, settings, now, get_numeric, writer, notify)
 
 
-def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict | None:
+def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
     today = now.date().isoformat()
     before = dbm.get_setting(conn, STATE_KEY) or {}
     st = dict(before)
@@ -177,7 +176,7 @@ def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict |
         return None
 
     cfg = _config(settings)
-    feed = tariff_feed.for_settings(conn, settings, is_workday)
+    feed = tariff_feed.for_settings(conn, settings)
     workday = g13_peak.workday_from_feed(feed, now.date(), now)
     decision = g13_peak.decide(now, workday=workday, current_shift=current, base_shift=base, min_room_c=_min_room(conn, now),
                                state=_breaker_state(st), cfg=cfg)

@@ -19,7 +19,6 @@ from . import energy_source as es
 from . import ha_client
 from .summaries import DHW_CODES, day_bounds
 from . import tariff_feed
-from .tariff import default_is_workday, fallback_hour, fallback_prices, price_for
 
 logger = logging.getLogger(__name__)
 
@@ -162,19 +161,18 @@ def _classify(start: datetime, target_times: list[datetime], target_values: list
     return "zapotrzebowanie"
 
 
-def _zone_key(local: datetime, feed: tariff_feed.TariffFeed | None, is_workday: Callable[[date], bool]) -> str:
-    """Strefa taryfy godziny lokalnej: z feedu pv_roi, a bez niego zapas G12w (`peak`/`offpeak`)."""
-    hour = None if feed is None else feed.at(local.replace(tzinfo=None))
+def _zone_key(local: datetime, feed: tariff_feed.TariffFeed) -> str:
+    """Strefa taryfy godziny lokalnej z feedu pv_roi; bez wiersza `NO_TARIFF_ZONE`."""
+    hour = feed.at(local.replace(tzinfo=None))
     if hour is not None and hour.zone:
         return hour.zone
-    return "peak" if fallback_hour(local, is_workday(local.date())).is_peak else "offpeak"
+    return tariff_feed.NO_TARIFF_ZONE
 
 
 def _cost(times: list[datetime], values: list[float | None], start: datetime, end: datetime,
-          tz: ZoneInfo, is_workday: Callable[[date], bool],
-          peak_price: float, offpeak_price: float, grid: es.Counter, discharge: es.Counter, rce: es.Counter,
+          tz: ZoneInfo, feed: tariff_feed.TariffFeed,
+          offpeak_price: float | None, grid: es.Counter, discharge: es.Counter, rce: es.Counter,
           battery_cost_at: Callable[[datetime], float | None],
-          feed: tariff_feed.TariffFeed | None = None,
           mix_at: Callable[[datetime], dict | None] = lambda t: None) -> dict | None:
     """kWh i koszt PLN z licznika energii (faza C = AH) na [start, end], przyrost po przyroście
     przypisany do godziny lokalnej próbki końcowej (jak `summaries._energy`). Z historią poboru z sieci,
@@ -202,9 +200,9 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
         if prev is not None and v is not None and v >= prev:
             inc = v - prev
             local = t.astimezone(tz)
-            tariff = (feed.price(local.replace(tzinfo=None)) if feed is not None else
-                      price_for(fallback_hour(local, is_workday(local.date())).is_peak, peak_price, offpeak_price))
-            zone = _zone_key(local, feed, is_workday)
+            tariff = feed.price(local.replace(tzinfo=None))
+            zone = _zone_key(local, feed) if tariff is not None else tariff_feed.NO_TARIFF_ZONE
+            tariff = 0.0 if tariff is None else tariff          # godzina bez wiersza: energia bez wyceny
             price_before, pv_before = price, pv
             d_grid, d_dis, rce_now = grid.delta(prev_t, t), discharge.delta(prev_t, t), rce.at(t)
             total += inc
@@ -229,7 +227,7 @@ def _cost(times: list[datetime], values: list[float | None], start: datetime, en
                             price += kwh * sh["pln_kwh"]
                     else:
                         battery = battery_cost_at(t)
-                        pln = b * (offpeak_price if battery is None else battery)
+                        pln = b * ((0.0 if offpeak_price is None else offpeak_price) if battery is None else battery)
                         add_source("unknown", b, pln, b)
                         price += pln
                 pv += p
@@ -288,21 +286,16 @@ def pv_share_of(cost: dict | None) -> float | None:
 
 
 def extract_cycles(series: dict[str, Series], window_start: datetime, window_end: datetime,
-                    tz: ZoneInfo, is_workday: Callable[[date], bool] = default_is_workday,
-                    peak_price: float | None = None,
+                    tz: ZoneInfo, feed: tariff_feed.TariffFeed,
                     offpeak_price: float | None = None,
                     battery_cost_at: Callable[[datetime], float | None] = lambda t: None,
-                    feed: tariff_feed.TariffFeed | None = None,
                     bath_entries: list[dict] | None = None,
                     mix_at: Callable[[datetime], dict | None] = lambda t: None) -> list[dict]:
     """Cykle CWU (`working_mode` w DHW_CODES) w [window_start, window_end). `series`: mode, water,
     target (dhw_setpoint), ah (ah_working_time), energy_c, outdoor oraz do kosztu wg źródła: grid
     (pobór z sieci), discharge (rozładowanie baterii), rce. Cykl wciąż trwający na prawej
     granicy okna dostaje `complete: False` i nie powinien być zapisany — wołający go pomija, okno
-    przesunięte o dzień naprzód złapie go w całości. Cena godziny z `feed` (tariff_hours), a bez niego z zapasu G12w."""
-    default_peak, default_offpeak = fallback_prices()
-    peak_price = default_peak if peak_price is None else peak_price
-    offpeak_price = default_offpeak if offpeak_price is None else offpeak_price
+    przesunięte o dzień naprzód złapie go w całości. Cena godziny z `feed` (tariff_hours); godzina bez wiersza = energia bez wyceny (0 zł, strefa `no_tariff`)."""
     mode_times, mode_values = _points(series.get("mode", []))
     water_times, water_values = _points(series.get("water", []))
     target_times, target_values = _points(series.get("target", []))
@@ -342,11 +335,11 @@ def extract_cycles(series: dict[str, Series], window_start: datetime, window_end
         first_tick = _first_tick(ah_times, ah_values, start, end)
         ah_min = _delta(ah_times, ah_values, start, end)
         cost = _cost(energy_times, energy_values, start, end + timedelta(minutes=2),
-                     tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, mix_at=mix_at, **sources)
+                     tz, feed, offpeak_price, battery_cost_at=battery_cost_at, mix_at=mix_at, **sources)
         total_cost = _cost(total_times, total_values, start, end + timedelta(minutes=2),
-                           tz, is_workday, peak_price, offpeak_price, battery_cost_at=battery_cost_at, feed=feed, mix_at=mix_at, **sources)
+                           tz, feed, offpeak_price, battery_cost_at=battery_cost_at, mix_at=mix_at, **sources)
         pv_share = pv_share_of(total_cost)
-        hour = None if feed is None else feed.at(start.astimezone(tz).replace(tzinfo=None))
+        hour = feed.at(start.astimezone(tz).replace(tzinfo=None))
         hp_end = end if first_tick is None else first_tick - timedelta(minutes=AH_TICK_MARGIN_MIN)
         hp = _segment(water_times, water_values, total_times, total_values,
                       start + timedelta(minutes=HP_SKIP_MIN), hp_end, MIN_HP_SEG_MIN)
@@ -438,8 +431,7 @@ def group_by_config(cycles: list[dict]) -> list[dict]:
 
 
 def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datetime,
-                 get_history=ha_client.get_history, get_logbook=ha_client.get_logbook,
-                 is_workday: Callable[[date], bool] | None = None) -> int:
+                 get_history=ha_client.get_history, get_logbook=ha_client.get_logbook) -> int:
     """Pobiera historię doby (z zapasem `DEFICIT_AT_MIN` + kilku godzin wstecz, żeby złapać cykle
     zaczęte tuż przed północą) i zapisuje kompletne cykle (INSERT OR REPLACE po `start`). Cykle wciąż
     trwające na granicy okna nie są zapisywane — okno przesunięte o dzień je złapie w całości."""
@@ -465,11 +457,10 @@ def store_cycles(conn, settings: dict, day: date, states: list[dict], now: datet
     series = {role: hist.get(eid, []) for role, eid in roles.items() if eid}
     battery = battery_counter(conn, tz, fetch_start, day_end)
     mixes = mix_at(conn, tz, fetch_start, day_end)
-    is_workday = is_workday or default_is_workday
-    feed = tariff_feed.for_settings(conn, settings, is_workday)
+    feed = tariff_feed.for_settings(conn, settings)
     bath_entries = get_logbook(BATH_BOOLEAN, fetch_start.isoformat(), day_end.isoformat())
-    cycles = extract_cycles(series, fetch_start, day_end, tz, is_workday, bath_entries=bath_entries,
-                            offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)), feed=feed,
+    cycles = extract_cycles(series, fetch_start, day_end, tz, feed, bath_entries=bath_entries,
+                            offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)),
                             battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)),
                             mix_at=lambda t: mixes(t.astimezone(tz).replace(tzinfo=None)))
     stored = 0

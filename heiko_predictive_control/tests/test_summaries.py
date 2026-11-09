@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
+from feed_stub import StubFeed
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import summaries as sm
 
@@ -61,11 +62,15 @@ def test_energy_peak_split_by_local_hour_and_workday():
     energy = series((z(0, d=20), "1000.0"), (z(7), "1001.0"),                 # +1 kWh o 07:00 = szczyt (pn)
                     (z(14), "1001.5"),                                        # +0,5 kWh o 14:00 = poza szczytem
                     (z(23, d=21) - timedelta(minutes=30), "1003.5"))          # +2 kWh o 22:30 = poza szczytem
-    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy}, TZ)["energy"]
+    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy}, TZ, StubFeed())["energy"]
     assert out["kwh"] == 3.5 and out["kwh_peak"] == 1.0 and out["peak_share"] == round(1 / 3.5, 4)
-    weekend = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy}, TZ,
-                               is_workday=lambda d: False)["energy"]
-    assert weekend["kwh_peak"] == 0.0
+
+
+def test_energy_hour_without_tariff_row_counts_to_kwh_not_to_peak():
+    energy = series((z(0, d=20), "1000.0"), (z(7), "1001.0"), (z(14), "1001.5"))
+    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy}, TZ,
+                           StubFeed(missing=True))["energy"]
+    assert out["kwh"] == 1.5 and out["kwh_peak"] == 0.0 and out["peak_share"] == 0.0
 
 
 def test_no_data_returns_empty():
@@ -133,7 +138,7 @@ def test_peak_counts_only_energy_drawn_from_grid():
     energy = series((z(0, d=20), "1000.0"), (z(7), "1001.0"), (z(12), "1002.0"))  # 2 × 1 kWh w szczycie
     grid = series((z(0, d=20), "500.0"), (z(7), "501.0"),                         # rano cały kWh z sieci
                   (z(12), "501.2"))                                               # w południe 0,2 z sieci, reszta PV
-    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy, "grid": grid}, TZ)["energy"]
+    out = sm.summarize_day(DAY, {"mode": series((z(0, d=20), "0")), "energy": energy, "grid": grid}, TZ, StubFeed())["energy"]
     assert out["kwh"] == 2.0 and out["kwh_peak"] == pytest.approx(1.2)
 
 

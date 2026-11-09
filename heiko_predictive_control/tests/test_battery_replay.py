@@ -14,14 +14,20 @@ SOC0_KWH = 2.0
 
 
 class StubFeed:
+    def __init__(self, gap=None):
+        self.gap = gap                       # (od, do) czasu lokalnego bez wierszy taryfy
+
+    def _missing(self, dt):
+        return self.gap is not None and self.gap[0] <= dt < self.gap[1]
+
     def price(self, dt):
-        return 0.5 if dt.hour < 6 else 1.0
+        return None if self._missing(dt) else (0.5 if dt.hour < 6 else 1.0)
 
     def is_peak(self, dt):
-        return dt.hour >= 6
+        return None if self._missing(dt) else dt.hour >= 6
 
     def at(self, dt):
-        return SimpleNamespace(zone="peak" if self.is_peak(dt) else "offpeak")
+        return None if self._missing(dt) else SimpleNamespace(zone="peak" if self.is_peak(dt) else "offpeak")
 
     def offpeak_price(self, dt):
         return 0.4
@@ -69,8 +75,8 @@ def conn(tmp_path):
     c.close()
 
 
-def run(conn, hist, now=NOW):
-    return br.replay(conn, {}, now, lambda ids, a, b: hist, StubFeed(), back_days=1)
+def run(conn, hist, now=NOW, feed=None):
+    return br.replay(conn, {}, now, lambda ids, a, b: hist, feed or StubFeed(), back_days=1)
 
 
 def rows(conn):
@@ -192,3 +198,15 @@ def test_counter_reset_step_skipped(conn):
     got = [ts for ts, _ in rows(conn)]
     assert reset.isoformat() not in got
     assert 0 < n < n_ok == full
+
+
+def test_step_without_tariff_row_skipped(conn):
+    gap = (datetime(2026, 9, 21, 1, 0), datetime(2026, 9, 21, 2, 0))
+    full = run(conn, build(night_rates))
+    conn.execute("DELETE FROM battery_mix")
+    conn.execute("DELETE FROM settings")
+    conn.commit()
+    n = run(conn, build(night_rates), feed=StubFeed(gap=gap))
+    got = [ts for ts, _ in rows(conn)]
+    assert n == full - 4                                  # 4 kroki po 15 min w godzinie bez ceny
+    assert not any(gap[0] <= datetime.fromisoformat(ts) < gap[1] for ts in got)

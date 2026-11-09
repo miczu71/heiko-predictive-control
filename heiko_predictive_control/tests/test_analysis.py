@@ -68,13 +68,17 @@ def test_energy_months_hdd_and_peak_share():
     hs = hours(1, 2)                                                                # 24 h grudnia 2025, wtorek
     stats = {"out": [{"start": s, "mean": 4.0} for s in hs],
              "e": [{"start": s, "change": 1.0} for s in hs]}
-    out = an.energy(stats, "out", "e", TZ)
+    zones = {}
+    for st in hs:
+        loc = datetime.fromtimestamp(st / 1000, tz=timezone.utc).astimezone(TZ)
+        zones[loc.strftime("%Y-%m-%dT%H")] = ("evening_peak" if 6 <= loc.hour < 13 or 15 <= loc.hour < 22 else "other", 0)
+    out = an.energy(stats, "out", "e", TZ, zones)
     m = out["months"]["2025-12"]
     assert m["kwh"] == 24.0 and m["hours"] == 24
     assert m["hdd"] == round((14.0 - 4.0), 1)                                         # 24 h × 10 K / 24
     assert m["kwh_per_hdd"] == 2.4
     assert 0.5 < out["peak_share"]["overall"] < 0.7                                   # 13 z 24 h to szczyt w dzień roboczy
-    assert an.energy({"out": [], "e": []}, "out", "e", TZ) is None
+    assert an.energy({"out": [], "e": []}, "out", "e", TZ, {}) is None
 
 
 def test_pump_hours_by_class_uses_daily_max():
@@ -119,15 +123,21 @@ def test_ideas_direction_follows_sign_of_offset_not_a_fixed_direction():
 
 
 def test_ideas_offpeak_ceiling_and_rule_based_text():
-    ideas = an.ideas(_report(below=242))
+    ideas = an.ideas(_report(below=242), offpeak_h=10)
     joined = " ".join(ideas)
     assert "Sufit przesuwania" in joined and "13 h/dobę" in joined and "10 h" in joined     # 24 − 14 h szczytu
     assert "242 godz." in joined and "41%" in joined
     assert "krótkich cykli" in joined and "cykli CWU" in joined
     assert "AH 9 min/dobę" in joined and "HBH" not in joined     # tylko niezerowe liczniki grzałek
     assert "HWTBH" not in joined and "anti-legionella" not in joined     # HWTBH: licznik sygnału (grzałki nie ma), anty-legionella poza add-onem
-    assert not any("Sufit" in i for i in an.ideas({**_report(), "pump_hours": {"by_class": {"6": {"days": 20, "heating_h": 5.9}}}}))
+    assert not any("Sufit" in i for i in an.ideas({**_report(), "pump_hours": {"by_class": {"6": {"days": 20, "heating_h": 5.9}}}}, offpeak_h=10))
+    assert "G12w" not in joined and "wg taryfy" in joined
     assert an.ideas({}) == []
+
+
+def test_ideas_without_full_tariff_day_skip_offpeak_ceiling():
+    assert not any("Sufit" in i for i in an.ideas(_report(below=242), offpeak_h=None))
+    assert not any("Sufit" in i for i in an.ideas(_report(below=242)))
 
 
 def test_gaps_name_cop_cutoff_and_short_own_history():

@@ -122,13 +122,8 @@ def collect(settings: dict, get_state: Callable[[str], dict | None],
             }
             pump_mode = equipment[eq.key]["state"]
 
-    tariff_state, _ = _state(get_state, settings.get("tariff_state_entity"))
-    peak = _as_bool(tariff_state)
-    tariff = {
-        "peak": peak,
-        "label": "—" if peak is None else ("SZCZYT" if peak else "poza szczytem"),
-        "price": fmt_price(get_numeric(settings.get("tariff_price_entity") or "")),
-    }
+    # Taryfę (godzina, cena, nota o nieaktualności) nadpisuje `web.live_data` z harmonogramu pv_roi (tariff_hours).
+    tariff = {"peak": None, "label": "brak danych taryfy", "price": "—", "note": ""}
 
     water_target = get_numeric(settings.get("heiko_water_setpoint_entity") or DEFAULT_WATER_TARGET_ENTITY)
     curve_state, _ = _state(get_state, settings.get("heiko_curve_switch_entity"))

@@ -119,3 +119,12 @@ def test_ah_effect_falls_back_to_price_fn_without_ah_cost():
     for over in ({"ah_kwh": 0.0, "ah_pln": 0.0}, {"ah_kwh": 0.4, "ah_pln": None}, {"ah_kwh": None, "ah_pln": None}):
         eff = dm.ah_effect(ah_cycle(**over), m, price, TZ)
         assert eff["ok"] and eff["price_pln_kwh"] == 0.5
+
+
+def test_ah_effect_without_price_has_no_pln_and_summary_skips_it():
+    m = dm.fit_model(GRID)
+    eff = dm.ah_effect(ah_cycle(), m, lambda local: None, TZ)
+    assert eff["ok"] is True and eff["extra_pln"] is None and eff["price_pln_kwh"] is None and eff["extra_kwh"] > 0
+    s = dm.summarize([ah_cycle(), ah_cycle(start="2026-10-13T02:00:00+00:00")], m, lambda local: None, TZ)
+    assert s["evaluated"] == 2 and s["extra_pln"] == 0.0 and s["pln_per_saved_min"] is None
+    assert s["extra_kwh"] > 0

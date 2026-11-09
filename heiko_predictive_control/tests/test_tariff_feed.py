@@ -1,4 +1,6 @@
-"""Taryfa z encji pv_roi: feed, zapas G12w, migracja tabeli, okna testu Bezwładność, brak stałych G12w poza tariff.py."""
+"""Taryfa z encji pv_roi: feed (bez zgadywania z zegara), status feed/stale/none, migracja tabeli, okna testu Bezwładność."""
+import inspect
+import logging
 import re
 import sqlite3
 import subprocess
@@ -43,8 +45,8 @@ def state(items, st="peak"):
     return {"state": st, "attributes": {"schedule": items}}
 
 
-def feed(c, data, workday=None):
-    return tf.TariffFeed(FakeHA(data), c, ENTITY, workday)
+def feed(c, data):
+    return tf.TariffFeed(FakeHA(data), c, ENTITY)
 
 
 def test_fresh_g12w_feed():
@@ -66,25 +68,79 @@ def test_g13_feed_uses_its_zones():
     assert f.status(NOW)["tariff"] == "G13"
 
 
-def test_missing_entity_and_unavailable_and_bad_schedule_are_fallback():
+def test_missing_entity_and_unavailable_and_bad_schedule_mean_no_data():
     for data in (None, state(schedule(NOW), st="unavailable"), state([]), state("zle"),
                  state([{"hour": "x", "gross": 1, "is_peak": True}])):
         c = conn()
         f = feed(c, data)
         assert f.refresh(NOW) is False
-        assert f.status(NOW)["source"] == "fallback"
+        st = f.status(NOW)
+        assert st["source"] == "none" and st["age_min"] is None and st["stale_since"] is None
+        assert st["tariff"] is None and st["confidence"] is None
         assert f.at(NOW) is None
-        # zapas G12w: środa 10:00 = szczyt, sobota = poza szczytem
-        assert f.is_peak(NOW) and not f.is_peak(datetime(2026, 1, 17, 10))
+        # nic z zegara: środa 10:00 i sobota to tak samo „brak danych taryfy”
+        for dt in (NOW, datetime(2026, 1, 17, 10)):
+            assert f.is_peak(dt) is None and f.price(dt) is None
+        assert f.offpeak_price(NOW) is None
 
 
-def test_stale_rows_mean_fallback():
+def test_stale_feed_keeps_last_known_schedule_and_reports_since_when():
     c = conn()
     f = feed(c, state(schedule(datetime(2026, 1, 14, 10))))
     f.refresh(NOW)
-    assert f.status(NOW + timedelta(hours=2))["source"] == "feed"
-    st = f.status(NOW + timedelta(hours=4))
-    assert st["source"] == "fallback" and st["tariff"] == "G12w"
+    fresh = f.status(NOW + timedelta(hours=2))
+    assert fresh["source"] == "feed" and fresh["stale_since"] is None
+    later = NOW + timedelta(hours=4)
+    st = f.status(later)
+    assert st["source"] == "stale" and st["tariff"] == "G12w" and st["confidence"] == "invoice"
+    assert st["stale_since"] == NOW.isoformat(timespec="seconds") and st["age_min"] == 240.0
+    # decyzje czytają at() bez względu na source: ostatni znany harmonogram obowiązuje
+    assert f.is_peak(NOW + timedelta(hours=1)) is True and f.price(NOW + timedelta(hours=1)) == 1.5
+    assert f.is_peak(datetime(2026, 1, 14, 13)) is False
+
+
+def test_hour_without_row_is_none_and_warned_once_per_hour(caplog):
+    c = conn()
+    f = feed(c, state(schedule(datetime(2026, 1, 14, 10), hours=2)))
+    f.refresh(NOW)
+    tf._warned.clear()
+    missing = datetime(2026, 1, 20, 8)
+    with caplog.at_level(logging.WARNING):
+        assert f.is_peak(missing) is None and f.price(missing) is None and f.at(missing) is None
+    assert sum("brak danych taryfy dla godziny 2026-01-20T08" in r.message for r in caplog.records) == 1
+
+
+def test_offpeak_price_is_cheapest_in_window_or_none():
+    c = conn()
+    f = feed(c, state(schedule(datetime(2026, 1, 14, 10))))
+    f.refresh(NOW)
+    assert f.offpeak_price(NOW) == 0.5
+    assert f.offpeak_price(datetime(2026, 3, 1, 10)) is None            # brak jakiegokolwiek wiersza w oknie 36 h
+
+
+def test_no_tariff_zone_constant():
+    assert tf.NO_TARIFF_ZONE == "no_tariff"
+
+
+def test_offpeak_hours_per_day_uses_last_full_day_with_a_peak():
+    c = conn()
+    assert tf.offpeak_hours_per_day(c) is None                           # pusta tabela
+    f = feed(c, state(schedule(datetime(2026, 1, 14, 0), hours=48)))
+    f.refresh(NOW)
+    assert tf.offpeak_hours_per_day(c) == 24 - 7 - 7                     # G12w: szczyt 6–13 i 15–22 = 14 h
+    c2 = conn()
+    feed(c2, state(schedule(datetime(2026, 1, 14, 0), hours=24, peak=lambda dt: False))).refresh(NOW)
+    assert tf.offpeak_hours_per_day(c2) is None                          # pełna doba bez szczytu nie liczy się
+    c3 = conn()
+    feed(c3, state(schedule(datetime(2026, 1, 14, 10), hours=30))).refresh(NOW)
+    assert tf.offpeak_hours_per_day(c3) is None                          # żadna doba nie ma 24 wierszy
+
+
+def test_for_settings_and_ctor_have_no_workday_parameter():
+    assert list(inspect.signature(tf.TariffFeed.__init__).parameters) == ["self", "ha_client", "db", "entity"]
+    assert list(inspect.signature(tf.for_settings).parameters) == ["db", "settings", "ha_client"]
+    src = inspect.getsource(tf)
+    assert "from . import tariff\n" not in src and "fallback_hour" not in src and "_fallback" not in src
 
 
 def test_past_hour_comes_from_db_after_feed_moves_on():
@@ -125,8 +181,7 @@ def test_tariff_hours_table_is_added_to_existing_database():
 
 def test_build_blocks_split_by_feed_price():
     t0 = datetime(2026, 1, 14, 6)
-    blocks = fp.build_blocks(t0, 24, lambda d: True, 6, 22, 9.0, 9.0,
-                             hour_fn=lambda t: (False, 0.4 if t.hour < 10 else 0.9))
+    blocks = fp.build_blocks(t0, 24, 6, 22, lambda t: (False, 0.4 if t.hour < 10 else 0.9))
     assert [b.price_pln_kwh for b in blocks][0] == 0.4 and 0.9 in [b.price_pln_kwh for b in blocks]
 
 
@@ -140,10 +195,10 @@ def test_inertia_windows_follow_feed_and_default_without_it():
     assert [s["at"][11:16] for s in default[:4]] == ["06:00", "12:00", "15:00", "21:00"]   # feed nie zna doby
 
 
-def test_g12w_constants_only_in_tariff_py():
+def test_g12w_constants_only_in_workday_py():
     root = Path(__file__).resolve().parents[1] / "heiko_predictive_control"
     pattern = re.compile(r"1\.2304|0\.6306|PEAK_WINDOWS|DEFAULT_PEAK_PRICE|DEFAULT_OFFPEAK_PRICE|weekday\(\) *< *5")
-    hits = [f"{p.name}:{i}" for p in root.glob("*.py") if p.name != "tariff.py"
+    hits = [f"{p.name}:{i}" for p in root.glob("*.py") if p.name != "workday.py"
             for i, line in enumerate(p.read_text().splitlines(), 1) if pattern.search(line)]
     assert hits == []
 

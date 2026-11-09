@@ -1,5 +1,6 @@
 import inspect
-from datetime import date, datetime, timedelta
+import logging
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -35,21 +36,6 @@ def test_parse_forecast_converts_and_skips_bad_points():
     assert cycle.parse_forecast(None) == []
 
 
-def test_workday_resolver_uses_sensor_for_today_service_for_others_weekday_fallback():
-    calls = []
-
-    def check(d):
-        calls.append(d)
-        return {"2026-11-11": False}.get(d)                 # święto; reszta „brak odpowiedzi”
-
-    fn = cycle.workday_resolver(date(2026, 1, 14), False, check)   # środa, ale sensor mówi „wolne”
-    assert fn(date(2026, 1, 14)) is False and calls == []
-    assert fn(date(2026, 11, 11)) is False                  # z usługi
-    assert fn(date(2026, 1, 17)) is False and fn(date(2026, 1, 15)) is True   # fallback pn–pt
-    fn(date(2026, 1, 15))
-    assert calls.count("2026-01-15") == 1                   # cache
-
-
 # ── run_heiko_cycle ───────────────────────────────────────────────────────
 
 NOW = datetime(2026, 1, 14, 10, 7)                          # środa
@@ -57,7 +43,6 @@ CURVE_A = {f"number.heiko_heat_pump_curve_ambient_temp_{i}": v for i, v in enume
 CURVE_W = {f"number.heiko_heat_pump_curve_water_temp_{i}": v for i, v in enumerate([27, 26, 25, 24, 23], 1)}
 SETTINGS = {
     "day_zone_temp_entities": "sensor.z1,sensor.z2,sensor.z3", "outdoor_temp_entity": "sensor.out",
-    "tariff_state_entity": "sensor.tariff", "tariff_price_entity": "sensor.price",
     "pump_energy_entity": "sensor.energy", "weather_entity": "weather.home",
     "heiko_active_profile": "ekonomia", "heiko_enabled": False,
     "heiko_comfort_band_day_c": 1.0, "heiko_comfort_band_night_c": 1.5,
@@ -73,7 +58,7 @@ class World:
         self.rooms = list(rooms)
         self.energy = energy
         self.mode = mode
-        self.numeric = {"sensor.out": 2.0, "sensor.price": 1.2304, **CURVE_A, **CURVE_W}
+        self.numeric = {"sensor.out": 2.0, **CURVE_A, **CURVE_W}
 
     def get_state(self, entity):
         if entity.startswith("sensor.z"):
@@ -91,7 +76,7 @@ class World:
         return self.numeric.get(entity)
 
     def get_bool(self, entity):
-        return {"sensor.tariff": True, "binary_sensor.workday": True}.get(entity)
+        return {"binary_sensor.workday": True}.get(entity)
 
     def forecast(self, entity):
         return [{"datetime": (NOW + timedelta(hours=h)).isoformat(), "temperature": 2.0 - 0.1 * h}
@@ -101,13 +86,27 @@ class World:
 def _run(conn, world, now, settings=None):
     return cycle.run_heiko_cycle(conn, settings or SETTINGS, now, get_state=world.get_state,
                                   get_numeric=world.get_numeric, get_bool=world.get_bool,
-                                  get_forecast=world.forecast, check_workday=lambda d: None)
+                                  get_forecast=world.forecast)
+
+
+def seed_tariff(c, start, hours, fetched_at=None):
+    """Harmonogram z pv_roi w `tariff_hours`: G12w (szczyt 6–13 i 15–22), `hours` godzin od `start`."""
+    stamp = (fetched_at or NOW).isoformat(timespec="seconds")
+    for i in range(hours):
+        dt = start + timedelta(hours=i)
+        peak = 6 <= dt.hour < 13 or 15 <= dt.hour < 22
+        c.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                  "VALUES (?, 'G12w', ?, ?, ?, ?, 'invoice', ?)",
+                  (dt.strftime("%Y-%m-%dT%H"), "peak" if peak else "offpeak", int(peak),
+                   "expensive" if peak else "cheap", 1.2304 if peak else 0.6306, stamp))
+    c.commit()
 
 
 @pytest.fixture
 def conn():
     c = dbm.get_conn(":memory:")
     dbm.migrate(c)
+    seed_tariff(c, datetime(2026, 1, 13, 0), 96)
     return c
 
 
@@ -367,3 +366,40 @@ def test_first_cycle_without_counter_history_writes_no_battery_mix_row(conn):
     _run(conn, world, NOW)
     assert conn.execute("SELECT COUNT(*) FROM battery_mix").fetchone()[0] == 0
     assert dbm.get_setting(conn, "battery_mix") is None
+
+
+def test_no_tariff_row_for_now_skips_cycle_but_records_row(conn, caplog):
+    conn.execute("DELETE FROM tariff_hours")
+    conn.commit()
+    with caplog.at_level(logging.WARNING):
+        row = _run(conn, World(), NOW)
+    assert row["tariff_peak"] is None and row["price_pln_kwh"] is None
+    assert "plan_setpoint_c" not in row and dbm.get_setting(conn, "heiko_plan") is None
+    assert dbm.latest_cycle(conn, "heiko") is not None
+    assert "brak danych taryfy" in caplog.text
+
+
+def test_tariff_not_covering_horizon_skips_plan_with_warning(conn, caplog):
+    conn.execute("DELETE FROM tariff_hours WHERE hour >= '2026-01-14T20'")        # teraz 10:07, horyzont 36 h
+    conn.commit()
+    with caplog.at_level(logging.WARNING):
+        row = _run(conn, World(), NOW)
+    assert row["tariff_peak"] == 1 and row["price_pln_kwh"] == 1.2304            # bieżąca godzina jest
+    assert dbm.get_setting(conn, "heiko_plan") is None and "plan_setpoint_c" not in row
+    assert "taryfa nie obejmuje horyzontu" in caplog.text
+    assert dbm.latest_cycle(conn, "heiko") is not None
+
+
+def test_stale_feed_still_drives_the_cycle(conn):
+    """Nieaktualny harmonogram dalej obowiązuje (decyzja T0-1): źródło informuje tylko UI."""
+    conn.execute("UPDATE tariff_hours SET fetched_at = ?", ((NOW - timedelta(hours=10)).isoformat(timespec="seconds"),))
+    conn.commit()
+    row = _run(conn, World(), NOW)
+    assert row["tariff_peak"] == 1 and "plan_setpoint_c" in row
+
+
+def test_cycle_has_no_clock_tariff_guess_or_removed_options():
+    src = inspect.getsource(cycle)
+    for token in ("fallback_hour", "fallback_prices", "price_for", "tariff_state_entity", "tariff_price_entity",
+                  "workday_resolver", "check_workday"):
+        assert token not in src

@@ -50,10 +50,8 @@ def _clamp(v: float) -> float:
 
 
 def workday_from_feed(feed, day: date, now: datetime) -> bool | None:
-    """True/False z harmonogramu taryfy (szczyt o 17:00 istnieje tylko w dni robocze); None = brak danych
-    (zapas G12w albo brak godziny), wtedy tryb nic nie robi."""
-    if feed.status(now).get("source") != "feed":
-        return None
+    """True/False z harmonogramu taryfy (szczyt o 17:00 istnieje tylko w dni robocze), bez względu na jego
+    świeżość (ostatni znany harmonogram obowiązuje); None = brak godziny w tariff_hours, wtedy tryb nic nie robi."""
     row = feed.at(datetime(day.year, day.month, day.day, WORKDAY_PROBE_H))
     return None if row is None else bool(row.is_peak)
 

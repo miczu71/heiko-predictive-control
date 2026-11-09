@@ -14,7 +14,7 @@ SETTINGS = {
     "attic_window_entities": "binary_sensor.w1, binary_sensor.w2",
     "attic_pause_entity": "input_boolean.pause",
     "attic_presence_entity": "binary_sensor.presence", "attic_vacant_after_min": 60,
-    "tariff_price_entity": "sensor.price", "notify_service": "notify.test",
+    "notify_service": "notify.test",
     "attic_enabled": True, "attic_active_profile": "komfort",
     "attic_comfort_target_c": 22.0, "attic_economy_target_c": 20.5,
     "attic_work_start_hour": 8, "attic_work_end_hour": 16,
@@ -36,7 +36,8 @@ class Env:
             "binary_sensor.door": {"state": "on"},
             "binary_sensor.w1": {"state": "off"}, "binary_sensor.w2": {"state": "off"},
         }
-        self.numeric = {"sensor.temp": temp, "sensor.power": power, "sensor.price": price}
+        self.numeric = {"sensor.temp": temp, "sensor.power": power}
+        self.price = price                      # cena godziny w tariff_hours (None = brak wiersza)
         for k, v in (windows or {}).items():
             self.states[k] = v
         self.service_ok = service_ok
@@ -57,6 +58,11 @@ class Env:
         return True
 
     def run(self, conn, settings, now, workday=True, vacation=False):
+        if self.price is not None:
+            conn.execute("INSERT OR REPLACE INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, "
+                         "fetched_at) VALUES (?, 'G12w', 'peak', 1, 'expensive', ?, 'invoice', ?)",
+                         (now.strftime("%Y-%m-%dT%H"), self.price, now.isoformat(timespec="seconds")))
+            conn.commit()
         return run_attic_cycle(conn, settings, now, workday, vacation,
                                get_state=self.get_state, get_numeric=self.get_numeric,
                                call_service=self.call_service, notify=self.notify)
@@ -251,11 +257,19 @@ def test_energy_meter_gap_over_30_min_falls_back_to_power_integral():
     assert abs(row["attic_energy_kwh"] - 0.6) < 1e-9       # 1,2 kW * 0,5 h (limit)
 
 
-def test_price_falls_back_to_schedule_when_entity_missing():
-    conn, env = make_conn(), Env(temp=22.0)
-    env.numeric.pop("sensor.price")
-    row = env.run(conn, SETTINGS, at(9, 0))                # szczyt G12w
-    assert row["price_pln_kwh"] > 1.0
+def test_price_comes_from_tariff_feed():
+    conn, env = make_conn(), Env(ac="heat", temp=22.0, power=1200.0, price=1.5)
+    env.run(conn, SETTINGS, at(9, 0))
+    row = env.run(conn, SETTINGS, at(9, 30))
+    assert row["price_pln_kwh"] == 1.5 and abs(row["attic_cost_pln"] - 0.9) < 1e-9
+
+
+def test_no_tariff_row_means_no_price_and_no_cost():
+    conn, env = make_conn(), Env(ac="heat", temp=22.0, power=1200.0, price=None)
+    env.run(conn, SETTINGS, at(9, 0))
+    row = env.run(conn, SETTINGS, at(9, 30))                # nic z zegara: brak wiersza = brak ceny
+    assert row["price_pln_kwh"] is None and row["attic_cost_pln"] is None
+    assert row["attic_energy_kwh"] > 0                      # energia nadal liczona
 
 
 def test_targets_hidden_outside_window():

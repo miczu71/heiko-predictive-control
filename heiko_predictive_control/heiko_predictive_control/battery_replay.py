@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from . import catalog, db as dbm
+from . import catalog, db as dbm, tariff_feed
 from . import energy_source as es
 from .dhw_cycles import BACKFILL_DAYS
 
@@ -48,6 +48,8 @@ def replay(conn, settings: dict, now: datetime, get_history, feed, back_days: in
     start = (now - timedelta(days=back_days)).replace(minute=(now.minute // STEP_MIN) * STEP_MIN,
                                                       second=0, microsecond=0)
     cost0 = feed.offpeak_price(start)
+    if cost0 is None:                        # brak taryfy: energia o nieznanym koszcie = 0 zł
+        cost0 = 0.0
 
     def soc_kwh_at(t: datetime) -> float | None:
         soc, cap = c["battery_soc"].at(_utc(t)), c["battery_capacity"].at(_utc(t))
@@ -62,15 +64,15 @@ def replay(conn, settings: dict, now: datetime, get_history, feed, back_days: in
         t_utc, prev_utc = _utc(t), _utc(prev)
         d = [c[k].delta(prev_utc, t_utc) for k in ("grid_import", "battery_charge", "battery_discharge")]
         soc_kwh, rce = soc_kwh_at(t), c["rce_price"].at(t_utc)
-        ok = soc_kwh is not None and rce is not None and all(
+        row = feed.at(t)
+        price = feed.price(t)
+        ok = soc_kwh is not None and rce is not None and row is not None and price is not None and all(
             v is not None and 0 <= v <= es.MAX_STEP_KWH for v in d)
         if ok:
             if mix is None:                      # brak SoC w starcie: pierwszy pełny krok jest startem
                 mix = {"unknown": {"kwh": soc_kwh, "pln": soc_kwh * cost0}}
-            step = es.Step(0.0, d[0], d[1], d[2], soc_kwh, feed.price(t), rce)
-            row = feed.at(t)
-            zone = row.zone if row is not None and row.zone else ("peak" if feed.is_peak(t) else "offpeak")
-            mix = es.mix_after(mix, step, cost0 if (avg := es.mix_cost(mix)) is None else avg, zone)
+            step = es.Step(0.0, d[0], d[1], d[2], soc_kwh, price, rce)
+            mix = es.mix_after(mix, step, cost0 if (avg := es.mix_cost(mix)) is None else avg, row.zone or tariff_feed.NO_TARIFF_ZONE)
             rows.append((t.isoformat(), mix))
         t += timedelta(minutes=STEP_MIN)
 

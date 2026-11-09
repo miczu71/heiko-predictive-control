@@ -5,7 +5,7 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import heating_runs as hr
-from heiko_predictive_control import tariff
+from feed_stub import StubFeed
 from heiko_predictive_control.tariff_feed import TariffFeed
 
 TZ = ZoneInfo("Europe/Warsaw")
@@ -28,8 +28,8 @@ def base(start_h=12, start_m=0, minutes=30, kwh=0.6):
             "energy": [(t0 - timedelta(minutes=5), "5.00"), (t0 + timedelta(minutes=minutes), f"{5.0 + kwh:.2f}")]}
 
 
-def run_one(s, **kw):
-    runs = hr.extract_runs(s, z(0), z(23, 59), TZ, peak_price=1.0, offpeak_price=0.5, **kw)
+def run_one(s, feed=None, **kw):
+    runs = hr.extract_runs(s, z(0), z(23, 59), TZ, StubFeed(1.0, 0.5) if feed is None else feed, offpeak_price=0.5, **kw)
     assert len(runs) == 1
     return runs[0]
 
@@ -64,7 +64,7 @@ def test_run_across_zone_boundary_has_two_zones():
 
 def test_missing_source_series_is_clock_cost():
     r = run_one(base())
-    price = tariff.price_for(tariff.fallback_hour(datetime(2026, 10, 27, 12, 30), True).is_peak, 1.0, 0.5)
+    price = 1.0                                   # 12:30 w szczycie atrapy feedu
     assert r["split_complete"] is False and r["pv_share"] is None
     assert r["cost_pln"] == pytest.approx(0.6 * price, abs=0.01)
 
@@ -72,25 +72,25 @@ def test_missing_source_series_is_clock_cost():
 def test_gap_5_min_merged_gap_15_min_split():
     a = mode_series(10, 0, 20)
     merged = hr.extract_runs({"mode": a[:-1] + [(z(10, 20), "0"), (z(10, 25), "2"), (z(10, 45), "0")], "energy": [(z(9, 55), "5"), (z(10, 45), "6")]},
-                             z(0), z(23, 59), TZ)
+                             z(0), z(23, 59), TZ, StubFeed())
     split = hr.extract_runs({"mode": a[:-1] + [(z(10, 20), "0"), (z(10, 35), "2"), (z(10, 55), "0")],
-                             "energy": [(z(9, 55), "5"), (z(10, 55), "6")]}, z(0), z(23, 59), TZ)
+                             "energy": [(z(9, 55), "5"), (z(10, 55), "6")]}, z(0), z(23, 59), TZ, StubFeed())
     assert len(merged) == 1 and merged[0]["duration_min"] == 45.0
     assert len(split) == 2
 
 
 def test_incomplete_run_at_window_end_and_carried_mode():
     end_run = hr.extract_runs({"mode": [(z(22, 0), "0"), (z(23, 0), "2")], "energy": [(z(22, 0), "5.0"), (z(23, 30), "5.5")]},
-                              z(0), z(23, 59), TZ)
+                              z(0), z(23, 59), TZ, StubFeed())
     assert len(end_run) == 1 and end_run[0]["complete"] is False
     carried = hr.extract_runs({"mode": [(z(23, 0, d=26), "2"), (z(1, 0), "0")], "energy": [(z(23, 0, d=26), "5.0"), (z(1, 0), "5.5")]},
-                              z(0), z(23, 59), TZ)
+                              z(0), z(23, 59), TZ, StubFeed())
     assert len(carried) == 1 and carried[0]["complete"] is False
 
 
 def test_modes_4_and_1_make_no_run():
     for code in ("4", "1"):
-        assert hr.extract_runs({**base(), "mode": mode_series(12, 0, 30, code=code)}, z(0), z(23, 59), TZ) == []
+        assert hr.extract_runs({**base(), "mode": mode_series(12, 0, 30, code=code)}, z(0), z(23, 59), TZ, StubFeed()) == []
 
 
 def test_no_meter_gives_none_cost():

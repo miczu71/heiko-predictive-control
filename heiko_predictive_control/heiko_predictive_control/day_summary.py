@@ -6,13 +6,11 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import attic_runs, catalog, dhw_cycles, ha_client, heating_runs, tariff_feed
 from .dhw_cycles import battery_counter, source_roles
 from .summaries import day_bounds
-from .tariff import default_is_workday
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +139,6 @@ def build_yesterday(conn, settings: dict, now: datetime) -> dict:
 
 def build_today(conn, settings: dict, states: list[dict], now: datetime,
                 get_history=ha_client.get_history,
-                is_workday: Callable[[date], bool] = default_is_workday,
                 cache: dict | None = None) -> dict:
     """Dziś na żywo: jedno zapytanie do recordera od północ − 3 h do `now`. Rekordy w toku (`complete: False`)
     wchodzą do sumy i ustawiają `in_progress`. Brak historii → składniki zerowe, `approx`, `error`."""
@@ -193,19 +190,19 @@ def build_today(conn, settings: dict, states: list[dict], now: datetime,
 
     battery = battery_counter(conn, tz, fetch_start, now)
     mixes = dhw_cycles.mix_at(conn, tz, fetch_start, now)
-    feed = tariff_feed.for_settings(conn, settings, is_workday)
-    kw = dict(feed=feed, offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)),
+    feed = tariff_feed.for_settings(conn, settings)
+    kw = dict(offpeak_price=feed.offpeak_price(day_start.astimezone(tz).replace(tzinfo=None)),
               battery_cost_at=lambda t: battery.at(t.astimezone(tz).replace(tzinfo=None)),
               mix_at=lambda t: mixes(t.astimezone(tz).replace(tzinfo=None)))
 
     def mine(records):
         return [r for r in records if local_date(r["start"], tz) == today]
 
-    floor = mine(heating_runs.extract_runs(series(roles_floor), fetch_start, now, tz, is_workday, **kw)) \
+    floor = mine(heating_runs.extract_runs(series(roles_floor), fetch_start, now, tz, feed, **kw)) \
         if configured["floor"] else []
-    dhw = mine(dhw_cycles.extract_cycles(series(roles_dhw), fetch_start, now, tz, is_workday,
+    dhw = mine(dhw_cycles.extract_cycles(series(roles_dhw), fetch_start, now, tz, feed,
                                          bath_entries=None, **kw)) if configured["dhw"] else []
-    ac = mine(attic_runs.extract_runs(series(roles_ac), fetch_start, now, tz, is_workday, **kw)) \
+    ac = mine(attic_runs.extract_runs(series(roles_ac), fetch_start, now, tz, feed, **kw)) \
         if configured["ac"] else []
     parts = {"floor": aggregate(floor, "energy_kwh"), "dhw": aggregate(dhw, "kwh_total"),
              "ac": aggregate(ac, "energy_kwh")}

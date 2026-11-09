@@ -22,7 +22,7 @@
     <a href="{{ base }}/report" {% if active == 'report' %}class="active"{% endif %}>Raport</a>
     <a href="{{ base }}/options" {% if active == 'options' %}class="active"{% endif %}>Opcje</a>
   </div>
-  {% if tariff_source == 'fallback' %}<span class="badge kind-eksperyment" id="tariff-fallback" title="Harmonogram taryfy z pv_roi jest niedostępny lub starszy niż 3 h">taryfa: zapas G12w — brak danych z pv_roi</span>{% endif %}
+  {% if tariff_source == 'stale' %}<span class="badge kind-eksperyment" id="tariff-fallback" title="Harmonogram taryfy z pv_roi jest starszy niż 3 h — obowiązuje ostatni znany">taryfa: dane nieaktualne od {{ tariff_stale_since }}</span>{% elif tariff_source == 'none' %}<span class="badge kind-eksperyment" id="tariff-fallback" title="Brak harmonogramu taryfy z pv_roi — koszty godzin bez danych nie są wyceniane">taryfa: brak danych z pv_roi</span>{% endif %}
   <span class="nav-version">v{{ version }}</span>
 </nav>
 <main class="main">

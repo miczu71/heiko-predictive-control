@@ -19,7 +19,7 @@ from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle,
                summaries, tariff_feed, telemetry)
 from . import attic as attic_mod
 from . import db as dbm
-from .tariff import default_is_workday
+from .workday import default_is_workday
 from .publisher import MQTTPublisher
 from .web import create_app
 
@@ -65,8 +65,6 @@ def _options_from_env() -> dict:
         "outdoor_temp_entity": _env("OUTDOOR_TEMP_ENTITY"),
         "weather_entity": _env("WEATHER_ENTITY"),
         "solcast_remaining_today_entity": _env("SOLCAST_REMAINING_TODAY_ENTITY"),
-        "tariff_state_entity": _env("TARIFF_STATE_ENTITY"),
-        "tariff_price_entity": _env("TARIFF_PRICE_ENTITY"),
         "pv_roi_url": _env("PV_ROI_URL", "http://29a4454d-pv-roi-tracker:8099"),
         "tariff_schedule_entity": _env("TARIFF_SCHEDULE_ENTITY", "sensor.pv_roi_tracker_pv_tariff_zone"),
         "pump_energy_entity": _env("PUMP_ENERGY_ENTITY"),
@@ -265,7 +263,7 @@ def main() -> None:
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             for day in summaries.missing_days(c, now):
-                done = summaries.store_day(c, settings, day, states, now, is_workday=is_workday)
+                done = summaries.store_day(c, settings, day, states, now)
                 logger.info("Streszczenie doby %s: %s", day, sorted(done) or "brak danych")
         except Exception:
             logger.exception("Streszczenia dobowe nieudane")
@@ -277,7 +275,7 @@ def main() -> None:
         c = dbm.get_conn(db_path)
         try:
             settings = dbm.get_all_settings(c)
-            feed = tariff_feed.for_settings(c, settings, is_workday)
+            feed = tariff_feed.for_settings(c, settings)
             n = battery_replay.replay(c, settings, datetime.now(), ha_client.get_history, feed)
             logger.info("Replay składu baterii: zapisano %d wierszy", n)
         except Exception:
@@ -296,7 +294,7 @@ def main() -> None:
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             for day in dhw_cycles.missing_days(c, now):
-                stored = dhw_cycles.store_cycles(c, settings, day, states, now, is_workday=is_workday)
+                stored = dhw_cycles.store_cycles(c, settings, day, states, now)
                 logger.info("Cykle CWU doby %s: zapisano %d", day, stored)
         except Exception:
             logger.exception("Dziennik cykli CWU nieudany")
@@ -314,7 +312,7 @@ def main() -> None:
             settings = dbm.get_all_settings(c)
             states = ha_client.get_all_states() or []
             for day in attic_runs.missing_days(c, now):
-                stored = attic_runs.store_runs(c, settings, day, states, is_workday=is_workday)
+                stored = attic_runs.store_runs(c, settings, day, states)
                 logger.info("Runy AC doby %s: zapisano %d", day, stored)
         except Exception:
             logger.exception("Dziennik runów AC nieudany")
@@ -336,7 +334,7 @@ def main() -> None:
                 return
             for day in heating_runs.missing_days(c, now):
                 try:
-                    stored = heating_runs.store_runs(c, settings, day, states, is_workday=is_workday)
+                    stored = heating_runs.store_runs(c, settings, day, states)
                     logger.info("Runy ogrzewania doby %s: zapisano %d", day, stored)
                 except Exception:
                     logger.exception("Runy ogrzewania doby %s nieudane", day)
@@ -353,7 +351,7 @@ def main() -> None:
             if not states:
                 logger.warning("Doradca: brak stanów HA, pomijam przebieg")
                 return
-            info = advisor.run(c, dbm.get_all_settings(c), datetime.now(), states, is_workday)
+            info = advisor.run(c, dbm.get_all_settings(c), datetime.now(), states)
             logger.info("Doradca: %s", info)
         except Exception:
             logger.exception("Przebieg doradcy nieudany")

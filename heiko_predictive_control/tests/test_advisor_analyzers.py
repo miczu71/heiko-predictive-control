@@ -100,10 +100,15 @@ def test_curve_respects_class_a_range():
     assert curve.analyze(snap(avg24_c=20.0, cold24_c=18.0, params={"curve_shift": 4.0})) == []   # +5 poza zakresem
 
 
+def _hour_fn(t):
+    peak = t.weekday() < 5 and (6 <= t.hour < 13 or 15 <= t.hour < 22)
+    return peak, 1.2304 if peak else 0.6306
+
+
 def test_uniform_effects_cheaper_and_colder_when_water_setpoint_lowered():
     t0 = datetime(2026, 1, 14, 7, 0)
     n = int(36 / fp.STEP_H)
-    blocks = fp.build_blocks(t0, n, lambda d: d.weekday() < 5, 6, 22, 1.2304, 0.6306)
+    blocks = fp.build_blocks(t0, n, 6, 22, _hour_fn)
     inp = fp.PlanInputs(model=FloorModel(), tr0_c=20.8, qf0_kw=1.0, t_out_c=[2.0] * n, base_c=[26.0] * n, blocks=blocks,
                         bands=[(19.6, 21.6)] * n, target_c=20.6, offpeak_price=0.6306)
     eff = curve.uniform_effects(inp)
@@ -118,7 +123,7 @@ def test_uniform_effects_price_the_heat_debt_so_saving_is_not_overstated():
     kilkukrotnie mniejszy niż surowa różnica energii i zależy od pogody (regresja: 0.9.0 pokazywało stałe ~1,8 kWh/dobę)."""
     t0 = datetime(2026, 1, 14, 7, 0)
     n = int(36 / fp.STEP_H)
-    blocks = fp.build_blocks(t0, n, lambda d: d.weekday() < 5, 6, 22, 1.2304, 0.6306)
+    blocks = fp.build_blocks(t0, n, 6, 22, _hour_fn)
     model = FloorModel(tau_h=1.5, g=0.04721, c=0.006, e=0.70902)
 
     def effects(out_c, base_c):

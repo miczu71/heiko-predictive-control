@@ -7,13 +7,14 @@ WED_3AM = datetime(2026, 1, 14, 3, 0)     # środa
 SAT_3AM = datetime(2026, 1, 17, 3, 0)
 
 
-def _workday(d):
-    return d.weekday() < 5
+def _hour_fn(t):
+    """Jak harmonogram G12w z pv_roi: szczyt 6–13 i 15–22 w dni robocze."""
+    peak = t.weekday() < 5 and (6 <= t.hour < 13 or 15 <= t.hour < 22)
+    return peak, 1.2304 if peak else 0.6306
 
 
 def _blocks(t0, hours=36, **kw):
-    return fp.build_blocks(t0, int(hours / fp.STEP_H), _workday, 6, 22,
-                           peak_price=1.2304, offpeak_price=0.6306, **kw)
+    return fp.build_blocks(t0, int(hours / fp.STEP_H), 6, 22, _hour_fn, **kw)
 
 
 def test_curve_interpolates_clamps_and_needs_two_points():
@@ -30,7 +31,7 @@ def test_curve_sorts_unordered_points():
     assert fp.curve_setpoint([13, -13, 0], [23, 27, 25], -6.5) == 26.0
 
 
-def test_blocks_follow_g12w_on_workday_and_are_contiguous():
+def test_blocks_follow_hour_fn_on_workday_and_are_contiguous():
     blocks = _blocks(WED_3AM, hours=24)
     assert blocks[0].i0 == 0 and blocks[-1].i1 == 96
     assert all(a.i1 == b.i0 for a, b in zip(blocks, blocks[1:]))
@@ -130,3 +131,12 @@ def test_shift_only_plan_holds_mean_temperature_and_saves_less():
     assert fp.mean_temp(plan) < fp.mean_temp(base)          # pełny plan wychładza dom
     assert base.cost_pln - held.cost_pln <= base.cost_pln - plan.cost_pln + 1e-9
     assert held.cost_pln <= base.cost_pln + 0.05
+
+
+def test_build_blocks_requires_hour_fn_and_ignores_the_clock():
+    import inspect
+    sig = inspect.signature(fp.build_blocks)
+    assert list(sig.parameters)[:5] == ["t0", "n_steps", "day_start", "day_end", "hour_fn"]
+    assert not {"is_workday", "peak_price", "offpeak_price"} & set(sig.parameters)
+    blocks = fp.build_blocks(WED_3AM, 8, 6, 22, lambda t: (False, 0.5))          # środa, ale hour_fn mówi „tanio”
+    assert not any(b.is_peak for b in blocks) and {b.price_pln_kwh for b in blocks} == {0.5}

@@ -12,16 +12,26 @@ def _ms(dt):
     return int(dt.timestamp() * 1000)
 
 
+def _g12_peak(local):
+    return local.weekday() < 5 and (6 <= local.hour < 13 or 15 <= local.hour < 22)
+
+
+def _g12_zone(local):
+    return "evening_peak" if _g12_peak(local) else "other"
+
+
+def _g12_zones(stats):
+    return _zones_for(stats, _g12_zone)
+
+
 def _winter_stats(days=30, peak_kwh=1.0, off_kwh=0.5, temp=2.0, start=datetime(2026, 1, 5, tzinfo=timezone.utc)):
     """Godzinowe LTS: w szczycie (pn–pt 6–13, 15–22 czasu lokalnego) energia peak_kwh, poza off_kwh."""
-    from zoneinfo import ZoneInfo
-    from heiko_predictive_control.tariff import is_peak_hour
     tz = ZoneInfo("Europe/Warsaw")
     out, en = [], []
     for h in range(days * 24):
         t = start + timedelta(hours=h)
         local = t.astimezone(tz)
-        e = peak_kwh if is_peak_hour(local.hour, local.weekday() < 5) else off_kwh
+        e = peak_kwh if _g12_peak(local) else off_kwh
         out.append({"start": _ms(t), "mean": temp})
         en.append({"start": _ms(t), "change": e})
     return {"sensor.owm": out, "sensor.energy": en}
@@ -29,7 +39,7 @@ def _winter_stats(days=30, peak_kwh=1.0, off_kwh=0.5, temp=2.0, start=datetime(2
 
 def test_baseline_share_matches_synthetic_schedule():
     stats = _winter_stats(days=28)                      # 4 pełne tygodnie
-    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy")
+    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", zones=_g12_zones(stats))
     # tydzień: 5 dni × 14 h szczytu × 1,0 = 70 kWh szczytu; reszta 168−70 = 98 h × 0,5 = 49 kWh
     assert b["overall"] == pytest.approx(70 / (70 + 49), abs=0.005)
     assert b["by_class"]["3"]["hours"] == 28 * 24        # 2°C → klasa 3 (zaokrąglenie do 3)
@@ -38,9 +48,9 @@ def test_baseline_share_matches_synthetic_schedule():
 
 def test_baseline_skips_summer_and_warm_hours():
     summer = _winter_stats(days=10, start=datetime(2026, 7, 5, tzinfo=timezone.utc))
-    assert kpi.baseline_from_stats(summer, "sensor.owm", "sensor.energy") is None
+    assert kpi.baseline_from_stats(summer, "sensor.owm", "sensor.energy", zones={}) is None
     warm = _winter_stats(days=10, temp=20.0)
-    assert kpi.baseline_from_stats(warm, "sensor.owm", "sensor.energy") is None
+    assert kpi.baseline_from_stats(warm, "sensor.owm", "sensor.energy", zones={}) is None
 
 
 def _rows(peak_kwh, off_kwh, n_each=20, temp=2.0):
@@ -50,7 +60,8 @@ def _rows(peak_kwh, off_kwh, n_each=20, temp=2.0):
 
 
 def test_peak_share_and_shift_against_baseline():
-    baseline = kpi.baseline_from_stats(_winter_stats(days=28), "sensor.owm", "sensor.energy")
+    _st = _winter_stats(days=28)
+    baseline = kpi.baseline_from_stats(_st, "sensor.owm", "sensor.energy", zones=_g12_zones(_st))
     shifted = kpi.peak_share_kpi(_rows(peak_kwh=0.2, off_kwh=1.0), baseline)
     assert shifted["share"] == pytest.approx(0.2 / 1.2, abs=1e-3)
     assert shifted["baseline_share"] == pytest.approx(baseline["overall"], abs=1e-3)
@@ -111,7 +122,7 @@ def test_peak_share_counts_only_grid_energy_in_peak():
 def test_baseline_counts_peak_hours_covered_by_own_energy_as_not_peak():
     stats = _winter_stats(days=28)
     stats["sensor.grid"] = [{"start": r["start"], "change": 0.0} for r in stats["sensor.energy"]]  # zawsze PV/bateria
-    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", grid="sensor.grid")
+    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", grid="sensor.grid", zones=_g12_zones(stats))
     assert b["overall"] == 0.0
 
 
@@ -129,6 +140,8 @@ def test_recent_kpi_takes_grid_share_per_hour_like_the_lts_baseline():
     for i, (imp, grid) in enumerate([(2.0, 0.5), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]):
         _cycle(conn, hour + timedelta(minutes=15 * i), energy_kwh=0.5, tariff_peak=1,
                grid_kwh=grid, grid_import_kwh=imp)
+    for h in range(1, 4):
+        _zone(conn, datetime(2026, 1, 14, h), "other")
     for i in range(12):                                              # noc, poza szczytem
         _cycle(conn, datetime(2026, 1, 14, 1, 0) + timedelta(minutes=15 * i), energy_kwh=0.5, tariff_peak=0,
                grid_kwh=0.5, grid_import_kwh=0.5)
@@ -137,11 +150,13 @@ def test_recent_kpi_takes_grid_share_per_hour_like_the_lts_baseline():
     assert k["share"] == pytest.approx(2.0 / 8.0, abs=1e-4)          # min(2,0 kWh pompy, 2,0 kWh poboru) w godzinie
 
 
-def test_baseline_evening_only_counts_16_21_workdays():
+def test_baseline_skips_hours_without_zone_entry():
     stats = _winter_stats(days=28)
-    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", evening_only=True)
-    # tydzień: 5 dni × 5 h popołudniowego szczytu × 1,0 = 25 kWh z 70 + 49 kWh łącznie
-    assert b["overall"] == pytest.approx(25 / (70 + 49), abs=0.005)
+    zones = _g12_zones(stats)
+    for k in list(zones)[::2]:
+        del zones[k]
+    b = kpi.baseline_from_stats(stats, "sensor.owm", "sensor.energy", zones=zones)
+    assert b["hours"] == 28 * 24 - len(range(0, 28 * 24, 2))
 
 
 def test_recent_kpi_uses_evening_zone_only():
@@ -153,23 +168,27 @@ def test_recent_kpi_uses_evening_zone_only():
     for h in (12, 17):
         _cycle(conn, datetime(2026, 1, 14, h), energy_kwh=4.0, tariff_peak=1)
     for h in (3, 4):
+        _zone(conn, datetime(2026, 1, 14, h), "other")
         _cycle(conn, datetime(2026, 1, 14, h), energy_kwh=4.0, tariff_peak=0)
     k = kpi.recent_kpi(conn, datetime(2026, 1, 15, 8, 0), None)
     assert k["share"] == pytest.approx(4.0 / 16.0, abs=0.001)    # tylko 17:00; poranny szczyt nie liczy się
 
 
-def test_recent_kpi_fallback_window_without_feed_rows():
+def test_evening_rows_without_feed_row_gives_none_tariff_peak():
     conn = dbm.get_conn(":memory:")
     dbm.migrate(conn)
-    # bez wierszy tariff_hours: tylko środa 17:00 to szczyt popołudniowy (stary poranny szczyt i sobota — nie)
-    _cycle(conn, datetime(2026, 1, 14, 17), energy_kwh=4.0, tariff_peak=1)     # środa
-    _cycle(conn, datetime(2026, 1, 14, 12), energy_kwh=4.0, tariff_peak=1)     # poranny szczyt zapisany jako 1
-    _cycle(conn, datetime(2026, 1, 10, 17), energy_kwh=4.0, tariff_peak=1)     # sobota
-    _cycle(conn, datetime(2026, 1, 14, 3), energy_kwh=4.0, tariff_peak=0)
-    k = kpi.recent_kpi(conn, datetime(2026, 1, 15, 8, 0), None)
-    assert k["share"] == pytest.approx(4.0 / 16.0, abs=0.001)
+    row = {"ts": "2026-01-14T17:00:00", "tariff_peak": 1, "energy_kwh": 4.0}
+    assert kpi._evening_rows(conn, [row])[0]["tariff_peak"] is None
+    _cycle(conn, datetime(2026, 1, 14, 17), energy_kwh=4.0, tariff_peak=1)     # bez wierszy taryfy: KPI pomija godzinę
+    assert kpi.recent_kpi(conn, datetime(2026, 1, 15, 8, 0), None) is None
 
 
+def test_zones_from_db_returns_zone_and_peak_per_hour():
+    conn = dbm.get_conn(":memory:")
+    dbm.migrate(conn)
+    _put_hours(conn, datetime(2026, 1, 14, 0), 3, lambda t: "evening_peak" if t.hour == 1 else "other")
+    z = kpi.zones_from_db(conn, datetime(2026, 1, 14, 0), datetime(2026, 1, 14, 2))
+    assert z == {"2026-01-14T00": ("other", 0), "2026-01-14T01": ("evening_peak", 1)}
 
 
 # ── S3: strefy z pv_roi, sygnatura, baza v4 ─────────────────────────────────────

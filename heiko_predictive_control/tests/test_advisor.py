@@ -8,6 +8,7 @@ from heiko_predictive_control import advisor, comfort
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control.analyzers import Draft
 from heiko_predictive_control.kpi import outdoor_class
+from feed_stub import StubFeed
 
 NOW = datetime(2026, 1, 14, 7, 0)
 ZONES = "sensor.z1,sensor.z2,sensor.z3"
@@ -168,8 +169,16 @@ def test_dhw_peak_share_counts_dhw_samples_in_g12w_peak(conn):
     day = datetime(2026, 1, 14, 6, 0)                          # środa: szczyt 6–13 i 15–22
     for hour, mode in ((7, 1), (8, 1), (13, 1), (14, 1), (9, 2)):    # 1 = CWU; 2 = grzanie (pomijane)
         telemetry_rows_at(conn, day.replace(hour=hour), mode)
-    out = advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0))
+    out = advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), feed=StubFeed())
     assert out == {"share": 0.5, "samples": 4, "pv_covered": 0}
+
+
+def test_dhw_peak_share_skips_samples_without_tariff_row(conn):
+    day = datetime(2026, 1, 14, 6, 0)
+    for hour in (7, 8, 14):
+        telemetry_rows_at(conn, day.replace(hour=hour), 1)
+    # brak danych taryfy: żadna próbka nie wchodzi do mianownika (nie zaniżamy udziału zerem)
+    assert advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), feed=StubFeed(missing=True)) is None
 
 
 GRID = "sensor.power_meter_active_power"
@@ -182,13 +191,13 @@ def test_dhw_peak_share_skips_peak_samples_covered_by_pv(conn):
     telemetry_rows_at(conn, day.replace(hour=17), 1, GRID, -1800)   # szczyt, pobór z sieci → liczy
     telemetry_rows_at(conn, day.replace(hour=14), 1, GRID, -1800)   # poza szczytem
     telemetry_rows_at(conn, day.replace(hour=8), 1)                  # brak odczytu sieci → pominięta
-    out = advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), grid_key=GRID)
+    out = advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), grid_key=GRID, feed=StubFeed())
     assert out == {"share": 0.25, "samples": 4, "pv_covered": 2}
 
 
 def test_dhw_peak_share_without_grid_readings_is_none(conn):
     telemetry_rows_at(conn, datetime(2026, 1, 14, 8, 0), 1)
-    assert advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), grid_key=GRID) is None
+    assert advisor.dhw_peak_share(conn, datetime(2026, 1, 15, 12, 0), grid_key=GRID, feed=StubFeed()) is None
 
 
 def telemetry_rows_at(conn, when, mode, grid_key=None, grid_w=None):
@@ -293,7 +302,7 @@ def test_replay_winter_counts_days_with_slack_and_estimates_effects():
     numeric = {**{f"number.heiko_heat_pump_curve_ambient_temp_{i}": v for i, v in enumerate([-13, -7, 0, 7, 13], 1)},
                **{f"number.heiko_heat_pump_curve_water_temp_{i}": v for i, v in enumerate([27, 26, 25, 24, 23], 1)}}
     from heiko_predictive_control.floor_model import FloorModel
-    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(),
+    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(), StubFeed(),
                                 get_statistics=lambda ids, a, b, **k: _lts(), get_numeric=numeric.get)
     assert out["ok"] and out["days_evaluated"] >= 8
     assert out["down"]["days"] == out["days_evaluated"] and out["up"]["days"] == 0        # pokoje stale +0,9°C nad celem
@@ -303,9 +312,19 @@ def test_replay_winter_counts_days_with_slack_and_estimates_effects():
     assert out["by_class"][cls]["down"] == out["days_evaluated"] and "caveat" in out and out["samples"]
 
 
+def test_replay_winter_skips_days_without_tariff_rows():
+    from heiko_predictive_control.floor_model import FloorModel
+    numeric = {**{f"number.heiko_heat_pump_curve_ambient_temp_{i}": v for i, v in enumerate([-13, -7, 0, 7, 13], 1)},
+               **{f"number.heiko_heat_pump_curve_water_temp_{i}": v for i, v in enumerate([27, 26, 25, 24, 23], 1)}}
+    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(),
+                                StubFeed(missing=True), get_statistics=lambda ids, a, b, **k: _lts(), get_numeric=numeric.get)
+    assert out["ok"] and out["days_evaluated"] >= 8                  # doba oceniona regułą, ale bez skutków (brak taryfy)
+    assert out["down"]["days_with_effects"] == 0 and out["down"]["cost_delta_pln_day"] is None
+
+
 def test_replay_winter_reports_too_cold_days_as_plus_one():
     from heiko_predictive_control.floor_model import FloorModel
-    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(),
+    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(), StubFeed(),
                                 get_statistics=lambda ids, a, b, **k: _lts(room=(19.0, 19.1, 18.9)), get_numeric=lambda e: None)
     assert out["up"]["days"] == out["days_evaluated"] and out["down"]["days"] == 0
     assert out["up"]["days_with_effects"] == 0                                            # bez punktów krzywej: brak oszacowania…
@@ -314,7 +333,7 @@ def test_replay_winter_reports_too_cold_days_as_plus_one():
 
 def test_replay_winter_without_statistics_reports_error():
     from heiko_predictive_control.floor_model import FloorModel
-    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(),
+    out = advisor.replay_winter({**SETTINGS, "outdoor_temp_entity": "sensor.out"}, datetime(2026, 9, 26), FloorModel(), StubFeed(),
                                 get_statistics=lambda *a, **k: None, get_numeric=lambda e: None)
     assert out["ok"] is False and "LTS" in out["error"]
 

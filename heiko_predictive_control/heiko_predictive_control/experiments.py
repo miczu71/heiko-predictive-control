@@ -319,7 +319,7 @@ def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_wor
     shift, curve_on = _read(settings, get_state, get_numeric)
     p0, d4b = _read_p0(settings, get_numeric), _d4b_done(conn)
     running = running_test(conn)
-    feed = tariff_feed.for_settings(conn, settings, is_workday)
+    feed = tariff_feed.for_settings(conn, settings)
     kinds = []
     for kind in KINDS.values():
         schedule, blocked = _plan(kind, settings, now, shift, curve_on, running, is_workday, p0, d4b, feed)
@@ -345,7 +345,7 @@ def start(conn, settings: dict, kind_key: str, now: datetime, get_state, get_num
     p0 = _read_p0(settings, get_numeric) if kind.target == "p0" else None
     with _lock:
         schedule, reason = _plan(kind, settings, now, shift, curve_on, running_test(conn), is_workday, p0, _d4b_done(conn),
-                                  tariff_feed.for_settings(conn, settings, is_workday))
+                                  tariff_feed.for_settings(conn, settings))
         if reason:
             return {"ok": False, "error": reason}
         baseline = p0 if p0 else shift
