@@ -129,12 +129,19 @@ def _apply(conn, settings: dict, st: dict, current: float, target: float, now: d
     previous, previous_prev = st.get("intent"), st.get("prev")
     st["intent"], st["prev"] = target, current
     dbm.set_setting(conn, STATE_KEY, st)
+    id_before = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
+    # zastępujemy tylko niepotwierdzone zapisy krzywej — zapis CWU z tego samego ticku czeka na własne potwierdzenie
+    conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE confirmed_at IS NULL AND entity_id LIKE ?",
+                 (experiments.SUPERSEDED, _SHIFT_LIKE))
     try:
-        ok = experiments._write(conn, settings, None, current, target, now, writer, max_step=experiments.G13_MAX_STEP)
+        ok = experiments._write(conn, settings, None, current, target, now, writer, max_step=experiments.G13_MAX_STEP,
+                                supersede=False)
     except ValueError as exc:
         logger.error("Tryb urlopowy: zapis %s → %s odrzucony przez allowlistę: %s", current, target, exc)
         ok = False
-    st["last_write_id"] = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
+    id_after = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
+    if id_after != id_before:                          # allowlista odrzuca przed INSERT-em — cudzego id nie przejmujemy
+        st["last_write_id"] = id_after
     if ok:
         st["last_written"], st["maybe"] = target, None
     else:

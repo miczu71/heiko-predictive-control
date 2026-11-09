@@ -564,3 +564,21 @@ def test_running_test_does_not_announce_start(conn):
     vac.run(conn, ON, at(12), get_numeric=pump.get_numeric, get_state=pump.get_state, writer=pump.writer,
             notify=pump.notify, away_call=pump.away_call)
     assert pump.sent == [] and "announced" not in state(conn)
+
+
+def test_dhw_write_not_superseded_by_curve_write_same_tick(conn):
+    pump = Pump(dhw=48.0)
+    go(conn, pump, at(12), confirm=False)
+    rows = conn.execute("SELECT entity_id, confirmed_at FROM pump_writes ORDER BY id").fetchall()
+    dhw_rows = [r for r in rows if r["entity_id"] == DHW]
+    assert len(dhw_rows) == 1 and dhw_rows[0]["confirmed_at"] is None
+
+
+def test_rejected_by_allowlist_does_not_take_foreign_write_id(conn):
+    conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok) VALUES ('x', NULL, 'number.x_dhw', 1, 2, 1)")
+    conn.commit()
+    foreign = conn.execute("SELECT MAX(id) FROM pump_writes").fetchone()[0]
+    pump = Pump(dhw=48.0)
+    st = {"base": 99.0}
+    vac._apply(conn, ON, st, 0.0, 99.0, at(12), pump.writer, pump.notify, quiet=True)
+    assert st.get("last_write_id") != foreign
