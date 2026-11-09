@@ -487,7 +487,9 @@ img { max-width: 100%; }
 .zone-expensive { fill: var(--band-expensive); }
 
 /* ── Kafel „Doba” (pulpit) i /ogrzewanie ─────────────────────── */
-:root { --zone-cheap: var(--chart-target); --zone-mid: var(--chart-cold); --zone-expensive: var(--peak); --zone-other: var(--muted); --src-pv: var(--chart-avg); }
+/* Paleta stref „Semafor” (S8/P1): osobne tokeny, żeby „średnia” i „droga” były rozróżnialne w obu motywach. */
+:root { --zone-cheap: #2e7d4f; --zone-mid: #d9a21b; --zone-expensive: #b3261e; --zone-other: var(--muted); --src-pv: #1f5f8b; }
+@media (prefers-color-scheme: dark) { :root { --zone-cheap: #79c99a; --zone-mid: #f0be50; --zone-expensive: #ff8f86; --src-pv: #7fb8e6; } }
 .day-tile { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 16px; margin-bottom: 20px; }
 .day-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; }
 .day-head h2 { font-size: 16px; margin: 0; }
