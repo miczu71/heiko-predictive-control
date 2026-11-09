@@ -60,7 +60,9 @@ def test_experiments_write_only_in_one_function_with_allowlist():
     assert (experiments.SHIFT_MIN, experiments.SHIFT_MAX, experiments.MAX_STEP) == (-3, 3, 1)
     # 0.16.0: allowlista rozszerzona o dwie encje P0 i dwie pary praca/postój; H4: slot 52 (opóźnienie AH, 20–60, krok 5)
     assert set(experiments._WRITE_RULES) == {"heating_curve_parallel_shift", "circulation_pump_p0_run_time",
-                                             "circulation_pump_p0_stop_time", "backup_source_start_delay"}
+                                             "circulation_pump_p0_stop_time", "backup_source_start_delay", "dhw_setpoint"}
+    # 0.23.0 (S5): nastawa CWU tylko dla trybu urlopowego, 16–60, krok całkowity
+    assert (experiments.DHW_SUFFIX, experiments.DHW_MIN, experiments.DHW_MAX) == ("dhw_setpoint", 16, 60)
     assert experiments.P0_PAIRS == ((1.0, 6.0), (5.0, 5.0))
 
 
