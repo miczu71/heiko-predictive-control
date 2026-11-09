@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.1 — Kafel „Doba” bez pozycji „Postój pompy”
+- **Zmiana:** kafel „Doba” (i `/api/day_summary`) nie pokazuje już ani nie liczy postoju pompy. „Razem” to podłoga + ciepła woda + klimatyzacja, a „Pompa dziś” na Pulpicie to podłoga + ciepła woda, więc wartości są niższe niż w 0.23.0 o energię postoju. Pole `standby` znika z odpowiedzi API; ustawienie `pump_energy_entity` zostaje (używają go inne części).
+- Testy: usunięty test postoju, test doby przez północ sprawdza brak `standby` i `pump = floor + dhw`.
+
 ## 0.23.0 — Tryb urlopowy, klima poddasza wyłączana po oknie pracy, kafel „Doba” od północy do północy
 - **Nowe — tryb urlopowy (domyślnie wyłączony):** w oknie dat (`vacation_from`/`vacation_to`, włącznie) krzywa grzewcza dostaje przesunięcie bazowe − obniżka (1–3, domyślnie 2, zawsze obcięte do −3), a nastawa CWU spada do wartości urlopowej (domyślnie 20 °C). Po urlopie krzywa wraca do bazy, a CWU jednorazowo do 48 °C. Opcjonalnie włącza też `input_boolean.away_mode` (wyłącza tylko to, co sam włączył). Bezpiecznik: gdy najzimniejszy pokój jest poniżej progu (domyślnie 16 °C) przez 15 min, tryb wraca do bazy i wysyła powiadomienie do `notify.kacper` (histereza +1 °C). Start i koniec urlopu → `notify.family`. Ręczna zmiana krzywej wstrzymuje tryb do jutra. Kafel „Urlop” na Pulpicie, sekcja „Tryb urlopowy” w Opcjach, `GET /api/vacation`.
 - **Zmiana — G13 w urlopie:** Szczyt G13 nie robi własnych zapisów (kafel: „urlop: szczyt −3”); docisk do −3 w szczycie `evening_peak` wykonuje tryb urlopowy **tylko przy włączonym trybie Szczyt G13** (`g13_peak_enabled`). Start testów jest w urlopie zablokowany, a klima poddasza traktuje urlop jak `attic_vacation_entity`.

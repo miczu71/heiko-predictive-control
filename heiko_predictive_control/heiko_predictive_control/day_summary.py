@@ -100,17 +100,14 @@ def _configured(settings: dict) -> dict[str, bool]:
 
 
 def _result(day: date, parts: dict[str, dict], configured: dict[str, bool], now: datetime,
-            in_progress: bool = False, error: str | None = None, standby: dict | None = None) -> dict:
+            in_progress: bool = False, error: str | None = None) -> dict:
     out: dict = {"day": day.isoformat()}
     for name in ("floor", "dhw", "ac"):
         out[name] = {**public(parts[name]), "configured": configured[name]}
-    extra = [standby] if standby is not None else []
-    out["total"] = public(combine([parts["floor"], parts["dhw"], parts["ac"], *extra]))
-    # Pompa = podłoga + CWU (+ postój, gdy liczony; bez klimatyzacji) — źródło kafelki „Pompa dziś” na pulpicie.
-    out["pump"] = {**public(combine([parts["floor"], parts["dhw"], *extra])),
+    out["total"] = public(combine([parts["floor"], parts["dhw"], parts["ac"]]))
+    # Pompa = podłoga + CWU (bez klimatyzacji) — źródło kafelki „Pompa dziś” na pulpicie.
+    out["pump"] = {**public(combine([parts["floor"], parts["dhw"]])),
                    "configured": configured["floor"] or configured["dhw"]}
-    if standby is not None:
-        out["standby"] = {**public(standby), "configured": True}
     out["in_progress"] = in_progress
     out["generated_at"] = now.isoformat()
     if error:
@@ -222,7 +219,7 @@ def build_today(conn, settings: dict, states: list[dict], now: datetime,
 
 
 
-# ── Doba od północy do północy (0.23.0): dziś i wczoraj z historii HA, runy przycięte o 00:00, „postój” ──
+# ── Doba od północy do północy (0.23.0): dziś i wczoraj z historii HA, runy przycięte o 00:00 ──
 
 DAY_CACHE: dict = {}                   # klucz = data -> (czas, wynik); osobny od `CACHE` (ten wymaga kształtu dla costs)
 TODAY_TTL_S = CACHE_TTL_S
@@ -240,36 +237,10 @@ def _settle(records: list[dict], live_from: datetime | None) -> list[dict]:
     return out
 
 
-def _standby(pump: dict | None, parts: dict[str, dict]) -> dict:
-    """Postój = licznik pompy − podłoga − CWU, składnik po składniku, nie mniej niż 0. Bez licznika (None) albo
-    z resetem licznika: zero i `approx`."""
-    zero = aggregate([], "kwh_total")
-    if pump is None or pump["kwh"] is None:
-        zero["approx"] = True
-        return zero
-    runs = combine([parts["floor"], parts["dhw"]])
-    out = aggregate([], "kwh_total")
-    out["kwh"] = max(0.0, pump["kwh"] - runs["kwh"])
-    out["pln"] = max(0.0, pump["pln"] - runs["pln"])
-    for name, z in pump["zones"].items():
-        r = runs["zones"].get(name, {})
-        out["zones"][name] = {f: max(0.0, z[f] - (r.get(f) or 0.0)) for f in ("kwh", "pln", "pv_kwh")}
-    for origin, x in pump["sources"].items():
-        r = runs["sources"].get(origin, {})
-        out["sources"][origin] = {f: max(0.0, (x.get(f) or 0.0) - (r.get(f) or 0.0))
-                                  for f in ("kwh", "pln", "battery_kwh")}
-    if pump["split_complete"]:
-        out["_pv_kwh"] = max(0.0, pump["pv_kwh"] - runs["_pv_kwh"])
-        out["_known_kwh"] = out["kwh"]
-    out["approx"] = not pump["split_complete"] or runs["approx"]
-    return out
-
-
 def build_day(conn, settings: dict, states, day: date, now: datetime,
               get_history=ha_client.get_history, cache: dict | None = None) -> dict:
     """Doba lokalna `day` (dziś albo wczoraj) z historii HA: runy przycięte do [00:00, 24:00) (run przez północ
-    dzieli się między doby), licznik pompy na tym samym przedziale, a różnica do podłogi i CWU to `standby`
-    (postój). Wczoraj bez historii → zapisane rekordy z `approx` i notatką. Dziś bez historii → zera z błędem."""
+    dzieli się między doby), Wczoraj bez historii → zapisane rekordy z `approx` i notatką. Dziś bez historii → zera z błędem."""
     tz_name, tz = _tz(settings)
     now_l = now.astimezone(tz)
     is_today = day == now_l.date()
@@ -330,18 +301,8 @@ def build_day(conn, settings: dict, states, day: date, now: datetime,
     parts = {"floor": aggregate(floor, "energy_kwh"), "dhw": aggregate(dhw, "kwh_total"),
              "ac": aggregate(ac, "energy_kwh")}
 
-    standby = None
-    pump_entity = settings.get("pump_energy_entity")
-    if pump_entity:
-        e_times, e_values = dhw_cycles._points(hist.get(pump_entity, []))
-        cost = dhw_cycles._cost(e_times, e_values, day_start, window_end, tz, feed, kw["offpeak_price"],
-                                battery_cost_at=kw["battery_cost_at"], mix_at=kw["mix_at"],
-                                **dhw_cycles.source_counters(series({}))) if e_times else None
-        standby = _standby(None if cost is None else {
-            "kwh": cost["kwh"], "pln": cost["pln"], "pv_kwh": cost["pv_kwh"], "zones": cost["zones"],
-            "sources": cost["sources"], "split_complete": cost["split_complete"]}, parts)
     in_progress = any(r.get("complete") is False for r in floor + dhw + ac)
-    result = _result(day, parts, configured, now, in_progress=in_progress, standby=standby)
+    result = _result(day, parts, configured, now, in_progress=in_progress)
     if cache is not None:
         cache[key] = (now, result)
     return result

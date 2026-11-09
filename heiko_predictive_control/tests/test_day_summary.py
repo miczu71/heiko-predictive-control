@@ -237,7 +237,7 @@ def test_aggregate_without_sources_gives_empty():
     assert ds.public(ds.aggregate([{"energy_kwh": 1.0, "cost_pln": 0.5, "zones": {}}], "energy_kwh"))["sources"] == {}
 
 
-# ── h) build_day: doba od północy do północy + postój (0.23.0) ──
+# ── h) build_day: doba od północy do północy (0.23.0) ──
 
 def _midnight_history(calls=None):
     """Run podłogi 26.10 22:00 → 27.10 02:00 (przez północ); licznik pompy 10.0 → 13.0 → 13.6 (postój)."""
@@ -267,7 +267,7 @@ def _db(tmp_path):
     return conn
 
 
-def test_build_day_splits_run_across_midnight_and_adds_standby(tmp_path):
+def test_build_day_splits_run_across_midnight(tmp_path):
     conn = _db(tmp_path)
     gh = _midnight_history()
     d26 = ds.build_day(conn, SETTINGS_PUMP, STATES, datetime(2026, 10, 26).date(), NOW, get_history=gh)
@@ -276,11 +276,8 @@ def test_build_day_splits_run_across_midnight_and_adds_standby(tmp_path):
     assert d26["floor"]["runs"] == 1 and d27["floor"]["runs"] == 1
     assert d26["in_progress"] is False and d27["in_progress"] is False      # cięcie o północy ≠ „w toku”
     assert d26["floor"]["approx"] is False and d27["floor"]["approx"] is False
-    # suma pompy dobowej = przyrost licznika na dobie
-    assert d26["pump"]["kwh"] + d27["pump"]["kwh"] == pytest.approx(2.60, abs=0.01)
-    assert d27["standby"]["kwh"] >= 0 and d27["pump"]["kwh"] == pytest.approx(
-        d27["floor"]["kwh"] + d27["dhw"]["kwh"] + d27["standby"]["kwh"], abs=0.002)
-    assert d27["standby"]["kwh"] == pytest.approx(0.6, abs=0.01)           # 00:00–12:30: 12.0→12.6 minus run do 02:00
+    assert "standby" not in d27                                             # postój nie jest liczony
+    assert d27["pump"]["kwh"] == pytest.approx(d27["floor"]["kwh"] + d27["dhw"]["kwh"], abs=0.002)
     assert d27["total"]["kwh"] == pytest.approx(d27["pump"]["kwh"] + d27["ac"]["kwh"], abs=0.002)
 
 
@@ -289,17 +286,6 @@ def test_build_day_today_run_still_running_is_in_progress(tmp_path):
     r = ds.build_day(conn, SETTINGS_PUMP, STATES, datetime(2026, 10, 27).date(), NOW,
                      get_history=fake_history_factory())
     assert r["in_progress"] is True and r["floor"]["approx"] is True
-
-
-def test_standby_never_negative_and_zero_without_counter():
-    parts = {"floor": ds.aggregate([rec(3.0, 1.0, {"cheap": zone(3.0, 1.0, 0.0)})], "energy_kwh"),
-             "dhw": ds.aggregate([], "kwh_total")}
-    pump = {"kwh": 2.0, "pln": 0.5, "pv_kwh": 0.0, "split_complete": True,
-            "zones": {"cheap": zone(2.0, 0.5, 0.0)}, "sources": {}}
-    s = ds.public(ds._standby(pump, parts))
-    assert s["kwh"] == 0 and s["pln"] == 0 and s["zones"]["cheap"]["kwh"] == 0
-    none = ds.public(ds._standby(None, parts))
-    assert none["kwh"] == 0 and none["approx"] is True
 
 
 def test_build_day_cache_per_day_with_long_ttl_for_yesterday(tmp_path):
