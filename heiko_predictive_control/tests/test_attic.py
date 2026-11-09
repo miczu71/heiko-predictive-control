@@ -549,3 +549,68 @@ def test_morning_simulation_reaches_target_and_holds_it_until_16():
     assert reached_at_8 >= 21.5
     assert min(temps) >= 21.4 and max(temps) <= 23.0
     assert ac_state == "off" and st.owned is False
+
+
+# ── 0.23.0: nieznany dzień roboczy i klima włączona w oknie przez kogoś innego ──
+
+def test_unknown_workday_keeps_owned_ac_inside_window():
+    """Scenariusz z 09.11: sensor dnia roboczego chwilowo bez stanu po restarcie add-onu."""
+    d = decide(inp(at(14, 26), temp=22.0, ac="heat", sp=23.5, workday=None), owned_state(),
+               SETTINGS, enabled=True)
+    assert d.commands == []
+    assert d.state.owned is True
+    assert d.phase == "brak_dnia_roboczego"
+
+
+def test_unknown_workday_after_window_still_releases_owned_ac():
+    d = decide(inp(at(16, 1), temp=22.0, ac="heat", sp=23.5, workday=None), owned_state(),
+               SETTINGS, enabled=True)
+    assert cmds(d) == [("turn_off", {})]
+    assert d.state.owned is False
+
+
+def test_ac_switched_on_in_window_by_someone_else_is_turned_off_at_window_end():
+    midday = decide(inp(at(14, 31), temp=21.0, ac="heat", sp=24.0), AtticState(), SETTINGS,
+                    enabled=True)
+    assert midday.commands == [] and midday.phase == "reczne_uzycie"
+    end = decide(inp(at(16, 1), temp=21.0, ac="heat", sp=24.0), midday.state, SETTINGS,
+                 enabled=True)
+    assert cmds(end) == [("turn_off", {})]
+    assert "window_end_off" in end.events
+    assert end.state.foreign_on_day is None
+
+
+def test_manual_setpoint_change_then_window_end_turns_off():
+    st = owned_state(hvac="heat", temp=23.5)
+    changed = decide(inp(at(10, 0), temp=21.0, ac="heat", sp=27.0), st, SETTINGS, enabled=True)
+    assert changed.phase == "przejecie_reczne"
+    end = decide(inp(at(16, 5), temp=21.0, ac="heat", sp=27.0), changed.state, SETTINGS,
+                 enabled=True)
+    assert cmds(end) == [("turn_off", {})] and "window_end_off" in end.events
+
+
+def test_ac_switched_on_after_window_is_left_alone():
+    midday = decide(inp(at(14, 31), temp=21.0, ac="heat", sp=24.0), AtticState(), SETTINGS,
+                    enabled=True)
+    end = decide(inp(at(16, 1), temp=21.0, ac="heat", sp=24.0), midday.state, SETTINGS,
+                 enabled=True)
+    evening = decide(inp(at(17, 0), temp=19.0, ac="heat", sp=24.0), end.state, SETTINGS,
+                     enabled=True)
+    assert evening.commands == []
+
+
+def test_foreign_ac_switched_off_before_window_end_is_not_a_reason_to_turn_off_later():
+    midday = decide(inp(at(14, 31), temp=21.0, ac="heat", sp=24.0), AtticState(), SETTINGS,
+                    enabled=True)
+    off_again = decide(inp(at(15, 0), temp=23.0, ac="off", sp=24.0), midday.state, SETTINGS,
+                       enabled=True)
+    assert off_again.state.foreign_on_day is None
+    evening = decide(inp(at(17, 0), temp=19.0, ac="heat", sp=24.0), off_again.state, SETTINGS,
+                     enabled=True)
+    assert evening.commands == []
+
+
+def test_window_end_rule_is_dry_run_when_control_disabled():
+    st = AtticState(foreign_on_day=MON.date().isoformat())
+    d = decide(inp(at(16, 1), temp=21.0, ac="heat", sp=24.0), st, SETTINGS, enabled=False)
+    assert d.commands == []

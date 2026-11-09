@@ -427,6 +427,10 @@ def run_attic_cycle(conn, settings: dict, now: datetime,
         if "manual_override" in decision.events:
             notify(notify_to, "Heiko Predictive: AC poddasza",
                    "Wykryto ręczną zmianę klimatyzacji — do końca dnia nie steruję.")
+        if "window_end_off" in decision.events:
+            notify(notify_to, "Heiko Predictive: AC poddasza",
+                   "Klimatyzacja poddasza wyłączona po oknie pracy (była włączona w oknie, "
+                   "nie przez add-on).")
     if "vacant" in decision.events and not decision.dry_run and not failed:
         logger.info("Poddasze: pusto od %.0f min — klimatyzator wyłączony", decision.vacant_min or 0)
     if not decision.dry_run and not failed:

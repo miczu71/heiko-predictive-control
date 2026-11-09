@@ -27,6 +27,7 @@ PHASE_LABELS = {
     "dry_run": "tryb obserwacji (zapisałbym)",
     "wstrzymane": "wstrzymane (urlop / pauza)",
     "pusto": "pusto — nikogo na poddaszu",
+    "brak_dnia_roboczego": "brak stanu dnia roboczego — bez zmian",
 }
 _UNAVAILABLE = (None, "", "unavailable", "unknown")
 

@@ -337,3 +337,15 @@ def test_migration_drops_sim_cost_columns():
     dbm.insert_cycle(conn, {"ts": "2026-09-25T10:05:00", "loop": "heiko", "active_profile": "komfort",
                             "write_enabled": 1})
     assert conn.execute("SELECT COUNT(*) FROM cycles").fetchone()[0] == 2
+
+
+def test_window_end_off_of_foreign_ac_notifies_family():
+    conn = make_conn()
+    dbm.set_setting(conn, "attic_ctrl_state",
+                    AtticState(foreign_on_day="2026-01-12").as_dict())
+    env = Env(ac="heat", ac_temp=24.0, temp=21.0)
+    row = env.run(conn, SETTINGS, at(16, 1))
+    assert [c[1] for c in env.calls] == ["turn_off"]
+    assert any("po oknie pracy" in n[2] for n in env.notes)
+    st = AtticState.from_dict(dbm.get_setting(conn, "attic_ctrl_state"))
+    assert st.foreign_on_day is None

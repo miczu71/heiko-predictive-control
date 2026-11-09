@@ -71,6 +71,7 @@ class AtticState:
     preheat: dict | None = None          # {"ts": iso, "temp": float}
     paused_by_window: bool = False
     last_takeover_day: str | None = None  # powiadomienie o starcie grzania: raz dziennie
+    foreign_on_day: str | None = None    # dzień, w którym w oknie pracy klima była włączona nie przez add-on
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -200,6 +201,11 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
                              minute=0, second=0, microsecond=0)
     window_end = now.replace(hour=int(s.get("attic_work_end_hour", 16)),
                              minute=0, second=0, microsecond=0)
+    # Sensor dnia roboczego chwilowo bez stanu (np. restart add-onu): przejętej klimy nie zwalniamy,
+    # nie wiadomo, czy to dzień wolny. Po końcu okna zwykła ścieżka i tak ją wyłączy.
+    if enabled and st.owned and inp.is_workday is None and now < window_end:
+        return result([], "brak_dnia_roboczego")
+
     vacant_after = int(s.get("attic_vacant_after_min", 0) or 0)
     vacant = False
     if inp.presence is True:
@@ -226,6 +232,10 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
 
     if not in_window:
         held = bool(inp.is_workday) and blocked and now < window_end
+        if enabled and not st.owned and now >= window_end and st.foreign_on_day == today:
+            st.foreign_on_day = None           # reguła działa raz: wieczorne włączenie zostaje w spokoju
+            if ac_on:
+                return result([dict(OFF)], "koniec_okna", planned_start, events=["window_end_off"])
         if st.owned:
             _release(st)
             return result([dict(OFF)] if ac_on else [], "wstrzymane" if held else "koniec_okna",
@@ -237,6 +247,7 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
         return result([], phase, planned_start)
 
     if st.override_date == today:
+        st.foreign_on_day = today if ac_on else None
         return result([], "przejecie_reczne", planned_start)
 
     window_pause = (inp.window_open_since is not None
@@ -250,7 +261,9 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
         if inp.ac_state is None:
             return result([], "brak_ac", planned_start)
         if ac_on:
+            st.foreign_on_day = today
             return result([], "reczne_uzycie", planned_start)
+        st.foreign_on_day = None
         if vacant:
             return result([], "pusto", planned_start)
         if t is not None and t >= target - REACHED_BELOW_C:
@@ -271,6 +284,7 @@ def decide(inp: AtticInputs, state: AtticState, s: dict, enabled: bool) -> Decis
     if lc and (now - datetime.fromisoformat(lc["ts"])).total_seconds() >= OWN_WRITE_GRACE_S \
             and _manual_change(inp, lc):
         st.override_date = today
+        st.foreign_on_day = today if ac_on else None
         _release(st)
         return result([], "przejecie_reczne", planned_start, events=["manual_override"])
 
