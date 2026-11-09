@@ -104,6 +104,15 @@ def test_energia_strefy_szczytu_dzis_i_tydzien(conn):
     assert v["week"] == {"kwh": 3.5, "pln": 5.25}
 
 
+def test_nazwa_pokoju_bezpiecznika_tylko_dzis(conn):
+    feed(conn, at(10), True)
+    room = {"name": "Salon", "c": 20.1}
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"tripped": True, "day": FRI.isoformat(), "trip_room": room})
+    assert g13_view.build(conn, ON, at(10))["trip_room"] == room
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"tripped": True, "day": "2026-11-05", "trip_room": room})
+    assert g13_view.build(conn, ON, at(10))["trip_room"] is None
+
+
 def test_zadzialania_bezpiecznika_7_dni(conn):
     feed(conn, at(10), True)
     dbm.set_setting(conn, g13_exec.STATE_KEY, {"trips": ["2026-10-30", "2026-11-02", "2026-11-06"]})

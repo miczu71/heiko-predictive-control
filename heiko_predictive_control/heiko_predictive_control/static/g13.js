@@ -15,7 +15,11 @@ function nextLine(d) {
   if (d.status === "off") return "Tryb wyłączony — pompa grzeje według własnej krzywej.";
   if (d.status === "blocked") return "Główny wyłącznik „Sterowanie aktywne (Heiko)” jest wyłączony — tryb nie zapisuje do pompy.";
   if (d.status === "suspended") return "Wstrzymany do jutra (ręczna zmiana przesunięcia albo odrzucony zapis).";
-  if (d.status === "tripped") return "Bezpiecznik: pokój był za zimny, przesunięcie wróciło do bazowego do końca szczytu.";
+  if (d.status === "tripped") {
+    const r = d.trip_room;
+    const who = r && r.name ? `${esc(r.name)} (${nf(r.c, 1)} °C) był za zimny` : "pokój był za zimny";
+    return `Bezpiecznik: ${who}, przesunięcie wróciło do bazowego do końca szczytu.`;
+  }
   if (d.workday === null) return "Brak harmonogramu taryfy — tryb nic nie zmienia.";
   if (!d.workday) return "Brak szczytu evening_peak w taryfie dziś — bez zmian przesunięcia.";
   return d.next ? `Następna zmiana ${esc(d.next.at)} → ${esc(String(d.next.value).replace("-", "\u2212"))}` : "Dziś bez kolejnych zmian.";

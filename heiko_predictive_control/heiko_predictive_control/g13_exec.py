@@ -56,11 +56,12 @@ def _breaker_state(st: dict) -> g13_peak.State:
                           tripped=bool(st.get("tripped")))
 
 
-def _min_room(conn, now: datetime) -> float | None:
+def _min_room(conn, now: datetime) -> tuple[float, str | None] | None:
+    """Najzimniejszy pokój z ostatniego cyklu (temperatura, nazwa); starszy niż `ROOM_MAX_AGE` albo bez odczytu = None."""
     row = dbm.latest_cycle(conn, "heiko")
     if row is None or row["min_room_c"] is None or row["ts"] < (now - ROOM_MAX_AGE).isoformat():
         return None
-    return float(row["min_room_c"])
+    return float(row["min_room_c"]), row["min_room_name"]
 
 
 def _save(conn, st: dict, before: dict) -> None:
@@ -180,7 +181,9 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         return None
 
     cfg = _config(settings)
-    decision = g13_peak.decide(now, window=window, current_shift=current, base_shift=base, min_room_c=_min_room(conn, now),
+    cold = _min_room(conn, now)
+    decision = g13_peak.decide(now, window=window, current_shift=current, base_shift=base,
+                               min_room_c=None if cold is None else cold[0],
                                state=_breaker_state(st), cfg=cfg)
     s = decision.state
     st.update(day=s.day.isoformat() if s.day else None, cold_since=s.cold_since.isoformat() if s.cold_since else None,
@@ -195,8 +198,11 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
 
     if decision.event == "bezpiecznik":
         st["trips"] = [*(st.get("trips") or [])[-29:], today]          # historia do kafla na pulpicie
-        experiments._notify(settings, f"Tryb Szczyt G13: pokój poniżej {cfg.min_room_c:g} °C przez 15 min — wracam do "
-                                      f"bazowego do {decision.window.end:02d}:00.", notify, TITLE)
+        room_c, room_name = cold                                       # decyzja „bezpiecznik” wymaga odczytu, więc cold ≠ None
+        st["trip_room"] = {"name": room_name, "c": round(room_c, 1)}
+        experiments._notify(settings, f"Tryb Szczyt G13: {room_name or 'najzimniejszy pokój'} ma {room_c:.1f} °C — poniżej "
+                                      f"{cfg.min_room_c:g} °C przez 15 min, wracam do bazowego do "
+                                      f"{decision.window.end:02d}:00.", notify, TITLE)
     wrote = None
     if decision.target is not None and not _close(decision.target, current):
         wrote = _apply(conn, settings, st, current, decision.target, now, writer, notify)

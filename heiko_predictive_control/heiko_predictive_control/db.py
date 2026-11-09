@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from datetime import date
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -257,6 +258,7 @@ def migrate(conn: sqlite3.Connection) -> None:
                      "ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     _migrate_catalog_0_9_3(conn)
     _migrate_g13_range_0_22(conn)
+    _migrate_g13_preheat_trip_0_22_4(conn)
     # 0.14.0: „eksperyment” Doradcy zastąpiła propozycja testu — oczekujące stare znikają, historia zostaje.
     conn.execute("UPDATE proposals SET status = 'wygasła' WHERE kind = 'eksperyment' AND status = 'oczekuje'")
     conn.commit()
@@ -306,6 +308,21 @@ def _migrate_g13_range_0_22(conn: sqlite3.Connection) -> None:
             logger.warning("Opcja %s = %s poza zakresem −3…3, zapisano %s", key, value, clipped)
             set_setting(conn, key, clipped)
     set_setting(conn, "g13_range_schema", 1)
+
+
+def _migrate_g13_preheat_trip_0_22_4(conn: sqlite3.Connection, today: date | None = None) -> None:
+    """0.22.4: bezpiecznik G13 działa dopiero od szczytu — zadziałanie z dzisiejszego dogrzewania (stara logika) nie
+    blokuje już trybu do północy. Jednorazowo czyści dzisiejszy stan bezpiecznika; wcześniejsze doby zeruje nowa doba."""
+    if get_setting(conn, "g13_preheat_trip_schema") == 1:
+        return
+    st = get_setting(conn, "g13_peak_state")
+    today_s = (today or date.today()).isoformat()
+    if isinstance(st, dict) and st.get("tripped") and st.get("day") == today_s:
+        st.update(tripped=False, cold_since=None, trips=[d for d in st.get("trips") or [] if d != today_s])
+        st.pop("trip_room", None)
+        set_setting(conn, "g13_peak_state", st)
+        logger.warning("Szczyt G13: wyczyszczono dzisiejsze zadziałanie bezpiecznika (0.22.4)")
+    set_setting(conn, "g13_preheat_trip_schema", 1)
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default: Any = None) -> Any:

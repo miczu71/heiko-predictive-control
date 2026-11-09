@@ -94,5 +94,6 @@ def build(conn, settings: dict, now: datetime) -> dict:
         "now": _now_phase(now, window, st) if status == "active" else None,
         "today": _zone_energy(today_runs),
         "week": _zone_energy(week_runs),
+        "trip_room": st.get("trip_room") if status == "tripped" else None,
         "trips_7d": sum(1 for d in st.get("trips") or [] if d >= week_start.isoformat()),
     }

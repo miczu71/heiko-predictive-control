@@ -56,17 +56,18 @@ def feed(conn, now, workday=True, with_rows=True, window=(16, 21)):
         conn.commit()
 
 
-def room(conn, when, value):
-    conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, min_room_c) VALUES (?, 'heiko', 'komfort', 1, ?)",
-                 (when.isoformat(timespec="seconds"), value))
+def room(conn, when, value, name=None):
+    conn.execute("INSERT INTO cycles (ts, loop, active_profile, write_enabled, min_room_c, min_room_name) "
+                 "VALUES (?, 'heiko', 'komfort', 1, ?, ?)", (when.isoformat(timespec="seconds"), value, name))
     conn.commit()
 
 
-def go(conn, pump, now, settings=ON, room_c=21.5, workday=True, with_feed=True, confirm=True, window=(16, 21)):
+def go(conn, pump, now, settings=ON, room_c=21.5, workday=True, with_feed=True, confirm=True, window=(16, 21),
+       room_name=None):
     """Jeden przebieg jak w produkcji: potwierdzenia (experiments.tick), potem tryb."""
     feed(conn, now, workday, with_feed, window)
     if room_c is not None:
-        room(conn, now, room_c)
+        room(conn, now, room_c, room_name)
     if confirm:
         ex.tick(conn, settings, now, pump.get_numeric, pump.writer, pump.notify)
     return g13.run(conn, settings, now, get_numeric=pump.get_numeric, writer=pump.writer, notify=pump.notify)
@@ -165,6 +166,35 @@ def test_breaker_returns_to_base_with_single_notification(conn):
         go(conn, pump, now, room_c=20.0)
     assert pump.calls == [1.0, -3.0, 0.0] and len(pump.notes) == 1
     assert dbm.get_setting(conn, g13.STATE_KEY)["trips"] == [FRI.isoformat()]      # jedno zadziałanie na dobę
+
+
+def test_breaker_names_the_cold_room_in_notification_and_state(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(13), at(16)):
+        go(conn, pump, now)
+    for now in (at(16, 5), at(16, 10), at(16, 15), at(16, 20)):
+        go(conn, pump, now, room_c=19.8, room_name="Sypialnia")
+    assert len(pump.notes) == 1 and "Sypialnia" in pump.notes[0] and "19.8" in pump.notes[0]
+    assert state(conn)["trip_room"] == {"name": "Sypialnia", "c": 19.8}
+
+
+def test_breaker_without_room_name_says_coldest_room(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(13), at(16)):
+        go(conn, pump, now)
+    for now in (at(16, 5), at(16, 10), at(16, 15), at(16, 20)):
+        go(conn, pump, now, room_c=19.8)
+    assert "najzimniejszy pokój" in pump.notes[0]
+    assert state(conn)["trip_room"] == {"name": None, "c": 19.8}
+
+
+def test_cold_room_in_preheat_does_not_revert_and_trips_at_16(conn):
+    pump = Pump(shift=0.0)
+    for now in (at(13), at(14), at(15), at(15, 45)):
+        go(conn, pump, now, room_c=20.0, room_name="Salon")
+    assert pump.calls == [1.0] and pump.notes == []            # dogrzewanie nie jest cofane
+    go(conn, pump, at(16), room_c=20.0, room_name="Salon")
+    assert pump.calls == [1.0, 0.0] and len(pump.notes) == 1 and "Salon" in pump.notes[0]
 
 
 def test_missing_room_reading_does_not_trip_breaker(conn):
@@ -401,6 +431,29 @@ def test_migracja_zakresu_zostawia_wartosc_w_zakresie_i_brak_klucza(conn):
     _mig(conn, g13_peak_peak_shift=-2)
     assert dbm.get_setting(conn, "g13_peak_peak_shift") == -2
     assert dbm.get_setting(conn, "g13_peak_preheat_shift") is None
+
+
+def _mig_trip(conn, st):
+    conn.execute("DELETE FROM settings WHERE key = 'g13_preheat_trip_schema'")
+    dbm.set_setting(conn, g13.STATE_KEY, st)
+    dbm._migrate_g13_preheat_trip_0_22_4(conn, FRI)
+
+
+def test_migracja_0_22_4_czysci_dzisiejszy_bezpiecznik(conn):
+    _mig_trip(conn, {"day": FRI.isoformat(), "tripped": True, "cold_since": "x", "base": 0.0,
+                     "trips": ["2026-11-02", FRI.isoformat()], "trip_room": {"name": "Salon", "c": 20.1}})
+    st = state(conn)
+    assert st["tripped"] is False and st["cold_since"] is None and st["trips"] == ["2026-11-02"]
+    assert st["base"] == 0.0 and "trip_room" not in st
+    assert dbm.get_setting(conn, "g13_preheat_trip_schema") == 1
+
+
+def test_migracja_0_22_4_nie_rusza_wczorajszego_stanu_i_jest_jednorazowa(conn):
+    _mig_trip(conn, {"day": "2026-11-05", "tripped": True, "trips": ["2026-11-05"]})
+    assert state(conn)["tripped"] is True and state(conn)["trips"] == ["2026-11-05"]
+    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "tripped": True, "trips": [FRI.isoformat()]})
+    dbm._migrate_g13_preheat_trip_0_22_4(conn, FRI)            # marker już jest — drugi raz nic nie robi
+    assert state(conn)["tripped"] is True
 
 
 def test_migracja_zakresu_drugie_wywolanie_nic_nie_zmienia(conn):

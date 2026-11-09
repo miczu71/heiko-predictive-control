@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.4 — Szczyt G13: bezpiecznik dopiero od szczytu, nazwa pokoju w powiadomieniu i na kaflu
+- **Poprawka — bezpiecznik nie działa w dogrzewaniu (13–16):** przesunięcie +1 grzeje bardziej, więc cofanie go do bazowego przy zimnym pokoju było bez sensu (a blokowało tryb do końca doby, także szczyt −3 o 16:00). Teraz bezpiecznik może zadziałać dopiero od początku szczytu. Licznik zimna liczy się od dogrzewania, więc gdy pokój jest poniżej progu od ≥15 min w chwili startu szczytu, tryb od razu zostaje na bazowym (bez zapisu −3 i cofania).
+- **Nowe — nazwa pokoju:** powiadomienie („Szczyt G13: Salon ma 20,1 °C — poniżej 20,5 °C przez 15 min …”) i kafel „Szczyt G13” podają, który pokój był najzimniejszy (z ostatniego cyklu; bez nazwy: „najzimniejszy pokój”).
+- **Migracja (jednorazowa):** przy pierwszym starcie czyści dzisiejsze zadziałanie bezpiecznika ze starej logiki, żeby tryb mógł wrócić do pracy tego samego dnia.
+- Testy: nowe dla dogrzewania, startu szczytu, nazwy pokoju, widoku i migracji.
+
 ## 0.22.3 — Pulpit: kafle „Szczyt G13” i „Ogon grzania” w jednym kompaktowym pasku
 - **Zmiana — Pulpit:** oba kafle stoją obok siebie w dwóch kolumnach (na telefonie jedna pod drugą), z niższym paddingiem i mniejszym nagłówkiem; zawartość i „Szczegóły” bez zmian.
 

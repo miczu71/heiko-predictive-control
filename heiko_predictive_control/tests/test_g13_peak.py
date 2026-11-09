@@ -152,10 +152,26 @@ def test_brak_odczytu_pokoi_nie_wyzwala_i_nie_zeruje_licznika():
     assert d.target == -3.0
 
 
-def test_bezpiecznik_dziala_tez_w_dogrzewaniu_13_16():
+def test_bezpiecznik_nie_dziala_w_dogrzewaniu_13_16():
     s = step(at(14, 0), room=20.0).state
     d = step(at(14, 15), s, room=20.0)
-    assert d.target == 0.0 and d.state.tripped
+    assert d.target == 1.0 and d.reason == "dogrzanie" and not d.state.tripped and d.event is None
+    assert d.state.cold_since == at(14, 0)                      # licznik idzie dalej, ale nie wyzwala
+
+
+def test_zimny_pokoj_z_dogrzewania_wyzwala_bezpiecznik_od_razu_o_16():
+    s = step(at(15, 40), room=20.0).state
+    d = step(at(15, 55), s, room=20.0)
+    assert d.target == 1.0 and not d.state.tripped
+    d = step(at(16, 0), d.state, room=20.0)                     # zimno od ≥15 min: bez zapisu −3 i cofania
+    assert d.target == 0.0 and d.state.tripped and d.event == "bezpiecznik"
+
+
+def test_ocieplenie_w_dogrzewaniu_zeruje_licznik_przed_szczytem():
+    s = step(at(15, 40), room=20.0).state
+    s = step(at(15, 50), s, room=21.0).state
+    d = step(at(16, 0), s, room=21.0)
+    assert d.target == -3.0 and not d.state.tripped
 
 
 def test_prog_bezpiecznika_jest_ostry_ponizej():
