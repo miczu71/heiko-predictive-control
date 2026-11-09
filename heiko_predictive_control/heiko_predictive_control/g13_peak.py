@@ -5,7 +5,7 @@ i stan bezpiecznika, a zwraca docelowe przesunięcie. Wykonanie (zapis do pompy,
 z testami, opcje w bazie) to osobny etap — tu tylko decyzja.
 
 Okna (czas lokalny): 13:00–16:00 przesunięcie bazowe + `preheat_shift` (dogrzanie wylewki w tańszej strefie),
-16:00–21:00 bazowe + `peak_shift`, od 21:00 powrót do bazowego. Wynik jest obcięty do ±4 (allowlista zapisu).
+16:00–21:00 bazowe + `peak_shift`, od 21:00 powrót do bazowego. Wynik jest obcięty do ±3 (allowlista zapisu).
 Bezpiecznik: minimum pokoi stref dziennych < `min_room_c` nieprzerwanie przez 15 min → powrót do bazowego do
 końca okna (jedno zdarzenie na dobę). Brak odczytu pokoi nie wyzwala bezpiecznika i nie zeruje licznika."""
 from __future__ import annotations
@@ -17,7 +17,7 @@ PREHEAT_FROM_H = 13
 PEAK_FROM_H = 16
 WINDOW_END_H = 21
 BREAKER_HOLD = timedelta(minutes=15)
-SHIFT_LIMIT = 4.0                           # allowlista zapisu (experiments._write)
+SHIFT_LIMIT = 3.0                           # allowlista zapisu (experiments._write)
 WORKDAY_PROBE_H = 17                        # godzina szczytu G13: is_peak tylko w dni robocze
 
 
@@ -25,7 +25,7 @@ WORKDAY_PROBE_H = 17                        # godzina szczytu G13: is_peak tylko
 class Config:
     min_room_c: float = 20.5
     preheat_shift: float = 1.0
-    peak_shift: float = -4.0
+    peak_shift: float = -3.0
 
 
 @dataclass(frozen=True)

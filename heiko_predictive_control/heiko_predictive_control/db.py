@@ -4,8 +4,11 @@ i do dostrajania współczynnika EWMA)."""
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -253,6 +256,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO settings (key, value) VALUES ('summary_schema', '3') "
                      "ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     _migrate_catalog_0_9_3(conn)
+    _migrate_g13_range_0_22(conn)
     # 0.14.0: „eksperyment” Doradcy zastąpiła propozycja testu — oczekujące stare znikają, historia zostaje.
     conn.execute("UPDATE proposals SET status = 'wygasła' WHERE kind = 'eksperyment' AND status = 'oczekuje'")
     conn.commit()
@@ -289,6 +293,19 @@ def seed_from_options(conn: sqlite3.Connection, options: dict[str, Any]) -> None
             (key, json.dumps(value)),
         )
     conn.commit()
+
+
+def _migrate_g13_range_0_22(conn: sqlite3.Connection) -> None:
+    """0.22: pompa przyjmuje przesunięcie krzywej tylko −3…+3 — zapisane opcje G13 poza zakresem są obcinane."""
+    if get_setting(conn, "g13_range_schema") == 1:
+        return
+    for key in ("g13_peak_peak_shift", "g13_peak_preheat_shift"):
+        value = get_setting(conn, key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and not -3 <= value <= 3:
+            clipped = max(-3, min(3, value))
+            logger.warning("Opcja %s = %s poza zakresem −3…3, zapisano %s", key, value, clipped)
+            set_setting(conn, key, clipped)
+    set_setting(conn, "g13_range_schema", 1)
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default: Any = None) -> Any:

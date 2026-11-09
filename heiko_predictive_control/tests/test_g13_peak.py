@@ -30,18 +30,18 @@ def test_dogrzanie_13_16():
 
 def test_szczyt_16_21():
     for h, m in ((16, 0), (18, 0), (20, 59)):
-        assert step(at(h, m), base=0.0).target == -4.0
+        assert step(at(h, m), base=0.0).target == -3.0
 
 
 def test_21_00_powrot_do_bazowego():
-    d = step(at(21, 0), base=0.0, current=-4.0)
+    d = step(at(21, 0), base=0.0, current=-3.0)
     assert d.target == 0.0 and d.reason == "koniec okna"
 
 
 def test_przesuniecie_wzgledem_bazowego_i_obciecie_do_allowlisty():
     assert step(at(14), base=-1.0).target == 0.0
-    assert step(at(17), base=-2.0).target == -4.0           # −6 obcięte do −4
-    assert step(at(14), base=4.0).target == 4.0             # +5 obcięte do +4
+    assert step(at(17), base=-2.0).target == -3.0           # −5 obcięte do −3
+    assert step(at(14), base=3.0).target == 3.0             # +4 obcięte do +3
 
 
 def test_po_21_nic_do_cofania_gdy_juz_bazowe():
@@ -50,7 +50,7 @@ def test_po_21_nic_do_cofania_gdy_juz_bazowe():
 
 
 def test_po_21_cofa_gdy_przesuniecie_zostalo_po_restarcie():
-    d = step(at(22), base=0.0, current=-4.0)
+    d = step(at(22), base=0.0, current=-3.0)
     assert d.target == 0.0
 
 
@@ -68,16 +68,16 @@ def test_brak_feedu_nic_nie_robi():
 
 def test_brak_feedu_nie_cofa_przesuniecia_w_trakcie_okna():
     # feed zniknął o 16:30 po wejściu w szczyt — nie zgadujemy, watchdog HA pilnuje reszty
-    assert step(at(16, 30), workday=None, current=-4.0).target is None
+    assert step(at(16, 30), workday=None, current=-3.0).target is None
 
 
 # ── bezpiecznik pokoi ───────────────────────────────────────────────────────
 
 def test_bezpiecznik_nie_dziala_przed_15_minutami():
     d = step(at(17, 0), room=20.0)
-    assert d.target == -4.0 and d.state.cold_since == at(17, 0) and not d.state.tripped
+    assert d.target == -3.0 and d.state.cold_since == at(17, 0) and not d.state.tripped
     d = step(at(17, 14), d.state, room=20.0)
-    assert d.target == -4.0 and not d.state.tripped
+    assert d.target == -3.0 and not d.state.tripped
 
 
 def test_bezpiecznik_zadziala_po_15_minutach_i_trzyma_do_21():
@@ -98,7 +98,7 @@ def test_odbicie_temperatury_zeruje_licznik():
     s = step(at(17, 10), s, room=21.0).state
     assert s.cold_since is None
     d = step(at(17, 20), s, room=20.0)
-    assert d.target == -4.0 and d.state.cold_since == at(17, 20)
+    assert d.target == -3.0 and d.state.cold_since == at(17, 20)
 
 
 def test_brak_odczytu_pokoi_nie_wyzwala_i_nie_zeruje_licznika():
@@ -107,7 +107,7 @@ def test_brak_odczytu_pokoi_nie_wyzwala_i_nie_zeruje_licznika():
     assert d.state.cold_since == at(17, 0) and not d.state.tripped
     d = step(at(17, 16), d.state, room=None)
     assert not d.state.tripped                               # bez odczytu nie ma dowodu
-    assert d.target == -4.0
+    assert d.target == -3.0
 
 
 def test_bezpiecznik_dziala_tez_w_dogrzewaniu_13_16():
@@ -131,7 +131,7 @@ def test_wlasny_prog_i_przesuniecia_z_cfg():
 # ── restart w oknie ─────────────────────────────────────────────────────────
 
 def test_restart_w_oknie_z_zapamietana_baza_daje_ten_sam_cel():
-    assert step(at(18, 30), base=-1.0, current=-5.0 + 1.0).target == -4.0   # baza zapamiętana, stan pusty
+    assert step(at(18, 30), base=-1.0, current=-5.0 + 1.0).target == -3.0   # baza zapamiętana, stan pusty
 
 
 def test_restart_w_oknie_bez_bazy_bierze_biezace_przesuniecie():
@@ -168,3 +168,7 @@ def test_workday_from_feed():
     assert g.workday_from_feed(FakeFeed({"2026-11-07T17": Row(False)}), date(2026, 11, 7), at(10)) is False
     assert g.workday_from_feed(FakeFeed({}), DAY, at(10)) is None                       # brak godziny
     assert g.workday_from_feed(FakeFeed({"2026-11-06T17": Row(True)}, source="fallback"), DAY, at(10)) is None
+
+
+def test_domyslny_peak_shift_to_minus_3():
+    assert g.Config().peak_shift == -3.0

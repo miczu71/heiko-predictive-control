@@ -835,7 +835,7 @@ def test_dashboard_survives_g13_tile_failure(client, monkeypatch):
 def test_options_page_has_g13_fields_with_defaults(client):
     html = client.get("/options").get_data(as_text=True)
     assert 'name="g13_peak_enabled"' in html and 'name="g13_peak_min_room_c"' in html
-    assert 'value="20.5"' in html and 'name="g13_peak_peak_shift" value="-4"' in html
+    assert 'value="20.5"' in html and 'name="g13_peak_peak_shift" value="-3"' in html
 
 
 def test_tariff_from_hour_g13_zones():

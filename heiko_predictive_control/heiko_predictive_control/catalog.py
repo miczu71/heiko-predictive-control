@@ -47,7 +47,7 @@ _AH_PRIORITY = ("Niższe dla grzałki wewnętrznej AH", "Wyższe dla grzałki we
 CATALOG: tuple[Param, ...] = (
     # ── Klasa A ────────────────────────────────────────────────────────────
     _n("curve_shift", "heating_curve_parallel_shift", CLASS_A, "Przesunięcie krzywej grzewczej",
-       "komfort, koszt ogrzewania", "°C", (-9, 9), (-4, 4), 1,
+       "komfort, koszt ogrzewania", "°C", (-9, 9), (-3, 3), 1,
        "działa tylko przy włączonej krzywej"),
     _n("heating_stops_dt", "heating_stops_dt", CLASS_A, "Histereza: stop ogrzewania",
        "cykle sprężarki, COP, rozrzut temperatury", "K", (1, 15), (1, 5)),

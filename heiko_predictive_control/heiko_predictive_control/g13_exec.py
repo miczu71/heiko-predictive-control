@@ -1,6 +1,6 @@
 """Tryb „Szczyt G13” — wykonanie (E3): odczyt przesunięcia, decyzja z `g13_peak.decide` i zapis do pompy.
 
-Jedyna ścieżka zapisu to `experiments._write` (allowlista encji i zakresu ±4, krok dowolny tylko dla przesunięcia
+Jedyna ścieżka zapisu to `experiments._write` (allowlista encji i zakresu ±3, krok dowolny tylko dla przesunięcia
 krzywej przez `G13_MAX_STEP`). Tryb jest domyślnie wyłączony (`g13_peak_enabled`), test uruchomiony przez usera ma
 pierwszeństwo, a ręczna zmiana przesunięcia albo brak potwierdzenia/odrzucenie zapisu wstrzymują tryb do jutra.
 Stan (baza, ostatni zapis, intencja, bezpiecznik) leży w bazie (`settings`, JSON) i przeżywa restart add-onu."""
@@ -42,7 +42,7 @@ def _num(settings: dict, key: str, default: float) -> float:
 def _config(settings: dict) -> g13_peak.Config:
     return g13_peak.Config(min_room_c=_num(settings, "g13_peak_min_room_c", 20.5),
                            preheat_shift=_num(settings, "g13_peak_preheat_shift", 1.0),
-                           peak_shift=_num(settings, "g13_peak_peak_shift", -4.0))
+                           peak_shift=_num(settings, "g13_peak_peak_shift", -3.0))
 
 
 def active(settings: dict) -> bool:
@@ -120,7 +120,7 @@ def _run(conn, settings, now, get_numeric, writer, notify, is_workday) -> dict |
         if not _close(current, base) and any(_close(current, v) for v in _known(st)):
             failed_before = st.get("return_fail_day") == today
             wrote = _apply(conn, settings, st, current, base, now, writer, notify, quiet=True)     # powrót do bazowego po wyłączeniu
-            if not wrote:                                  # stan zostaje: następny tick ponowi powrót (nie zostawiamy −4)
+            if not wrote:                                  # stan zostaje: następny tick ponowi powrót (nie zostawiamy −3)
                 if not failed_before:
                     experiments._notify(settings, f"Tryb Szczyt G13 wyłączony, ale powrót przesunięcia do {base:g} nie "
                                                   "powiódł się — ponawiam co 5 min; w razie potrzeby ustaw ręcznie.", notify, TITLE)

@@ -24,7 +24,8 @@ def test_keys_unique_and_classes_valid():
     ("curve_shift", 0, 1, True),
     ("curve_shift", 0, -1, True),
     ("curve_shift", 0, 2, False),           # krok > 1
-    ("curve_shift", 4, 5, False),           # poza ±4
+    ("curve_shift", 3, 4, False),           # poza ±3 (pompa przyjmuje tylko −3…+3)
+    ("curve_shift", -3, -4, False),
     ("curve_shift", 0, 9, False),
     ("heating_stops_dt", 1, 5, True),
     ("heating_stops_dt", 1, 6, False),      # A tylko 1–5

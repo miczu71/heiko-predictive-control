@@ -33,7 +33,7 @@ def test_wylaczony_bez_nastepnej_zmiany(conn):
 def test_nastepna_zmiana_w_dzien_roboczy(conn):
     feed(conn, at(14), True)
     v = g13_view.build(conn, ON, at(14), WD)
-    assert v["status"] == "active" and v["next"] == {"at": "16:00", "value": "-4"}
+    assert v["status"] == "active" and v["next"] == {"at": "16:00", "value": "-3"}
     assert g13_view.build(conn, ON, at(22), WD)["next"] is None
 
 
@@ -41,8 +41,8 @@ def test_teraz_faza_i_przesuniecie_z_ostatniego_zapisu(conn):
     feed(conn, at(14), True)
     dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": 1.0, "base": 0.0, "day": FRI.isoformat()})
     assert g13_view.build(conn, ON, at(14), WD)["now"] == {"phase": "przedgrzewanie do 16:00", "shift": "+1", "base": "0"}
-    dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": -4.0, "base": 0.0, "day": FRI.isoformat()})
-    assert g13_view.build(conn, ON, at(17), WD)["now"] == {"phase": "szczyt do 21:00", "shift": "-4", "base": "0"}
+    dbm.set_setting(conn, g13_exec.STATE_KEY, {"last_written": -3.0, "base": 0.0, "day": FRI.isoformat()})
+    assert g13_view.build(conn, ON, at(17), WD)["now"] == {"phase": "szczyt do 21:00", "shift": "-3", "base": "0"}
     assert g13_view.build(conn, ON, at(22), WD)["now"] is None
     assert g13_view.build(conn, ON, at(12), WD)["now"] is None
     assert g13_view.build(conn, {}, at(14), WD)["now"] is None

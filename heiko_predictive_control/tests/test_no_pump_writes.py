@@ -54,7 +54,7 @@ def test_experiments_write_only_in_one_function_with_allowlist():
     assert _uses(ast.parse(inspect.getsource(experiments._write)), WRITE_NAMES) != []
     assert experiments.ALLOWED_ENTITY_SUFFIX == "heating_curve_parallel_shift"
     assert experiments.ALLOWED_SERVICE == ("number", "set_value")
-    assert (experiments.SHIFT_MIN, experiments.SHIFT_MAX, experiments.MAX_STEP) == (-4, 4, 1)
+    assert (experiments.SHIFT_MIN, experiments.SHIFT_MAX, experiments.MAX_STEP) == (-3, 3, 1)
     # 0.16.0: allowlista rozszerzona o dwie encje P0 i dwie pary praca/postój; H4: slot 52 (opóźnienie AH, 20–60, krok 5)
     assert set(experiments._WRITE_RULES) == {"heating_curve_parallel_shift", "circulation_pump_p0_run_time",
                                              "circulation_pump_p0_stop_time", "backup_source_start_delay"}

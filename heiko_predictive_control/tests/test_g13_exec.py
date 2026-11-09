@@ -132,8 +132,8 @@ def test_peak_writes_minus_four_in_one_jump(conn):
     go(conn, pump, at(13))
     go(conn, pump, at(13, 5))
     go(conn, pump, at(16))
-    assert pump.calls == [1.0, -4.0]
-    assert pump.shift == -4.0 and state(conn)["last_written"] == -4.0
+    assert pump.calls == [1.0, -3.0]
+    assert pump.shift == -3.0 and state(conn)["last_written"] == -3.0
 
 
 def test_return_to_base_at_21_and_state_cleared_after_confirmation(conn):
@@ -141,12 +141,12 @@ def test_return_to_base_at_21_and_state_cleared_after_confirmation(conn):
     for now in (at(13), at(13, 5), at(16), at(16, 5), at(20, 55)):
         go(conn, pump, now)
     go(conn, pump, at(21))
-    assert pump.calls == [1.0, -4.0, 0.0]
+    assert pump.calls == [1.0, -3.0, 0.0]
     assert state(conn)["base"] == 0.0                          # jeszcze niewyzerowane — czekamy na potwierdzenie
     go(conn, pump, at(21, 5))
     st = state(conn)
     assert st["base"] is None and st["last_written"] is None and st["intent"] is None
-    assert pump.calls == [1.0, -4.0, 0.0] and pump.notes == []
+    assert pump.calls == [1.0, -3.0, 0.0] and pump.notes == []
 
 
 def test_breaker_returns_to_base_with_single_notification(conn):
@@ -155,13 +155,13 @@ def test_breaker_returns_to_base_with_single_notification(conn):
         go(conn, pump, now)
     for now in (at(16), at(16, 5), at(16, 10)):
         go(conn, pump, now, room_c=20.0)
-    assert pump.calls == [1.0, -4.0] and pump.notes == []
+    assert pump.calls == [1.0, -3.0] and pump.notes == []
     go(conn, pump, at(16, 15), room_c=20.0)
-    assert pump.calls == [1.0, -4.0, 0.0]
+    assert pump.calls == [1.0, -3.0, 0.0]
     assert len(pump.notes) == 1 and "20.5" in pump.notes[0] and "15 min" in pump.notes[0]
     for now in (at(16, 20), at(16, 25), at(17)):
         go(conn, pump, now, room_c=20.0)
-    assert pump.calls == [1.0, -4.0, 0.0] and len(pump.notes) == 1
+    assert pump.calls == [1.0, -3.0, 0.0] and len(pump.notes) == 1
     assert dbm.get_setting(conn, g13.STATE_KEY)["trips"] == [FRI.isoformat()]      # jedno zadziałanie na dobę
 
 
@@ -170,7 +170,7 @@ def test_missing_room_reading_does_not_trip_breaker(conn):
     room(conn, at(12), 19.0)                                   # stary wiersz (> 20 min) — ignorowany
     for now in (at(13), at(13, 5), at(16), at(16, 30), at(17), at(18)):
         go(conn, pump, now, room_c=None)
-    assert pump.calls == [1.0, -4.0] and pump.notes == []
+    assert pump.calls == [1.0, -3.0] and pump.notes == []
     assert state(conn)["tripped"] is False
 
 
@@ -180,20 +180,20 @@ def test_manual_change_suspends_until_tomorrow(conn):
         go(conn, pump, now)
     pump.shift = 2.0                                           # user zmienił przesunięcie ręcznie
     go(conn, pump, at(16, 5))
-    assert pump.calls == [1.0, -4.0]
+    assert pump.calls == [1.0, -3.0]
     assert len(pump.notes) == 1 and "ręcznie" in pump.notes[0] and "2" in pump.notes[0]
     st = state(conn)
     assert st["suspended_day"] == FRI.isoformat() and st["base"] is None
     for now in (at(17), at(20), at(21), at(21, 5)):
         go(conn, pump, now)
-    assert pump.calls == [1.0, -4.0] and len(pump.notes) == 1
+    assert pump.calls == [1.0, -3.0] and len(pump.notes) == 1
     go(conn, pump, at(13, day=MON))                            # kolejny dzień roboczy — tryb znów działa (baza = 2)
-    assert pump.calls == [1.0, -4.0, 3.0]
+    assert pump.calls == [1.0, -3.0, 3.0]
 
 
 def test_restart_in_window_is_not_a_manual_change(conn):
-    pump = Pump(shift=-4.0)
-    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -4.0, "last_written": None,
+    pump = Pump(shift=-3.0)
+    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -3.0, "last_written": None,
                                           "tripped": False, "cold_since": None, "suspended_day": None})
     go(conn, pump, at(17))
     assert pump.calls == [] and pump.notes == []
@@ -212,41 +212,41 @@ def test_unconfirmed_write_waits(conn):
 def test_no_confirmation_suspends_day_and_still_returns_after_21(conn):
     pump = Pump(shift=0.0, confirm=False)
     go(conn, pump, at(16))
-    assert pump.calls == [-4.0]
+    assert pump.calls == [-3.0]
     go(conn, pump, at(16, 11))                                 # tick oznacza NO_CONFIRMATION i wysyła powiadomienie
     assert len(pump.notes) == 1 and "nie potwierdzi" in pump.notes[0]
     assert state(conn)["suspended_day"] == FRI.isoformat()
     go(conn, pump, at(16, 20))
     go(conn, pump, at(18))
-    assert pump.calls == [-4.0]
-    pump.shift = -4.0                                          # pompa jednak przyjęła zapis
+    assert pump.calls == [-3.0]
+    pump.shift = -3.0                                          # pompa jednak przyjęła zapis
     go(conn, pump, at(21))
-    assert pump.calls == [-4.0, 0.0]
+    assert pump.calls == [-3.0, 0.0]
     assert len(pump.notes) == 1
 
 
 def test_writer_rejection_suspends_day_with_notification(conn):
     pump = Pump(shift=0.0, accept=False)
     go(conn, pump, at(16))
-    assert pump.calls == [-4.0]
+    assert pump.calls == [-3.0]
     assert len(pump.notes) == 1 and "odrzuci" in pump.notes[0]
     assert state(conn)["suspended_day"] == FRI.isoformat() and state(conn).get("last_written") is None
     go(conn, pump, at(16, 5))
     go(conn, pump, at(17))
-    assert pump.calls == [-4.0] and len(pump.notes) == 1
+    assert pump.calls == [-3.0] and len(pump.notes) == 1
 
 
 def test_disabling_mid_window_returns_to_base_once(conn):
     pump = Pump(shift=0.0)
     for now in (at(13), at(13, 5), at(16), at(16, 5)):
         go(conn, pump, now)
-    assert pump.shift == -4.0
+    assert pump.shift == -3.0
     go(conn, pump, at(16, 10), settings=OFF)
-    assert pump.calls == [1.0, -4.0, 0.0] and pump.shift == 0.0
+    assert pump.calls == [1.0, -3.0, 0.0] and pump.shift == 0.0
     assert state(conn).get("base") is None
     go(conn, pump, at(16, 15), settings=OFF)
     go(conn, pump, at(17), settings=OFF)
-    assert pump.calls == [1.0, -4.0, 0.0]
+    assert pump.calls == [1.0, -3.0, 0.0]
 
 
 def test_disabling_after_manual_change_does_not_overwrite(conn):
@@ -262,26 +262,26 @@ def test_manual_change_to_base_value_in_peak_is_detected(conn):
     pump = Pump(shift=0.0)
     for now in (at(13), at(13, 5), at(16), at(16, 3)):
         go(conn, pump, now)
-    assert pump.calls == [1.0, -4.0]
+    assert pump.calls == [1.0, -3.0]
     pump.shift = 0.0                                           # user ustawił ręcznie wartość bazową
     go(conn, pump, at(16, 5))
     go(conn, pump, at(16, 10))
-    assert pump.calls == [1.0, -4.0] and pump.shift == 0.0
+    assert pump.calls == [1.0, -3.0] and pump.shift == 0.0
     assert len(pump.notes) == 1 and "ręcznie" in pump.notes[0]
     assert state(conn)["suspended_day"] == FRI.isoformat()
 
 
 def test_return_failure_after_21_notifies_once_per_day(conn):
-    pump = Pump(shift=-4.0, accept=False)
-    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -4.0, "last_written": -4.0})
+    pump = Pump(shift=-3.0, accept=False)
+    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -3.0, "last_written": -3.0})
     for now in (at(21), at(21, 5), at(21, 10), at(22)):
         go(conn, pump, now)
     assert len(pump.notes) == 1 and len(pump.calls) == 4
 
 
 def test_restart_after_21_returns_to_base(conn):
-    pump = Pump(shift=-4.0)
-    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -4.0, "last_written": -4.0,
+    pump = Pump(shift=-3.0)
+    dbm.set_setting(conn, g13.STATE_KEY, {"day": FRI.isoformat(), "base": 0.0, "intent": -3.0, "last_written": -3.0,
                                           "tripped": False, "cold_since": None, "suspended_day": None})
     go(conn, pump, at(21, 5))
     assert pump.calls == [0.0] and pump.notes == []
@@ -301,21 +301,21 @@ def test_manual_change_after_no_confirmation_is_detected_and_not_overwritten_aft
     pump = Pump(shift=0.0, confirm=False)
     go(conn, pump, at(16))
     go(conn, pump, at(16, 11))                                 # NO_CONFIRMATION, tryb wstrzymany
-    assert pump.calls == [-4.0] and len(pump.notes) == 1
+    assert pump.calls == [-3.0] and len(pump.notes) == 1
     pump.shift = 2.0                                           # user ustawił ręcznie (ani stara wartość, ani zapis trybu)
     go(conn, pump, at(18))
     assert len(pump.notes) == 2 and "ręcznie" in pump.notes[1]
     go(conn, pump, at(21, 5))
-    assert pump.calls == [-4.0]
+    assert pump.calls == [-3.0]
 
 
 def test_late_applied_write_after_no_confirmation_then_disable_returns_to_base(conn):
     pump = Pump(shift=0.0, confirm=False)
     go(conn, pump, at(16))
     go(conn, pump, at(16, 11))                                 # NO_CONFIRMATION
-    pump.shift = -4.0                                          # pompa przyjęła zapis z opóźnieniem
+    pump.shift = -3.0                                          # pompa przyjęła zapis z opóźnieniem
     go(conn, pump, at(17), settings=OFF)
-    assert pump.calls == [-4.0, 0.0]
+    assert pump.calls == [-3.0, 0.0]
     assert state(conn).get("base") is None
 
 
@@ -324,18 +324,18 @@ def test_rejected_write_keeps_previous_value_known(conn):
     pump = Pump(shift=0.0, accept=False)
     go(conn, pump, at(16))
     go(conn, pump, at(16, 5))
-    assert pump.calls == [-4.0] and len(pump.notes) == 1       # tylko powiadomienie o odrzuceniu
+    assert pump.calls == [-3.0] and len(pump.notes) == 1       # tylko powiadomienie o odrzuceniu
 
 
 def test_disable_with_rejected_return_keeps_state_and_retries(conn):
     pump = Pump(shift=0.0)
     for now in (at(13), at(16)):
         go(conn, pump, now)
-    assert pump.shift == -4.0
+    assert pump.shift == -3.0
     pump.accept = False
     go(conn, pump, at(16, 10), settings=OFF)                  # powrót odrzucony: stan nie ginie
     st = dbm.get_setting(conn, g13.STATE_KEY)
-    assert pump.shift == -4.0 and st["base"] == 0.0
+    assert pump.shift == -3.0 and st["base"] == 0.0
     notes = len(pump.notes)
     assert notes == 1 and "ponawiam" in pump.notes[0]
     go(conn, pump, at(16, 15), settings=OFF)                  # kolejna odmowa tego samego dnia: bez drugiego powiadomienia
@@ -358,7 +358,7 @@ def test_write_applied_despite_error_is_not_manual_change_and_returns_to_base(co
         return False
     pump.writer = late_accept
     go(conn, pump, at(16), confirm=False)
-    assert pump.shift == -4.0
+    assert pump.shift == -3.0
     notes = len(pump.notes)
     go(conn, pump, at(16, 5), confirm=False)
     st = dbm.get_setting(conn, g13.STATE_KEY)
@@ -376,4 +376,33 @@ def test_master_switch_off_blocks_writes(conn):
 
 def test_null_options_fall_back_to_defaults(conn):
     cfg = g13._config({"g13_peak_min_room_c": None, "g13_peak_preheat_shift": None, "g13_peak_peak_shift": None})
-    assert (cfg.min_room_c, cfg.preheat_shift, cfg.peak_shift) == (20.5, 1.0, -4.0)
+    assert (cfg.min_room_c, cfg.preheat_shift, cfg.peak_shift) == (20.5, 1.0, -3.0)
+
+
+# ── migracja zakresu 0.22 (−4 → −3) ─────────────────────────────────────────
+
+def _mig(conn, **kv):
+    conn.execute("DELETE FROM settings WHERE key = 'g13_range_schema'")
+    for k, v in kv.items():
+        dbm.set_setting(conn, k, v)
+    dbm._migrate_g13_range_0_22(conn)
+
+
+def test_migracja_zakresu_obcina_poza_zakresem(conn):
+    _mig(conn, g13_peak_peak_shift=-4, g13_peak_preheat_shift=4)
+    assert dbm.get_setting(conn, "g13_peak_peak_shift") == -3
+    assert dbm.get_setting(conn, "g13_peak_preheat_shift") == 3
+    assert dbm.get_setting(conn, "g13_range_schema") == 1
+
+
+def test_migracja_zakresu_zostawia_wartosc_w_zakresie_i_brak_klucza(conn):
+    _mig(conn, g13_peak_peak_shift=-2)
+    assert dbm.get_setting(conn, "g13_peak_peak_shift") == -2
+    assert dbm.get_setting(conn, "g13_peak_preheat_shift") is None
+
+
+def test_migracja_zakresu_drugie_wywolanie_nic_nie_zmienia(conn):
+    _mig(conn)
+    dbm.set_setting(conn, "g13_peak_peak_shift", -4)
+    dbm._migrate_g13_range_0_22(conn)
+    assert dbm.get_setting(conn, "g13_peak_peak_shift") == -4

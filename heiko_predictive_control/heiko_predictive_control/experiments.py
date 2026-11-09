@@ -1,7 +1,7 @@
 """Doradca D3a (0.12.0): testy uruchamiane przez usera — JEDYNY moduł pętli Heiko z zapisem do pompy.
 
 Start testu = zgoda usera na cały, z góry pokazany harmonogram; potem add-on sam wykonuje kroki (`tick` co 5 min).
-Twarde granice: zapis wyłącznie `number.set_value` na przesunięciu krzywej (zakres ±4, krok ≤ 1) albo — od 0.16.0 —
+Twarde granice: zapis wyłącznie `number.set_value` na przesunięciu krzywej (zakres ±3, krok ≤ 1) albo — od 0.16.0 —
 na parze czas pracy/postoju pompy obiegowej P0 (tylko pary 1/6 i 5/5) albo — H4, poza testami, `write_setting` po akceptacji
 propozycji Doradcy — na opóźnieniu grzałki AH (slot 52: 20–60 min, wielokrotność 5, krok ≤ 5), jeden test naraz, główny wyłącznik `heiko_enabled`. Zabezpieczenia: potwierdzenie zapisu z ramki pompy (10 min), ręczna zmiana wygrywa
 (test przerwany, nic nie nadpisujemy), komfort (najzimniejszy pokój < minimum > 30 min → powrót), restart add-onu
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_ENTITY_SUFFIX = "heating_curve_parallel_shift"      # zapis tylko na encję przesunięcia krzywej (sprawdzane w _write)
 ALLOWED_SERVICE = ("number", "set_value")
-SHIFT_MIN, SHIFT_MAX, MAX_STEP = -4, 4, 1
-G13_MAX_STEP = 2 * SHIFT_MAX               # tryb Szczyt G13: skok w całym zakresie ±4 (tylko przesunięcie krzywej, przez `_write`)
+SHIFT_MIN, SHIFT_MAX, MAX_STEP = -3, 3, 1
+G13_MAX_STEP = 2 * SHIFT_MAX               # tryb Szczyt G13: skok w całym zakresie ±3 (tylko przesunięcie krzywej, przez `_write`)
 # Pompa obiegowa P0 (test p0_ab): zapis tylko na dwóch encjach i tylko wartości z dwóch dozwolonych par (praca, postój).
 # Wartości pojedynczych zapisów (1/5 i 5/6) wynikają z par, więc kolejność zapisu nigdy nie daje postoju < 5 min.
 P0_PAIRS = ((1.0, 6.0), (5.0, 5.0))
@@ -373,12 +373,13 @@ _WRITE_RULES = {
 def _write(conn, settings: dict, test_id: int | None, old: float, new: float, now: datetime, writer,
            entity: str | None = None, supersede: bool = True, max_step: float | None = None) -> bool:
     """Jedyne miejsce, które wywołuje usługę HA. `entity` domyślnie = przesunięcie krzywej z Opcji. `max_step` (tryb
-    Szczyt G13) zastępuje limit kroku TYLKO dla przesunięcia krzywej; zakres ±4 i pozostałe encje bez zmian."""
+    Szczyt G13) zastępuje limit kroku TYLKO dla przesunięcia krzywej; zakres ±3 i pozostałe encje bez zmian."""
     entity = entity or curve_shift_entity(settings)
     rule = next((r for suffix, r in _WRITE_RULES.items() if entity.endswith(suffix)), None)
     if max_step is not None and entity.endswith(ALLOWED_ENTITY_SUFFIX):
         rule = lambda old, new: SHIFT_MIN <= new <= SHIFT_MAX and abs(new - old) <= max_step
     if not (entity.startswith("number.") and rule and rule(old, new)):
+        logger.warning("Odrzucony zapis %s: %s → %s (poza granicami)", entity, old, new)
         raise ValueError(f"zapis {entity} {old} → {new} poza granicami")
     ok = (writer or ha_client.call_service)(*ALLOWED_SERVICE, {"entity_id": entity, "value": new})
     if supersede:
@@ -492,6 +493,10 @@ def _confirm_writes(conn, settings: dict, get_numeric, now: datetime, notify) ->
                 if w["entity_id"].endswith(SLOT52_SUFFIX):
                     _notify(settings, f"Pompa nie potwierdziła zapisu opóźnienia grzałki (slot 52) = {w['new']:g} — sprawdź ręcznie.",
                             notify, "Heiko Doradca: zapis slotu 52")
+                    continue
+                if w["test_id"] is None and w["entity_id"].endswith(ALLOWED_ENTITY_SUFFIX):
+                    _notify(settings, f"Pompa nie potwierdziła zapisu przesunięcia {w['new']:g} (tryb Szczyt G13) — sprawdź ręcznie.",
+                            notify, _title(None))
                     continue
                 what = "przesunięcia" if w["entity_id"].endswith(ALLOWED_ENTITY_SUFFIX) else f"{w['entity_id']} ="
                 _notify(settings, f"Pompa nie potwierdziła przywrócenia {what} {w['new']:g} — sprawdź ręcznie.", notify,

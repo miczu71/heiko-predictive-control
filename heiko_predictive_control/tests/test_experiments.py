@@ -101,7 +101,7 @@ def test_validate_hard_limits():
     assert "zakresem" in ex.validate([{"at": "x", "value": -5}, {"at": "y", "value": -4}], -4)
     assert "krok" in ex.validate([{"at": "x", "value": 2}, {"at": "y", "value": 0}], 0)
     assert "powrotem" in ex.validate([{"at": "x", "value": 1}], 0)
-    assert ex.build_schedule("zapis", 4.0, T0, workday)[0]["value"] == 3.0     # przy +4 test idzie w dół
+    assert ex.build_schedule("zapis", 3.0, T0, workday)[0]["value"] == 2.0     # przy +3 test idzie w dół
 
 
 def test_write_test_runs_to_completion(conn):
@@ -644,20 +644,20 @@ def test_slot52_write_is_confirmed_from_frame_without_a_test(conn):
     assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == "2026-10-07T10:03:00" and pump.notes == []
 
 
-# ── Szczyt G13 (E3): skok do ±4 tylko z jawnym max_step, blokada Startu testu ──────────────────────────────
+# ── Szczyt G13 (E3): skok do ±3 tylko z jawnym max_step, blokada Startu testu ──────────────────────────────
 
 def test_write_with_g13_max_step_allows_jump_within_range(conn):
     calls = []
     writer = lambda d, s, data: calls.append(data["value"]) or True
-    assert ex.G13_MAX_STEP == 8 and ex.MAX_STEP == 1
-    assert ex._write(conn, SETTINGS, None, 1.0, -4.0, T0, writer, max_step=ex.G13_MAX_STEP)
-    assert ex._write(conn, SETTINGS, None, -4.0, 4.0, T0, writer, max_step=ex.G13_MAX_STEP)
-    assert calls == [-4.0, 4.0]
+    assert ex.G13_MAX_STEP == 6 and ex.MAX_STEP == 1
+    assert ex._write(conn, SETTINGS, None, 1.0, -3.0, T0, writer, max_step=ex.G13_MAX_STEP)
+    assert ex._write(conn, SETTINGS, None, -3.0, 3.0, T0, writer, max_step=ex.G13_MAX_STEP)
+    assert calls == [-3.0, 3.0]
 
 
 def test_write_without_max_step_still_limited_to_one_step(conn):
     with pytest.raises(ValueError):
-        ex._write(conn, SETTINGS, None, 1.0, -4.0, T0, lambda *a: True)
+        ex._write(conn, SETTINGS, None, 1.0, -3.0, T0, lambda *a: True)
 
 
 def test_write_with_g13_max_step_still_rejects_outside_range(conn):
@@ -702,3 +702,29 @@ def test_start_refused_when_g13_mode_enabled(conn):
     assert res["ok"] is False and "Szczyt G13" in res["error"]
     assert ex.running_test(conn) is None
     assert _start(conn, pump)["ok"]                            # bez trybu start działa jak dotąd
+
+
+# ── Zakres ±3 (pompa przyjmuje tylko −3…+3), zapis G13 bez testu ────────────────────────────────────────
+
+def test_write_rejects_minus4_and_plus4_with_warning(conn, caplog):
+    for old, new in ((-3.0, -4.0), (3.0, 4.0)):
+        with caplog.at_level("WARNING"), pytest.raises(ValueError):
+            ex._write(conn, SETTINGS, None, old, new, T0, lambda *a: True, max_step=ex.G13_MAX_STEP)
+    assert sum("Odrzucony zapis" in r.message for r in caplog.records) == 2
+
+
+def test_write_accepts_minus3_and_plus3(conn):
+    calls = []
+    writer = lambda d, s, data: calls.append(data["value"]) or True
+    assert ex._write(conn, SETTINGS, None, -2.0, -3.0, T0, writer)
+    assert ex._write(conn, SETTINGS, None, 2.0, 3.0, T0, writer)
+    assert calls == [-3.0, 3.0]
+
+
+def test_g13_unconfirmed_write_notifies_about_g13_mode(conn):
+    pump = Pump()
+    ex._write(conn, SETTINGS, None, 0.0, -3.0, T0, pump.writer, max_step=ex.G13_MAX_STEP)
+    ex._confirm_writes(conn, SETTINGS, lambda e: 0.0, T0 + timedelta(minutes=ex.CONFIRM_MIN + 1), pump.notify)
+    assert conn.execute("SELECT confirmed_at FROM pump_writes").fetchone()[0] == ex.NO_CONFIRMATION
+    assert len(pump.notes) == 1 and "tryb Szczyt G13" in pump.notes[0]
+    assert "-3" in pump.notes[0]
