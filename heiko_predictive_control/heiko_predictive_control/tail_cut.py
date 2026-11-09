@@ -15,25 +15,20 @@ from datetime import datetime, timedelta
 
 from . import db as dbm
 from . import experiments, ha_client
+from .experiments import _iso
 from .cycle import _DEFAULT_MODE, _DEFAULT_WATER_TEMP, DEFAULT_WATER_TARGET_ENTITY
-from .g13_exec import _min_room
+from .g13_exec import _min_room, _num
+from .heating_runs import HEATING_CODE
 
 logger = logging.getLogger(__name__)
 
 STATE_KEY = "tail_cut_state"
 TITLE = "Heiko: ogon grzania"
 MODE_SETTING_ENTITY = "sensor.heiko_heat_pump_mode_setting"
-HEATING_CODE = 2                  # working_mode: grzanie
 AUTO_CODE = experiments.MODE_CODES["auto"]
 CONFIRM_WAIT_S = 70               # ramka pompy odświeża się co ~60 s
 ATTEMPTS = 2
 CUTS_KEPT = 60
-
-
-def _num(settings: dict, key: str, default: float) -> float:
-    """Opcja liczbowa; pusta (`None`) = wartość domyślna."""
-    value = settings.get(key)
-    return default if value is None else float(value)
 
 
 def active(settings: dict) -> bool:
@@ -50,10 +45,6 @@ def _raw(get_state, entity: str) -> int | None:
         return int(round(float(((st or {}).get("attributes") or {}).get("raw_value"))))
     except (TypeError, ValueError):
         return None
-
-
-def _iso(when: datetime) -> str:
-    return when.isoformat(timespec="seconds")
 
 
 def _save(conn, st: dict, before: dict) -> None:

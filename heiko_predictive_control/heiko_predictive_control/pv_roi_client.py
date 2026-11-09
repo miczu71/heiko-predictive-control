@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 import requests
 
-from .tariff_feed import _parse_item
+from .tariff_feed import _parse_item, hour_key
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def backfill_window(conn, base_url: str, start_local: datetime, end_local: datet
     cursor = start_local.replace(minute=0, second=0, microsecond=0)
     while cursor < end_local:
         hours = min(PAGE_HOURS, int((end_local - cursor).total_seconds() // 3600) or 1)
-        rows = fetch_page(base_url, cursor.strftime("%Y-%m-%dT%H"), hours, get)
+        rows = fetch_page(base_url, hour_key(cursor), hours, get)
         if rows is None:
             return False
         if rows:

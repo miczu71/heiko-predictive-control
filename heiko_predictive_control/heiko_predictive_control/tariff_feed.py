@@ -135,19 +135,19 @@ class TariffFeed:
     def _missing(self, dt: datetime) -> None:
         self._warn("hour", datetime.now(), f"brak danych taryfy dla godziny {hour_key(dt)}")
 
-    def is_peak(self, dt: datetime) -> bool | None:
+    def _row_or_missing(self, dt: datetime):
         row = self.at(dt)
         if row is None:
             self._missing(dt)
-            return None
-        return row.is_peak
+        return row
+
+    def is_peak(self, dt: datetime) -> bool | None:
+        row = self._row_or_missing(dt)
+        return None if row is None else row.is_peak
 
     def price(self, dt: datetime) -> float | None:
-        row = self.at(dt)
-        if row is None:
-            self._missing(dt)
-            return None
-        return row.gross
+        row = self._row_or_missing(dt)
+        return None if row is None else row.gross
 
     def offpeak_price(self, dt: datetime) -> float | None:
         """Najtańsza cena w najbliższych 36 h (referencja „poza szczytem”); None, gdy w oknie nie ma żadnego wiersza."""
