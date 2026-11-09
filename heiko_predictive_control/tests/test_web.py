@@ -1005,3 +1005,13 @@ def test_post_settings_unknown_keys_unchanged(tmp_path):
     saved = {}
     resp = _recording_client(tmp_path, saved).post("/api/settings", json={"some_unknown_key": "x"})
     assert resp.status_code == 200 and saved == {"some_unknown_key": "x"}
+
+
+def test_post_settings_pv_roi_url_must_be_http_url(tmp_path):
+    saved = {}
+    client = _recording_client(tmp_path, saved)
+    for bad in ("file:///etc/passwd", "ftp://host/x", "nie-adres", 5):
+        assert client.post("/api/settings", json={"pv_roi_url": bad}).status_code == 400
+    assert saved == {}
+    ok = {"pv_roi_url": "http://29a4454d-pv-roi-tracker:8099"}
+    assert client.post("/api/settings", json=ok).status_code == 200 and saved == ok

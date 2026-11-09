@@ -8,6 +8,7 @@ import threading
 import time
 from datetime import date, datetime
 from typing import Callable, Optional
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request
@@ -76,6 +77,11 @@ def _validate_settings(payload: dict) -> list[str]:
             errors.append(f"{key}: oczekiwano liczby od {low:g} do {high:g}")
         elif not low <= value <= high:
             errors.append(f"{key}: {value:g} poza zakresem {low:g}…{high:g}")
+    url = payload.get("pv_roi_url")
+    if url:  # trafia do requests.get po stronie add-onu — tylko http(s)://host (puste = brak klienta)
+        parsed = urlparse(url) if isinstance(url, str) else None
+        if parsed is None or parsed.scheme not in ("http", "https") or not parsed.hostname:
+            errors.append("pv_roi_url: oczekiwano adresu http(s)://host[:port]")
     return errors
 
 
