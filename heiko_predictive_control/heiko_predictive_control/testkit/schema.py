@@ -17,6 +17,8 @@ MAX_DESCRIPTION = 500
 
 TIME = r"(?:[01]\d|2[0-3]):[0-5]\d"
 KEY_RE = re.compile(r"[a-z][a-z0-9_]{2,39}")
+MAX_LIST = 8   # writes na wariant, windows, windows_fallback: ogranicza liczbę kroków harmonogramu (DoS)
+RESERVED_KEYS = frozenset({"export", "validate"})   # kolidują ze statycznymi trasami /api/test-defs/…
 ARM_RE = re.compile(r"[A-Z]")
 HHMM_RE = re.compile(TIME)
 ZONE_RE = re.compile(r"zone:[a-z0-9_]{1,40}")
@@ -80,6 +82,9 @@ def _too_deep(obj) -> bool:
 def _check_writes(path: str, writes, errors: list[str]) -> None:
     if not isinstance(writes, list):
         errors.append(f"{path}: oczekiwano listy")
+        return
+    if len(writes) > MAX_LIST:
+        errors.append(f"{path}: najwyżej {MAX_LIST} wpisów")
         return
     for i, w in enumerate(writes):
         wp = f"{path}[{i}]"
@@ -254,6 +259,8 @@ def validate(defn) -> list[str]:
 
     if "key" in defn and not (isinstance(defn["key"], str) and KEY_RE.fullmatch(defn["key"])):
         errors.append("key: format ^[a-z][a-z0-9_]{2,39}$")
+    elif defn.get("key") in RESERVED_KEYS:
+        errors.append("key: zarezerwowany (kolizja z trasą API)")
     if "title" in defn and not (isinstance(defn["title"], str) and 1 <= len(defn["title"]) <= 80):
         errors.append("title: 1–80 znaków")
     if "description" in defn and not (isinstance(defn["description"], str)
@@ -309,6 +316,8 @@ def validate(defn) -> list[str]:
             for flag in ("curve_on", "heiko_enabled"):
                 if flag in req and not isinstance(req[flag], bool):
                     errors.append(f"requires.{flag}: oczekiwano true/false")
+            if req.get("heiko_enabled") is False and _has_writes(defn):
+                errors.append("requires.heiko_enabled=false: niedozwolone dla testu z writes")
             if "after" in req and not (isinstance(req["after"], list)
                                        and all(isinstance(x, str) for x in req["after"])):
                 errors.append("requires.after: oczekiwano listy kluczy definicji")
@@ -317,6 +326,8 @@ def validate(defn) -> list[str]:
         windows = defn["windows"]
         if not isinstance(windows, list):
             errors.append("windows: oczekiwano listy")
+        elif len(windows) > MAX_LIST:
+            errors.append(f"windows: najwyżej {MAX_LIST} wpisów")
         else:
             for i, w in enumerate(windows):
                 if not (isinstance(w, str) and (w == "zone:peak" or WINDOW_RE.fullmatch(w))):
@@ -325,6 +336,8 @@ def validate(defn) -> list[str]:
         fallback = defn["windows_fallback"]
         if not isinstance(fallback, list):
             errors.append("windows_fallback: oczekiwano listy")
+        elif len(fallback) > MAX_LIST:
+            errors.append(f"windows_fallback: najwyżej {MAX_LIST} wpisów")
         else:
             for i, w in enumerate(fallback):
                 if not (isinstance(w, str) and WINDOW_RE.fullmatch(w)):

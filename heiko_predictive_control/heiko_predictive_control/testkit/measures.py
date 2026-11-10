@@ -17,7 +17,7 @@ from .. import experiments as ex
 from .. import floor_learn, heating_runs, summaries
 from .verdict import decide
 
-_WINDOW_RE = re.compile(r"(\d{2}):(\d{2})→(\d{2}):(\d{2})")
+_WINDOW_RE = re.compile(r"(\d{2}):(\d{2})\s*(?:→|-)\s*(\d{2}):(\d{2})")   # ta sama gramatyka co schema.WINDOW_RE
 
 
 @dataclass(frozen=True)

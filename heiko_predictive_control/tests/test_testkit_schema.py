@@ -320,3 +320,36 @@ def test_measures_names():
     assert MEASURES == {"floor_cost", "kwh_day", "min_room_at", "safety_trips", "zone_spread",
                         "excitation", "inertia_refit", "writes_confirmed"}
     assert params.MEASURE_PARAMS["floor_cost"]["window"] is True
+
+
+def test_reserved_route_keys_rejected():
+    for key in ("export", "validate"):
+        errs = validate({"key": key})
+        assert any(e.startswith("key: zarezerwowany") for e in errs)
+
+
+def _p0ab():
+    return copy.deepcopy(__import__("heiko_predictive_control.testkit.builtin", fromlist=["BUILTIN"]).BUILTIN["p0_ab"])
+
+
+def test_writes_and_windows_lists_are_capped():
+    d = _p0ab()
+    arm = next(iter(d["arms"]))
+    d["arms"][arm]["writes"] = d["arms"][arm]["writes"] * 9
+    assert any("najwyżej" in e for e in validate(d))
+    d = _p0ab()
+    d["windows"] = ["10:00→11:00"] * 9
+    assert any(e.startswith("windows: najwyżej") for e in validate(d))
+
+
+def test_heiko_enabled_false_forbidden_with_writes():
+    d = _p0ab()
+    d["requires"] = {**(d.get("requires") or {}), "heiko_enabled": False}
+    assert any("heiko_enabled=false" in e for e in validate(d))
+
+
+def test_measure_window_grammar_matches_schema():
+    from datetime import date
+    from heiko_predictive_control.testkit import measures
+    s, e = measures._window(date(2026, 10, 7), "10:00-12:00")
+    assert (s.hour, e.hour) == (10, 12)

@@ -535,7 +535,12 @@ def _current(target: str | None, settings: dict, get_numeric):
 
 def _complete(conn, settings: dict, test, defn: dict, now: datetime, notify, title: str) -> dict:
     from .testkit import engine
-    result = engine.result(conn, settings, test, now)
+    try:
+        result = engine.result(conn, settings, test, now)
+    except Exception as exc:                      # wynik nie do policzenia nie może zostawić testu w RUNNING
+        logger.exception("Test #%s: nie udało się policzyć wyniku", test["id"])
+        _finish(conn, test, ABORTED, now, reason=f"błąd obliczenia wyniku: {exc}")
+        return {"status": ABORTED, "reason": f"błąd obliczenia wyniku: {exc}"}
     _finish(conn, test, DONE, now, result=result)
     _notify(settings, engine.done_message(defn, test, result), notify, title)
     return {"status": DONE, "result": result}
