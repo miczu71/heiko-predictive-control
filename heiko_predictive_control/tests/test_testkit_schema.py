@@ -130,6 +130,57 @@ def test_writes_valid_relative_value_and_window():
     assert validate(d) == []
 
 
+# E2: rozszerzenie schematu (addytywne)
+def test_writes_value_base_base_tilde_other_accepted():
+    d = copy_def(coexist=[])
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base"}]
+    d["arms"]["B"]["writes"] = [{"param": "curve_shift", "value": "base~1", "from": "+0m", "to": "+10m"}]
+    assert validate(d) == []
+    d["arms"]["A"]["writes"] = [{"param": "p0_run", "value": "other"}, {"param": "p0_stop", "value": "other"}]
+    assert validate(d) == []
+
+
+def test_writes_other_only_for_p0_params():
+    d = copy_def(coexist=[])
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "other"}]
+    has_error(d, "arms.A.writes", "other")
+
+
+def test_writes_bad_tilde_value_rejected():
+    d = copy_def(coexist=[])
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base~x"}]
+    has_error(d, "arms.A.writes")
+
+
+def test_writes_relative_window_needs_plus0_pair():
+    d = copy_def(coexist=[])
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base~1", "from": "+0m", "to": "+10m"}]
+    assert validate(d) == []
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base~1", "from": "+5m", "to": "+10m"}]
+    has_error(d, "arms.A.writes[0]", "+0m")
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base~1", "from": "+0m", "to": "13:00"}]
+    has_error(d, "arms.A.writes[0]", "+0m")
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base~1", "from": "13:00", "to": "+10m"}]
+    has_error(d, "arms.A.writes[0]", "+0m")
+    d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "base~1", "from": "+0m"}]
+    has_error(d, "arms.A.writes[0]", "+0m")
+
+
+def test_windows_top_level_peak_or_hhmm_range():
+    assert validate(copy_def(windows=["zone:peak", "06:00→12:00"], coexist=[])) == []
+    has_error(copy_def(windows=["zone:tanio"]), "windows[0]")
+    has_error(copy_def(windows=["13:00"]), "windows[0]")
+
+
+def test_windows_fallback_and_min_window_h():
+    assert validate(copy_def(windows_fallback=["06:00→12:00", "15:00-21:00"], min_window_h=2)) == []
+    has_error(copy_def(windows_fallback=["zone:peak"]), "windows_fallback[0]")
+    has_error(copy_def(windows_fallback="06:00→12:00"), "windows_fallback")
+    has_error(copy_def(min_window_h=0), "min_window_h")
+    has_error(copy_def(min_window_h=13), "min_window_h")
+    has_error(copy_def(min_window_h=True), "min_window_h")
+
+
 def test_writes_bad_relative_value_and_time():
     d = copy_def(coexist=[])
     d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": "plus1"}]

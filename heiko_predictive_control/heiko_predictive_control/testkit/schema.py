@@ -21,10 +21,14 @@ ARM_RE = re.compile(r"[A-Z]")
 HHMM_RE = re.compile(TIME)
 ZONE_RE = re.compile(r"zone:[a-z0-9_]{1,40}")
 BASE_RE = re.compile(r"base[+-]\d+(?:\.\d+)?")
+BASE_TILDE_RE = re.compile(r"base~\d+(?:\.\d+)?")     # +N, a gdy poza zakresem reguły zapisu −N (E2)
+REL_RE = re.compile(r"\+\d{1,4}m")                    # względny czas od `now` (E2)
+REL_TO_RE = re.compile(r"\+[1-9]\d{0,3}m")
 WINDOW_RE = re.compile(rf"{TIME}\s*(?:→|-)\s*{TIME}")
+OTHER_PARAMS = frozenset({"p0_run", "p0_stop"})       # `other` = element drugiej pary P0 (E2)
 
 TOP_FIELDS = {"key", "title", "description", "requires", "coexist", "days", "design", "order", "arms",
-              "windows", "restore", "measures", "verdict", "abort"}
+              "windows", "windows_fallback", "min_window_h", "restore", "measures", "verdict", "abort"}
 REQUIRED_FIELDS = ("key", "title", "design", "arms", "days")
 DESIGNS = {"single", "sequence", "alternate"}
 FILTERS = {"workday", "all", "peak_day"}
@@ -96,13 +100,23 @@ def _check_writes(path: str, writes, errors: list[str]) -> None:
                 # Zakres bez skoku: skok (względem bieżącej wartości) sprawdza `_write` przy zapisie.
                 if _one_of(param, PUMP_PARAMS) and not PUMP_PARAMS[param].check(value, value):
                     errors.append(f"{wp}.value: wartość {value} spoza reguły zapisu dla {param}")
-            elif not (isinstance(value, str) and BASE_RE.fullmatch(value)):
+            elif value == "other":
+                if not (isinstance(param, str) and param in OTHER_PARAMS):
+                    errors.append(f"{wp}.value: other dozwolone tylko dla p0_run / p0_stop")
+            elif not (isinstance(value, str) and (value == "base" or BASE_RE.fullmatch(value)
+                                                  or BASE_TILDE_RE.fullmatch(value))):
                 errors.append(f"{wp}.value: oczekiwano liczby albo base+N / base-N")
         for edge in ("from", "to"):
             if edge in w:
                 v = w[edge]
+                if isinstance(v, str) and REL_RE.fullmatch(v):
+                    continue                              # względne: para sprawdzona niżej
                 if not (isinstance(v, str) and (HHMM_RE.fullmatch(v) or ZONE_RE.fullmatch(v))):
                     errors.append(f"{wp}.{edge}: oczekiwano HH:MM albo zone:<nazwa>")
+        relative = [e for e in ("from", "to") if isinstance(w.get(e), str) and REL_RE.fullmatch(w[e])]
+        if relative and not (w.get("from") == "+0m" and isinstance(w.get("to"), str)
+                             and REL_TO_RE.fullmatch(w["to"])):
+            errors.append(f"{wp}.from/to: względne +Nm tylko w parze from:+0m, to:+Nm")
 
 
 def _check_arms(arms: dict, errors: list[str]) -> None:
@@ -305,8 +319,20 @@ def validate(defn) -> list[str]:
             errors.append("windows: oczekiwano listy")
         else:
             for i, w in enumerate(windows):
-                if not (isinstance(w, str) and (HHMM_RE.fullmatch(w) or ZONE_RE.fullmatch(w))):
-                    errors.append(f"windows[{i}]: oczekiwano HH:MM albo zone:<nazwa>")
+                if not (isinstance(w, str) and (w == "zone:peak" or WINDOW_RE.fullmatch(w))):
+                    errors.append(f"windows[{i}]: oczekiwano zone:peak albo HH:MM→HH:MM")
+    if "windows_fallback" in defn:
+        fallback = defn["windows_fallback"]
+        if not isinstance(fallback, list):
+            errors.append("windows_fallback: oczekiwano listy")
+        else:
+            for i, w in enumerate(fallback):
+                if not (isinstance(w, str) and WINDOW_RE.fullmatch(w)):
+                    errors.append(f"windows_fallback[{i}]: oczekiwano HH:MM→HH:MM")
+    if "min_window_h" in defn:
+        mw = defn["min_window_h"]
+        if not (_is_int(mw) and 1 <= mw <= 12):
+            errors.append("min_window_h: oczekiwano całkowitej 1–12")
 
     if "restore" in defn:
         if not isinstance(defn["restore"], bool):
