@@ -672,6 +672,106 @@ def create_app(db_path: str,
         finally:
             conn.close()
 
+    # ── Definicje testów (E5a): CRUD i podgląd; logika w testkit/defs.py, tu tylko parsowanie żądania ──
+
+    def _defs_body():
+        """(obiekt JSON, None) albo (None, odpowiedź błędu). Rozmiar sprawdzany przed parsowaniem (ingress = niezaufane)."""
+        from .testkit import defs                   # późny import: testkit.params importuje ten moduł
+        limit = defs.MAX_BYTES
+        too_big = (jsonify({"ok": False, "errors": [f"ciało: ponad {limit // 1024} KB"]}), 413)
+        if request.content_length is not None and request.content_length > limit:
+            return None, too_big
+        raw = request.stream.read(limit + 1)
+        if len(raw) > limit:
+            return None, too_big
+        try:
+            body = json.loads(raw)
+        except (ValueError, RecursionError):
+            body = None
+        if not isinstance(body, dict):
+            return None, (jsonify({"ok": False, "errors": ["ciało: oczekiwano obiektu JSON"]}), 400)
+        return body, None
+
+    def _defs_reply(result, **extra):
+        ok, errors, status = result
+        return jsonify({"ok": ok, **({"errors": errors} if errors else {}), **(extra if ok else {})}), status
+
+    @app.get("/api/test-defs")
+    def api_test_defs():
+        from .testkit import defs
+        conn = db_conn()
+        try:
+            return jsonify({"definitions": defs.list_all(conn)})
+        finally:
+            conn.close()
+
+    @app.get("/api/test-defs/export")
+    def api_test_defs_export():
+        from .testkit import defs
+        conn = db_conn()
+        try:
+            return jsonify(defs.export_all(conn))
+        finally:
+            conn.close()
+
+    @app.get("/api/test-defs/<key>")
+    def api_test_def(key: str):
+        from .testkit import defs
+        conn = db_conn()
+        try:
+            item = defs.get(conn, key)
+        finally:
+            conn.close()
+        if item is None:
+            return jsonify({"ok": False, "errors": [f"{key}: nie ma takiej definicji"]}), 404
+        return jsonify(item)
+
+    @app.post("/api/test-defs/validate")
+    def api_test_defs_validate():
+        from .testkit import defs
+        body, error = _defs_body()
+        if error:
+            return error
+        settings = get_settings()
+        conn = db_conn()
+        try:
+            return jsonify(defs.preview(conn, settings, body, datetime.now(), get_state, get_numeric, is_workday))
+        finally:
+            conn.close()
+
+    @app.post("/api/test-defs")
+    def api_test_def_create():
+        from .testkit import defs
+        body, error = _defs_body()
+        if error:
+            return error
+        conn = db_conn()
+        try:
+            return _defs_reply(defs.create(conn, body, datetime.now()), key=body.get("key"))
+        finally:
+            conn.close()
+
+    @app.put("/api/test-defs/<key>")
+    def api_test_def_update(key: str):
+        from .testkit import defs
+        body, error = _defs_body()
+        if error:
+            return error
+        conn = db_conn()
+        try:
+            return _defs_reply(defs.update(conn, key, body, datetime.now()), key=key)
+        finally:
+            conn.close()
+
+    @app.delete("/api/test-defs/<key>")
+    def api_test_def_delete(key: str):
+        from .testkit import defs
+        conn = db_conn()
+        try:
+            return _defs_reply(defs.delete(conn, key), key=key)
+        finally:
+            conn.close()
+
     @app.get("/api/settings")
     def api_get_settings():
         return jsonify(get_settings())

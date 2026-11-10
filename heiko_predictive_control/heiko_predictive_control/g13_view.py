@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from . import db as dbm
-from . import g13_exec, g13_peak, heating_runs, tariff_feed, vacation
+from . import experiments, g13_exec, g13_peak, heating_runs, tariff_feed, vacation
 from .summaries import day_bounds
 
 PEAK_ZONE = g13_peak.PEAK_ZONE
@@ -77,6 +77,18 @@ def now_view(conn, settings: dict, now: datetime) -> dict | None:
     return _now_phase(now, window, st)
 
 
+def _test_overlay(conn, now: datetime) -> dict | None:
+    """Nakładka ustawień trwającego testu (E5): tytuł, wariant doby i nadpisane opcje; bez nakładki None."""
+    from .testkit import engine                     # późny import: testkit.params importuje web, a ten ten moduł
+    active = engine.active_overlay(conn, now)
+    if active is None:
+        return None
+    test = experiments.running_test(conn)
+    arm = engine.arm_for_day(test, now.date())
+    title = engine.frozen_def(test).get("title") or test["kind"]
+    return {"title": title, "arm": arm, "overrides": active["overrides"]}
+
+
 def build(conn, settings: dict, now: datetime) -> dict:
     today = now.date()
     st = dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
@@ -98,4 +110,5 @@ def build(conn, settings: dict, now: datetime) -> dict:
         "week": _zone_energy(week_runs),
         "trip_room": st.get("trip_room") if status == "tripped" else None,
         "trips_7d": sum(1 for d in st.get("trips") or [] if d >= week_start.isoformat()),
+        "test_overlay": _test_overlay(conn, now),
     }
