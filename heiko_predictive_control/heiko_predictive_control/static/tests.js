@@ -8,7 +8,11 @@ const when = iso => {
   if (isNaN(d)) return esc(iso);
   return d.toLocaleString("pl-PL", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 };
-const val = (v, stop) => (stop === null || stop === undefined) ? shift(v) : `${v}/${stop}`;     // para P0 „5/5” albo przesunięcie
+const plain = (v, unit) => (v === null || v === undefined) ? "—" : `${Number(v).toLocaleString("pl-PL")} ${unit}`;
+const unitOf = id => /backup_source_start_delay|slot52/.test(id || "") ? plain_min : /dhw_setpoint|dhw/.test(id || "") ? plain_c : shift;
+const plain_min = v => plain(v, "min");
+const plain_c = v => plain(v, "°C");
+const val = (v, stop, eid) => (stop === null || stop === undefined) ? unitOf(eid)(v) : `${v}/${stop}`;     // para P0 „5/5”, slot 52 w min, CWU w °C albo przesunięcie
 const isP0 = w => (w.entity_id || "").includes("circulation_pump_p0");
 const VERDICT_NOTE = r => r.verdict
   ? `werdykt ${r.verdict}${r.gain_c !== undefined ? ` (rozrzut pokoi przy 5/5 ${r.gain_c >= 0 ? "niższy" : "wyższy"} o ${Math.abs(r.gain_c)}°C` : ""}` +
@@ -45,9 +49,9 @@ function renderActive(t) {
   const waiting = t.pending_since ? ` · czekam na potwierdzenie z pompy (zapis ${when(t.pending_since)}, limit ${data.confirm_min} min)` : "";
   put("tests-active", `<article class="test-active" aria-live="polite">
     <header><span class="badge kind-test">w toku</span><strong>${esc(kind ? kind.title : t.kind)}</strong></header>
-    <p class="sub">Start ${when(t.started)} · wartość wyjściowa ${val(t.baseline, t.baseline_stop)} · teraz zlecone ${val(t.expected, t.expected_stop)}${waiting}</p>
+    <p class="sub">Start ${when(t.started)} · wartość wyjściowa ${val(t.baseline, t.baseline_stop, t.target)} · teraz zlecone ${val(t.expected, t.expected_stop, t.target)}${waiting}</p>
     ${stepsList(t.schedule, t.step)}
-    <div class="actions"><button type="button" class="danger" data-abort>Przerwij i przywróć ${val(t.baseline, t.baseline_stop)}</button>
+    <div class="actions"><button type="button" class="danger" data-abort>Przerwij i przywróć ${val(t.baseline, t.baseline_stop, t.target)}</button>
       <span class="decision-status" role="status"></span></div></article>`);
 }
 
@@ -83,7 +87,7 @@ function renderHistory() {
       return [when(t.started), kind ? kind.title : (t.def && t.def.title) || t.kind, STATUS[t.status] || t.status, when(t.ended), outcome];
     }), { empty: "Żaden test jeszcze nie był uruchomiony." }));
   put("tests-writes", HPC.collapsibleTable(["Czas", "Test", "Zmiana", "HA przyjęło", "Potwierdzenie z pompy"],
-    data.writes.map(w => [when(w.ts), w.test_id ? `#${w.test_id}` : "—", isP0(w) ? `${w.entity_id.includes("_run_time") ? "P0 praca" : "P0 postój"} ${w.old} → ${w.new} min` : `${shift(w.old)} → ${shift(w.new)}`, w.ok ? "tak" : "nie",
+    data.writes.map(w => [when(w.ts), w.test_id ? `#${w.test_id}` : "—", isP0(w) ? `${w.entity_id.includes("_run_time") ? "P0 praca" : "P0 postój"} ${w.old} → ${w.new} min` : `${unitOf(w.entity_id)(w.old)} → ${unitOf(w.entity_id)(w.new)}`, w.ok ? "tak" : "nie",
       w.confirmed_at === null ? "czekam…" : w.confirmed_at.includes("T") ? when(w.confirmed_at) : w.confirmed_at]),
     { empty: "Add-on jeszcze nic nie zapisał do pompy." }));
 }

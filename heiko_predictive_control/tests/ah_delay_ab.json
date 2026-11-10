@@ -1,0 +1,56 @@
+{
+ "key": "ah_delay_ab",
+ "title": "Opóźnienie grzałki AH: 35 vs 40 min",
+ "description": "Czy późniejsze włączanie grzałki AH (slot 52) zmniejsza zużycie doby. Zapisuje do pompy, wymaga wyłączonego Szczytu G13. AH wchodzi rzadko, więc wynik będzie mało pewny.",
+ "requires": {
+  "heiko_enabled": true
+ },
+ "days": {
+  "filter": "all",
+  "count": 8
+ },
+ "design": "alternate",
+ "order": [
+  "A",
+  "B"
+ ],
+ "arms": {
+  "A": {
+   "writes": [
+    {
+     "param": "slot52",
+     "value": "base"
+    }
+   ]
+  },
+  "B": {
+   "writes": [
+    {
+     "param": "slot52",
+     "value": "base+5"
+    }
+   ]
+  }
+ },
+ "measures": [
+  "kwh_day",
+  {
+   "name": "min_room_at",
+   "at": "06:00"
+  }
+ ],
+ "verdict": {
+  "primary": "kwh_day",
+  "better": "lower",
+  "min_gain": 0.5,
+  "weather_band_c": 4,
+  "min_n": 4,
+  "guards": [
+   {
+    "measure": "min_room_at",
+    "op": ">=",
+    "value": 19
+   }
+  ]
+ }
+}

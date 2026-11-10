@@ -1,6 +1,7 @@
 """E4: silnik testów z definicji (`testkit.engine`) + przełączony `experiments` — złote testy względem `legacy_oracle`,
 testy nakładek (definicja bez `writes`), zamrożona definicja i współistnienie z G13/urlopem. Bez sieci, fałszywa pompa."""
 import json
+import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -449,11 +450,12 @@ SLOT = {"key": "slot_test", "title": "Slot", "design": "single", "days": {"filte
         "arms": {"A": {"writes": [{"param": "slot52", "value": 30}]}}}
 
 
-def test_slot52_in_writes_is_refused_by_start(conn):
-    assert validate(SLOT) == []
-    _add_def(conn, SLOT)
-    res = _start(conn, Pump(), "slot_test")
-    assert res == {"ok": False, "error": "nastawa slot52 nie jest jeszcze obsługiwana w testach"}
+def test_mixed_params_in_writes_are_refused_by_start(conn):
+    mixed = {**SLOT, "key": "mix", "arms": {"A": {"writes": [{"param": "slot52", "value": 30}, {"param": "dhw", "value": 40}]}}}
+    assert validate(mixed) == []
+    _add_def(conn, mixed)
+    res = _start(conn, Pump(), "mix")
+    assert res["ok"] is False and "tylko jedną nastawę" in res["error"]
     assert ex.running_test(conn) is None
 
 
@@ -496,3 +498,164 @@ def test_overview_lists_every_definition_with_legacy_card_shape(conn):
     assert pre["schedule"] == [] and pre["measure"] and pre["abort_conditions"] == ex.ABORT_CONDITIONS
     assert data["kinds"][0]["measure"] == ex.KINDS["zapis"].measure
     assert data["kinds"][2]["abort_conditions"] == ex.P0_ABORT_CONDITIONS
+
+
+# ── E7a: slot52 i dhw jako cel testu ────────────────────────────────────────────────────────────────────────
+
+FIXTURES = os.path.join(os.path.dirname(__file__))
+SLOT_ENT = "number.heiko_heat_pump_backup_source_start_delay"
+DHW_ENT = "number.heiko_heat_pump_dhw_setpoint"
+
+
+def _fixture(name):
+    with open(os.path.join(FIXTURES, name + ".json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _ent_pump(monkeypatch, slot=55.0, dhw=48.0, present=True):
+    states = ([{"entity_id": SLOT_ENT, "state": "1"}, {"entity_id": DHW_ENT, "state": "1"}] if present else [])
+    monkeypatch.setattr(ex.ha_client, "get_all_states", lambda: states)
+    pump = Pump(curve="off")
+    pump.vals.update({SLOT_ENT: slot, DHW_ENT: dhw})
+    return pump
+
+
+def _single(key, param, value):
+    return {"key": key, "title": key, "design": "single", "days": {"filter": "all", "count": 1},
+            "arms": {"A": {"writes": [{"param": param, "value": value}]}}}
+
+
+def test_writes_target_slot52_dhw_mixed_and_missing():
+    assert engine.writes_target(_fixture("ah_delay_ab")) == ("slot52", None)
+    assert engine.writes_target(_fixture("dhw_setpoint_ab")) == ("dhw", None)
+    mixed = {"arms": {"A": {"writes": [{"param": "slot52", "value": 30}, {"param": "dhw", "value": 40}]}}}
+    assert engine.writes_target(mixed)[0] is None and "tylko jedną nastawę" in engine.writes_target(mixed)[1]
+    shift_dhw = {"arms": {"A": {"writes": [{"param": "curve_shift", "value": 1}]},
+                          "B": {"writes": [{"param": "dhw", "value": 40}]}}}
+    assert "tylko jedną nastawę" in engine.writes_target(shift_dhw)[1]
+    no_write = {"arms": {"A": {"writes": [{"param": "dhw", "value": 40}]}, "B": {}}}
+    assert engine.writes_target(no_write)[0] is None and "wariant bez zapisu" in engine.writes_target(no_write)[1]
+
+
+def test_to_steps_and_validate_steps_for_slot52_and_dhw():
+    assert engine.to_steps([{"at": "a", "param": "slot52", "value": 60.0}, {"at": "b", "param": "dhw", "value": 45.0}]) == [
+        {"at": "a", "value": 60.0}, {"at": "b", "value": 45.0}]
+    ok = [{"at": "a", "value": 60.0}, {"at": "b", "value": 55.0}]
+    assert engine.validate_steps(ok, 55.0, "slot52") is None
+    assert "poza dozwolonymi regułami nastawy slot52" in engine.validate_steps([{"at": "a", "value": 65.0}, {"at": "b", "value": 60.0}], 60.0, "slot52")
+    assert "krok 55 → 45 niedozwolony" == engine.validate_steps([{"at": "a", "value": 45.0}, {"at": "b", "value": 55.0}], 55.0, "slot52")
+    assert "nie kończy się powrotem" in engine.validate_steps([{"at": "a", "value": 60.0}], 55.0, "slot52")
+    assert engine.validate_steps([{"at": "a", "value": 45.0}, {"at": "b", "value": 48.0}], 48.0, "dhw") is None
+    assert "poza dozwolonymi regułami nastawy dhw" in engine.validate_steps([{"at": "a", "value": 14.0}, {"at": "b", "value": 17.0}], 17.0, "dhw")
+
+
+@pytest.mark.parametrize("key,ent,base,other", [("ah_delay_ab", SLOT_ENT, 55.0, 60.0), ("dhw_setpoint_ab", DHW_ENT, 48.0, 45.0)])
+def test_new_definition_starts_with_base_and_variant_values_and_returns_to_base(conn, monkeypatch, key, ent, base, other):
+    pump = _ent_pump(monkeypatch, slot=base, dhw=base)
+    _add_def(conn, _fixture(key))
+    res = _start(conn, pump, key)
+    assert res["ok"], res
+    test = _test(conn)
+    values = [s["value"] for s in json.loads(test["schedule"])]
+    assert set(values) == {base, other} and values[-1] == base and test["baseline"] == base
+    assert pump.calls == []
+
+
+@pytest.mark.parametrize("key,ent", [("ah_delay_ab", SLOT_ENT), ("dhw_setpoint_ab", DHW_ENT)])
+def test_new_definition_blocks(conn, monkeypatch, key, ent):
+    _add_def(conn, _fixture(key))
+    pump = _ent_pump(monkeypatch)
+    assert "Szczyt G13" in _start(conn, pump, key, settings={**SETTINGS, "g13_peak_enabled": True})["error"]
+    absent = _ent_pump(monkeypatch, present=False)
+    assert "nie mogę odczytać" in _start(conn, absent, key)["error"]
+    no_read = _ent_pump(monkeypatch)
+    no_read.vals.pop(ent)
+    assert "nie mogę odczytać" in _start(conn, no_read, key)["error"]
+    assert ex.running_test(conn) is None
+
+
+def test_slot52_base_60_blocks_start_and_dhw_base_17_is_rejected(conn, monkeypatch):
+    _add_def(conn, _fixture("ah_delay_ab"))
+    _add_def(conn, _fixture("dhw_setpoint_ab"))
+    pump = _ent_pump(monkeypatch, slot=60.0, dhw=17.0)
+    res = _start(conn, pump, "ah_delay_ab")
+    assert res["ok"] is False and "slot52" in res["error"]
+    res = _start(conn, pump, "dhw_setpoint_ab")
+    assert res["ok"] is False and "dhw" in res["error"]
+
+
+def _run(conn, pump, key, ent):
+    """Start i przebieg testu tickami co 5 min do końca; zwraca (wpisy zapisów, ostatni tick)."""
+    assert _start(conn, pump, key)["ok"]
+    steps = json.loads(_test(conn)["schedule"])
+    now, last = T0, None
+    for step in steps:
+        now = max(now, datetime.fromisoformat(step["at"]))
+        last = _tick(conn, pump, now)
+        now += timedelta(minutes=3)
+        last = _tick(conn, pump, now)                      # potwierdzenie (ramka po ≥ 2 min)
+        now += timedelta(minutes=3)
+        _tick(conn, pump, now)
+    return steps, last
+
+
+@pytest.mark.parametrize("key,ent,base", [("ah_delay_ab", SLOT_ENT, 55.0), ("dhw_setpoint_ab", DHW_ENT, 48.0)])
+def test_new_definition_full_run_writes_only_its_entity_and_returns_to_base(conn, monkeypatch, key, ent, base):
+    pump = _ent_pump(monkeypatch, slot=base, dhw=base)
+    _add_def(conn, _fixture(key))
+    _run(conn, pump, key, ent)
+    for _ in range(3):
+        _tick(conn, pump, T0 + timedelta(days=30))
+    assert pump.calls and {e for e, _ in pump.log} == {ent}
+    assert pump.vals[ent] == base
+    assert {r["entity_id"] for r in conn.execute("SELECT entity_id FROM pump_writes")} == {ent}
+    assert _test(conn)["status"] in (ex.DONE, ex.ABORTED)
+    assert _test(conn)["status"] == ex.DONE, _test(conn)["abort_reason"]
+
+
+def test_manual_dhw_change_aborts_without_write(conn, monkeypatch):
+    pump = _ent_pump(monkeypatch, dhw=48.0)
+    _add_def(conn, _fixture("dhw_setpoint_ab"))
+    assert _start(conn, pump, "dhw_setpoint_ab")["ok"]
+    first = datetime.fromisoformat(json.loads(_test(conn)["schedule"])[0]["at"])
+    pump.vals[DHW_ENT] = 50.0                                # ręczna zmiana (np. automatyzacja PV) przed krokiem
+    res = _tick(conn, pump, max(T0, first))
+    assert res["status"] == ex.ABORTED and "ręczna zmiana nastawy CWU" in _test(conn)["abort_reason"]
+    assert pump.calls == []
+
+
+@pytest.mark.parametrize("key,ent,base,changed", [("ah_delay_ab", SLOT_ENT, 55.0, 60.0), ("dhw_setpoint_ab", DHW_ENT, 48.0, 45.0)])
+def test_user_abort_and_restart_return_to_base(conn, monkeypatch, key, ent, base, changed):
+    for how in ("abort", "restart"):
+        c = dbm.get_conn(":memory:")
+        dbm.migrate(c)
+        _add_def(c, _fixture(key))
+        pump = _ent_pump(monkeypatch, slot=base, dhw=base)
+        assert _start(c, pump, key)["ok"]
+        steps = json.loads(_test(c)["schedule"])
+        step = next(s for s in steps if s["value"] != base)
+        now = T0
+        for s in steps[:steps.index(step) + 1]:                      # kroki po kolei, aż do pierwszego wariantu ≠ baza
+            now = max(now, datetime.fromisoformat(s["at"]))
+            _tick(c, pump, now)
+            now += timedelta(minutes=10)
+            _tick(c, pump, now)
+        assert pump.log and pump.vals[ent] == step["value"] == changed   # test faktycznie zapisał wariant
+        now += timedelta(minutes=3)
+        _tick(c, pump, now)
+        now += timedelta(minutes=1)
+        if how == "abort":
+            assert ex.abort(c, SETTINGS, now, writer=pump.writer, notify=pump.notify)["ok"]
+        else:
+            assert ex.recover_on_start(c, SETTINGS, now, writer=pump.writer, notify=pump.notify)["status"] == ex.ABORTED
+        assert pump.vals[ent] == base
+        assert {e for e, _ in pump.log} == {ent}
+        assert _test(c)["status"] == ex.ABORTED
+
+
+def test_overview_shows_new_definitions_with_block_reason(conn, monkeypatch):
+    pump = _ent_pump(monkeypatch)
+    _add_def(conn, _fixture("ah_delay_ab"))
+    data = ex.overview(conn, {**SETTINGS, "g13_peak_enabled": True}, T0, pump.get_state, pump.get_numeric, workday)
+    card = next(k for k in data["kinds"] if k["key"] == "ah_delay_ab")
+    assert "Szczyt G13" in card["blocked"]

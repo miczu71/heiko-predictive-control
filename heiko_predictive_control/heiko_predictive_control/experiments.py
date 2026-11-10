@@ -67,6 +67,11 @@ P0_ABORT_CONDITIONS = (
     "restart add-onu w trakcie testu — powrót do wartości wyjściowej",
 )
 
+SINGLE_TARGETS = {"slot52": "backup_start_delay", "dhw": "dhw_setpoint"}   # cel testu → klucz katalogu encji
+TARGET_PARAM = {"curve": "curve_shift", "slot52": "slot52", "dhw": "dhw"}  # cel testu → nazwa nastawy w `PUMP_PARAMS`
+TARGET_WHAT = {"curve": "przesunięcia", "p0": "nastawy P0", "slot52": "opóźnienia AH (slot 52)", "dhw": "nastawy CWU"}
+TARGET_WHAT_ACC = {"curve": "przesunięcie", "p0": "nastawę P0", "slot52": "opóźnienie AH (slot 52)", "dhw": "nastawę CWU"}
+
 _lock = threading.Lock()                   # tick z harmonogramu i przyciski z UI nie mogą się przeplatać
 
 
@@ -127,7 +132,8 @@ def _after_missing(conn, defn: dict) -> str | None:
 
 
 def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
-              is_workday, p0: tuple | None = None, after_missing: str | None = None, feed=None):
+              is_workday, p0: tuple | None = None, after_missing: str | None = None, feed=None,
+              single: float | None = None):
     """Harmonogram (format `tests.schedule`), doby wariantów i ewentualna blokada Startu — to samo dla podglądu w UI
     i dla samego Startu."""
     from .testkit import engine, schema
@@ -151,6 +157,8 @@ def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, cu
         reason = "nie mogę odczytać czasu pracy i postoju pompy obiegowej P0"
     elif target == "curve" and shift is None:
         reason = "nie mogę odczytać przesunięcia krzywej"
+    elif target in SINGLE_TARGETS and single is None:
+        reason = f"nie mogę odczytać {TARGET_WHAT[target]}"
     elif req.get("curve_on") is not None and curve_on is None:
         reason = "nie wiem, czy krzywa grzewcza jest włączona (encja przełącznika w Opcjach)"
     elif req.get("curve_on") is not None and curve_on != req["curve_on"]:
@@ -163,12 +171,15 @@ def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, cu
         reason = None
     if target == "p0":
         base, legacy_base = {"p0_run": (p0 or P0_PAIRS[0])[0], "p0_stop": (p0 or P0_PAIRS[0])[1]}, p0 or P0_PAIRS[0]
+    elif target in SINGLE_TARGETS:
+        legacy_base = single if single is not None else 0.0
+        base = {TARGET_PARAM[target]: legacy_base}
     else:
         legacy_base = shift if shift is not None else 0.0
         base = {"curve_shift": legacy_base} if target == "curve" else {}
     steps, arms = engine.plan(defn, base, now, is_workday, feed)
     if reason is None and target is not None:
-        reason = engine.validate_steps(steps, legacy_base)
+        reason = engine.validate_steps(steps, legacy_base, TARGET_PARAM.get(target, "curve_shift"))
     if reason is None and not arms:
         reason = "w najbliższym czasie nie ma doby, w której test mógłby ruszyć"
     return steps, arms, reason
@@ -187,6 +198,20 @@ def _plan(kind, settings: dict, now: datetime, shift: float | None, curve_on: bo
 def _read(settings: dict, get_state, get_numeric) -> tuple[float | None, bool | None]:
     curve = (get_state(settings.get("heiko_curve_switch_entity") or "") or {}).get("state")
     return get_numeric(curve_shift_entity(settings)), live._as_bool(curve)
+
+
+def single_entity(target: str | None, settings: dict) -> str | None:
+    """Encja jedynej nastawy testu: przesunięcie krzywej (z Opcji) albo slot52/dhw rozwiązane z listy stanów HA po
+    sufiksie z katalogu (None, gdy encji nie ma)."""
+    if target == "curve":
+        return curve_shift_entity(settings)
+    key = SINGLE_TARGETS.get(target)
+    return catalog.resolve_params(ha_client.get_all_states() or []).get(key) if key else None
+
+
+def _read_single(target: str | None, settings: dict, get_numeric) -> float | None:
+    entity = single_entity(target, settings)
+    return get_numeric(entity) if entity else None
 
 
 def p0_entities(settings: dict) -> tuple[str, str] | None:
@@ -236,6 +261,7 @@ def _as_dict(conn, row) -> dict:
     d["schedule"] = json.loads(d["schedule"])
     d["result"] = json.loads(d["result"]) if d["result"] else None
     d["expected"] = _expected(row)
+    d["target"] = _target(row)                         # curve | p0 | slot52 | dhw | None — jednostka wartości w UI
     if isinstance(d["expected"], tuple):               # P0: osobno wartość i postój, żeby UI pokazał „5/5”
         d["expected"], d["expected_stop"] = d["expected"]
         d["baseline_stop"] = d["schedule"][-1]["stop"]
@@ -286,6 +312,14 @@ def recheck_inertia(conn, settings: dict, now: datetime) -> bool:
     return False
 
 
+def _abort_conditions(target: str | None) -> tuple:
+    """Warunki przerwania w karcie: dla slot52/dhw z nazwą nastawy, bez watchdoga krzywej (działa tylko dla przesunięcia)."""
+    if target not in SINGLE_TARGETS:
+        return ABORT_CONDITIONS
+    return tuple(c.replace("ręczna zmiana przesunięcia", f"ręczna zmiana {TARGET_WHAT[target]}")
+                 for c in ABORT_CONDITIONS if "automatyzacja w HA ustawia przesunięcie 0" not in c)
+
+
 def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_workday) -> dict:
     """Dane zakładki „Testy”: definicje testów z podglądem harmonogramu i blokadą, test w toku, historia, dziennik zapisów."""
     from .testkit import engine
@@ -295,15 +329,17 @@ def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_wor
     feed = tariff_feed.for_settings(conn, settings)
     kinds = []
     for defn in engine.list_defs(conn):
+        target = engine.writes_target(defn)[0]
+        single = _read_single(target, settings, get_numeric) if target in SINGLE_TARGETS else None
         schedule, _, blocked = _plan_def(defn, settings, now, shift, curve_on, running, is_workday, p0,
-                                         _after_missing(conn, defn), feed)
+                                         _after_missing(conn, defn), feed, single)
         key = defn.get("key")
         kind = KINDS.get(key)
-        p0_test = engine.writes_target(defn)[0] == "p0"
+        p0_test = target == "p0"
         kinds.append({"key": key, "title": defn.get("title"), "description": defn.get("description", ""),
                       "measure": kind.measure if kind else engine.describe_measure(defn),
                       "schedule": schedule, "blocked": blocked, "passed": engine.passed(conn, defn),
-                      "abort_conditions": P0_ABORT_CONDITIONS if p0_test else ABORT_CONDITIONS})
+                      "abort_conditions": P0_ABORT_CONDITIONS if p0_test else _abort_conditions(target)})
     kinds.sort(key=lambda k: k["passed"] is not None)          # wykonane na koniec (sortowanie stabilne)
     history = conn.execute("SELECT * FROM tests ORDER BY id DESC LIMIT 20").fetchall()
     writes = conn.execute("SELECT * FROM pump_writes ORDER BY id DESC LIMIT 30").fetchall()
@@ -323,12 +359,13 @@ def start(conn, settings: dict, kind_key: str, now: datetime, get_state, get_num
     shift, curve_on = _read(settings, get_state, get_numeric)
     target = engine.writes_target(defn)[0]
     p0 = _read_p0(settings, get_numeric) if target == "p0" else None
+    single = _read_single(target, settings, get_numeric) if target in SINGLE_TARGETS else None
     with _lock:
         schedule, arms, reason = _plan_def(defn, settings, now, shift, curve_on, running_test(conn), is_workday, p0,
-                                           _after_missing(conn, defn), tariff_feed.for_settings(conn, settings))
+                                           _after_missing(conn, defn), tariff_feed.for_settings(conn, settings), single)
         if reason:
             return {"ok": False, "error": reason}
-        baseline = p0 if p0 else (shift if target == "curve" else 0.0)
+        baseline = p0 if p0 else (single if target in SINGLE_TARGETS else (shift if target == "curve" else 0.0))
         cur = conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, def_key, def_json, arms_json) "
                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                            (kind_key, RUNNING, _iso(now), json.dumps(schedule), baseline[0] if p0 else baseline, kind_key,
@@ -409,9 +446,20 @@ def _write_p0(conn, settings: dict, test_id: int | None, old: tuple, new: tuple,
                 for e, o, n in zip(entities, old, new) if force or o != n])
 
 
+def _target(test) -> str | None:
+    from .testkit import engine
+    return engine.writes_target(engine.frozen_def(test))[0]
+
+
 def _write_to(conn, settings, test, old, new, now, writer, force: bool = False) -> bool:
     if isinstance(new, tuple):
         return _write_p0(conn, settings, test["id"], old, new, now, writer, force)
+    target = _target(test)
+    if target in SINGLE_TARGETS:
+        entity = single_entity(target, settings)
+        if entity is None:
+            raise ValueError(f"nie znajduję encji {TARGET_WHAT[target]} w HA")
+        return _write(conn, settings, test["id"], old, new, now, writer, entity=entity)
     return _write(conn, settings, test["id"], old, new, now, writer)
 
 
@@ -423,7 +471,8 @@ def _title(test) -> str:
         return "Heiko: test pompy obiegowej P0" if kind.target == "p0" else "Heiko: test przesunięcia krzywej"
     from .testkit import engine
     target = engine.writes_target(engine.frozen_def(test))[0]
-    return {"p0": "Heiko: test pompy obiegowej P0", "curve": "Heiko: test przesunięcia krzywej"}.get(
+    return {"p0": "Heiko: test pompy obiegowej P0", "curve": "Heiko: test przesunięcia krzywej",
+            "slot52": "Heiko: test opóźnienia grzałki AH", "dhw": "Heiko: test nastawy CWU"}.get(
         target, "Heiko: test nakładki ustawień")
 
 
@@ -448,7 +497,7 @@ def _baseline(test):
 def _abort(conn, settings: dict, test, reason: str, now: datetime, writer, notify, force: bool = False) -> dict:
     """Przerwanie z powrotem do wartości wyjściowej (zmiana ręczna idzie osobną ścieżką w `tick` — bez zapisu)."""
     restored, expected, baseline = None, _expected(test), _baseline(test)
-    what = "nastawę P0" if isinstance(baseline, tuple) else "przesunięcie"
+    what = TARGET_WHAT_ACC.get(_target(test), "przesunięcie")
     if expected != baseline or force:
         try:
             restored = _write_to(conn, settings, test, expected, baseline, now, writer, force)
@@ -530,6 +579,8 @@ def _current(target: str | None, settings: dict, get_numeric):
     """Bieżąca nastawa: przesunięcie krzywej albo para P0 (None, gdy któregoś odczytu brak)."""
     if target == "p0":
         return _read_p0(settings, get_numeric)
+    if target in SINGLE_TARGETS:
+        return _read_single(target, settings, get_numeric)
     return get_numeric(curve_shift_entity(settings))
 
 
@@ -572,7 +623,7 @@ def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_
         if not engine.has_writes(defn):
             return _tick_overlay(conn, settings, test, defn, now, notify)
         target = engine.writes_target(defn)[0]
-        what = "nastawy P0" if target == "p0" else "przesunięcia"
+        what = TARGET_WHAT.get(target, "przesunięcia")
         current = _current(target, settings, get_numeric)
         expected, last = _expected(test), _last_writes(conn, test)
         if any(w["confirmed_at"] == NO_CONFIRMATION for w in last):

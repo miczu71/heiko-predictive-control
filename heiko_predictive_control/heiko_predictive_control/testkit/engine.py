@@ -19,7 +19,7 @@ from .params import PUMP_PARAMS
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_PARAMS = ("curve_shift", "p0_run", "p0_stop")      # E4: tylko te nastawy w `writes` definicji
+SUPPORTED_PARAMS = ("curve_shift", "p0_run", "p0_stop", "slot52", "dhw")      # nastawy dozwolone w `writes` definicji
 DEFAULT_WINDOW = "00:00→00:00"
 
 # Opis miary głównej w kartach (definicje spoza `experiments.KINDS` nie mają własnego tekstu).
@@ -92,8 +92,8 @@ def has_writes(defn: dict) -> bool:
 
 
 def writes_target(defn: dict) -> tuple[str | None, str | None]:
-    """(`"curve"` | `"p0"` | None, błąd). None bez błędu = test bez `writes` (same nakładki). Zakres E4: przesunięcie
-    krzywej albo para P0 razem; inne nastawy → błąd."""
+    """(`"curve"` | `"p0"` | `"slot52"` | `"dhw"` | None, błąd). None bez błędu = test bez `writes` (same nakładki).
+    Jedna nastawa (przesunięcie krzywej, slot52, dhw) albo para P0 razem; mieszanki → błąd."""
     arms = (defn.get("arms") or {}).values()
     per_arm = [{w["param"] for w in (arm or {}).get("writes") or []} for arm in arms]
     used = set().union(*per_arm) if per_arm else set()
@@ -106,11 +106,13 @@ def writes_target(defn: dict) -> tuple[str | None, str | None]:
         return None, "wszystkie warianty testu muszą zapisywać nastawy (wariant bez zapisu nie wraca do wartości wyjściowej)"
     if used == {"curve_shift"}:
         return "curve", None
+    if used in ({"slot52"}, {"dhw"}):
+        return next(iter(used)), None
     if used == {"p0_run", "p0_stop"} and all(p == used for p in per_arm):
         return "p0", None
     if used <= {"p0_run", "p0_stop"}:
         return None, "czas pracy i postoju P0 trzeba zapisywać razem w każdym wariancie"
-    return None, "test może zapisywać tylko przesunięcie krzywej albo parę P0"
+    return None, "test może zapisywać tylko jedną nastawę (przesunięcie krzywej, slot52 albo dhw) albo parę P0"
 
 
 def describe_measure(defn: dict) -> str:
@@ -127,7 +129,7 @@ def to_steps(plan_steps: list[dict]) -> list[dict]:
     p0: dict[str, dict] = {}
     for step in plan_steps:
         param = step["param"]
-        if param == "curve_shift":
+        if param in ("curve_shift", "slot52", "dhw"):
             out.append({"at": step["at"], "value": step["value"]})
         elif param in ("p0_run", "p0_stop"):
             if step["at"] not in p0:
@@ -149,8 +151,8 @@ def _g(value) -> str:
     return f"{value:g}" if isinstance(value, (int, float)) else str(value)
 
 
-def validate_steps(steps: list[dict], baseline) -> str | None:
-    """Twarde granice w kodzie, niezależnie od definicji. `baseline`: liczba (krzywa) albo para (P0). Zwraca przyczynę
+def validate_steps(steps: list[dict], baseline, param: str = "curve_shift") -> str | None:
+    """Twarde granice w kodzie, niezależnie od definicji. `baseline`: liczba (`param`) albo para (P0). Zwraca przyczynę
     odrzucenia albo None. Te same komunikaty co dawne `experiments.validate`."""
     if isinstance(baseline, tuple):
         if not steps or (steps[-1].get("value"), steps[-1].get("stop")) != baseline:
@@ -162,10 +164,14 @@ def validate_steps(steps: list[dict], baseline) -> str | None:
         return None
     if not steps or steps[-1]["value"] != baseline:
         return "harmonogram nie kończy się powrotem do wartości wyjściowej"
-    check, prev = PUMP_PARAMS["curve_shift"].check, baseline
+    check, prev = PUMP_PARAMS[param].check, baseline
     for step in steps:
         value = step["value"]
         if not check(prev, value):
+            if param != "curve_shift":
+                if not check(value, value):
+                    return f"wartość {_g(value)} poza dozwolonymi regułami nastawy {param}"
+                return f"krok {_g(prev)} → {_g(value)} niedozwolony"
             if not ex.SHIFT_MIN <= value <= ex.SHIFT_MAX:
                 return f"wartość {value:g} poza zakresem {ex.SHIFT_MIN}…{ex.SHIFT_MAX}"
             return f"krok {prev:g} → {value:g} większy niż {ex.MAX_STEP}"
