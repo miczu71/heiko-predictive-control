@@ -8,10 +8,9 @@ const when = iso => {
   if (isNaN(d)) return esc(iso);
   return d.toLocaleString("pl-PL", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 };
-const plain = (v, unit) => (v === null || v === undefined) ? "—" : `${Number(v).toLocaleString("pl-PL")} ${unit}`;
-const unitOf = id => /backup_source_start_delay|slot52/.test(id || "") ? plain_min : /dhw_setpoint|dhw/.test(id || "") ? plain_c : shift;
-const plain_min = v => plain(v, "min");
-const plain_c = v => plain(v, "°C");
+const plain = unit => v => (v === null || v === undefined) ? "—" : `${Number(v).toLocaleString("pl-PL")} ${unit}`;
+// Jednostka wg celu testu (`t.target`: slot52/dhw) albo encji zapisu (`w.entity_id`); domyślnie przesunięcie krzywej.
+const unitOf = id => /backup_source_start_delay|slot52/.test(id || "") ? plain("min") : /dhw/.test(id || "") ? plain("°C") : shift;
 const val = (v, stop, eid) => (stop === null || stop === undefined) ? unitOf(eid)(v) : `${v}/${stop}`;     // para P0 „5/5”, slot 52 w min, CWU w °C albo przesunięcie
 const isP0 = w => (w.entity_id || "").includes("circulation_pump_p0");
 const VERDICT_NOTE = r => r.verdict
