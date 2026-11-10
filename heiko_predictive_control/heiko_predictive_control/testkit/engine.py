@@ -9,7 +9,6 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import re
 from datetime import date, datetime, time, timedelta
 
 from .. import experiments as ex
@@ -229,7 +228,8 @@ def _primary(defn: dict) -> str | None:
 
 
 def result(conn, settings: dict, test, now: datetime) -> dict:
-    defn, primary = frozen_def(test), _primary(frozen_def(test))
+    defn = frozen_def(test)
+    primary = _primary(defn)
     base = compat.zapis_result(conn, test)
     if primary == "zone_spread":
         return {**base, **compat.p0_result(conn, settings, test, now, day_kwh=ex._day_kwh)}

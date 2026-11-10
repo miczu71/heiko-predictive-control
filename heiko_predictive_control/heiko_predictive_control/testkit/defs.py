@@ -67,7 +67,9 @@ def list_all(conn) -> list[dict]:
     rows = {r["key"]: r for r in conn.execute("SELECT key, def_json, builtin FROM test_defs ORDER BY key")}
     out = []
     for key in [*BUILTIN, *sorted(k for k in rows if k not in BUILTIN)]:
-        item = get(conn, key)
+        row = rows.get(key)
+        item = ({"definition": _load(row["def_json"]), "builtin": bool(row["builtin"]) or key in BUILTIN}
+                if row is not None else get(conn, key))
         defn = item["definition"]
         errors = schema.validate(defn) if defn is not None else ["zapisany JSON jest uszkodzony"]
         defn = defn or {}

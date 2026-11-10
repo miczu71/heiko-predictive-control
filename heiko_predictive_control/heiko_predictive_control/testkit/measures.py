@@ -5,7 +5,6 @@ kWh doby wstrzykiwane przez `Ctx.day_kwh`. Stałe i legacy-funkcje importowane z
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone

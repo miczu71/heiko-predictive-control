@@ -18,7 +18,6 @@ from .. import experiments as ex
 # Parsowanie wartości już zwalidowanej przez schema (bez importu schema: ciągnie `params` → `web`).
 _BASE_OFFSET_RE = re.compile(r"base([+-])(\d+(?:\.\d+)?)")
 _BASE_TILDE_RE = re.compile(r"base~(\d+(?:\.\d+)?)")
-_REL_RE = re.compile(r"\+\d+m")
 _REL_TO_RE = re.compile(r"\+([1-9]\d{0,3})m")
 _SPAN_RE = re.compile(r"(\d{2}):(\d{2})\s*(?:→|-)\s*(\d{2}):(\d{2})")
 
