@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.24.0 — Otwarty silnik testów: definicje testów jako dane (API + edytor), nakładka testu na Szczyt G13
+- **Nowe — definicje testów w bazie:** test to teraz definicja JSON (tabela `test_defs`), a nie kod. `GET/POST /api/test-defs`, `GET/PUT/DELETE /api/test-defs/<klucz>`, `POST /api/test-defs/validate` (błędy + podgląd harmonogramu na 14 dni, nic nie uruchamia), `GET /api/test-defs/export`. W zakładce Testy: lista definicji, edytor JSON z walidacją na żywo i podglądem, Kopiuj/Edytuj/Usuń, import/eksport, tabela wariant × miara w Historii. Nowy test = nowa definicja, bez wydania i bez reinstalacji. Wbudowane `zapis`, `bezwladnosc`, `p0_ab` są tylko do odczytu (można je kopiować) i dają ten sam harmonogram i wynik co dotąd (testy „złote”).
+- **Bezpieczeństwo:** definicja nie poszerza allowlisty zapisu do pompy (`_WRITE_RULES` zostaje w kodzie; w testach tylko krzywa i para P0), wariant może nadpisać wyłącznie opcje z rejestru, w zakresach opcji. Limity: 64 KB ciała, najwyżej 8 wpisów `writes` na wariant i 8 `windows`; `requires.heiko_enabled=false` niedozwolone z `writes`; klucze `export`/`validate` zarezerwowane. Trwający test trzyma zamrożoną kopię definicji (późniejsza edycja go nie zmienia).
+- **Nowe — nakładka testu:** test z samymi `overrides` (np. `g13_peak_preheat_shift`) i `coexist:["g13_peak"]` działa razem ze Szczytem G13: ustawienia bieżącej doby wariantu nakładają się na opcje w jobach G13 i „Ogon grzania”; kafel G13 pokazuje wiersz nakładki (`test_overlay` w `/api/g13`). Test z `writes` jak dotąd blokuje G13, tail_cut i urlop.
+- **Zmiana:** `p0_ab` zaczęty między 23:56 a 23:59 startuje dobę później (reguła „≥ 5 min od teraz” dla zapisów całodobowych).
+- **Poprawka (z przeglądu):** błąd liczenia wyniku przerywa test, zamiast zostawiać go w „w toku”; miary przyjmują tę samą gramatykę okna co walidator.
+- Znane ograniczenia: kafel G13 liczy plan z opcji bazowych (nakładka tylko w wierszu obok); werdykt generyczny rozstrzyga 2 warianty; `abort.sustained_cold` jest przyjmowane, ale jeszcze nieczytane.
+- Migracja tylko dodaje tabelę i kolumny (`tests.def_key/def_json/arms_json`), więc powrót do 0.23.1 jest bezpieczny.
+
 ## 0.23.1 — Kafel „Doba” bez pozycji „Postój pompy”
 - **Zmiana:** kafel „Doba” (i `/api/day_summary`) nie pokazuje już ani nie liczy postoju pompy. „Razem” to podłoga + ciepła woda + klimatyzacja, a „Pompa dziś” na Pulpicie to podłoga + ciepła woda, więc wartości są niższe niż w 0.23.0 o energię postoju. Pole `standby` znika z odpowiedzi API; ustawienie `pump_energy_entity` zostaje (używają go inne części).
 - Testy: usunięty test postoju, test doby przez północ sprawdza brak `standby` i `pump = floor + dhw`.
