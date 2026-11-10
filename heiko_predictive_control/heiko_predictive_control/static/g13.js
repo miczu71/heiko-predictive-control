@@ -29,11 +29,18 @@ function nowLine(d) {
   return d.now ? `<p class="sub">Teraz: przesunięcie krzywej ${esc(d.now.shift.replace("-", "\u2212"))}${d.now.base == null ? "" : ` (bazowe ${esc(d.now.base.replace("-", "\u2212"))})`} — ${esc(d.now.phase)}</p>` : "";
 }
 
+function overlayLine(d) {
+  const o = d.test_overlay;
+  if (!o) return "";
+  const opts = Object.entries(o.overrides).map(([k, v]) => `${esc(k)} = ${esc(String(v).replace("-", "\u2212"))}`).join(", ");
+  return `<p class="sub test-overlay">Test w nakładce: <a href="${HPC.base}/tests">${esc(o.title)}</a>, wariant ${esc(o.arm)} — dziś ${opts}.</p>`;
+}
+
 function render(d) {
   badge.textContent = d.status_label;
   badge.className = "badge" + (BADGE[d.status] ? " " + BADGE[d.status] : "");
   summary.innerHTML = nextLine(d);
-  body.innerHTML = `${nowLine(d)}
+  body.innerHTML = `${nowLine(d)}${overlayLine(d)}
     <table class="day-table"><thead><tr><th></th><th>Energia</th><th>Koszt</th></tr></thead>
     <tbody>${row("Dziś", d.today)}${row("7 dni", d.week)}</tbody></table>
     <p class="sub">Zadziałania bezpiecznika w 7 dni: ${d.trips_7d}. Energia i koszt wg stref taryfy, z zakończonych runów.</p>`;

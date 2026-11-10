@@ -7,6 +7,22 @@
     i zabezpieczenia). Możesz przerwać w każdej chwili. Test zmienia tylko przesunięcie krzywej: nie więcej niż ±3 °C, po 1 °C naraz.</p>
   <p class="sub" id="tests-meta" role="status">ładowanie…</p>
   <div id="tests-active"></div>
+  <div class="section-head"><h2>Definicje testów</h2>
+    <div class="actions"><button type="button" id="def-new">Nowa definicja</button>
+      <button type="button" id="def-import">Importuj JSON</button><button type="button" id="def-export">Eksportuj własne</button>
+      <input type="file" id="def-file" accept="application/json,.json" hidden></div></div>
+  <p class="sub">Test to definicja w bazie add-onu — dodasz ją tu albo przez API, bez wydania. Zapis do pompy nadal idzie wyłącznie
+    przez allowlistę w kodzie, a wariant może nadpisać tylko opcje add-onu z rejestru.</p>
+  <details id="def-editor" class="def-editor" hidden>
+    <summary id="def-title">Edytor definicji</summary>
+    <p class="sub" id="def-key-note"></p>
+    <label for="def-json" class="sr-only">Definicja testu (JSON)</label>
+    <textarea id="def-json" spellcheck="false" rows="22" autocomplete="off"></textarea>
+    <div class="actions"><button type="button" id="def-save" disabled>Zapisz definicję</button>
+      <button type="button" class="link" id="def-close">Zamknij</button></div>
+    <div id="def-status" class="sub" role="status" aria-live="polite"></div>
+    <div id="def-preview"></div>
+  </details>
   <div id="tests-kinds" class="lens-grid"></div>
   <h2>Historia testów</h2>
   <div id="tests-history" class="history-table">ładowanie…</div>

@@ -553,3 +553,22 @@ img { max-width: 100%; }
 .k-zones tr.zones-row td { padding-top: 0; }
 .k-scroll { overflow-x: auto; max-width: 100%; }
 .k-scroll .zonelegend { white-space: normal; }
+
+/* Testy: definicje, edytor, wynik wariant × miara (E5) */
+.section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.section-head .actions { margin: 0; }
+.def-editor { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 8px 0 16px; background: var(--card-bg); }
+.def-editor summary { font-weight: 600; cursor: pointer; }
+.def-editor textarea { width: 100%; box-sizing: border-box; font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; tab-size: 2; }
+.def-editor textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.def-editor h4 { margin: 12px 0 4px; font-size: 14px; }
+#def-status.bad { color: var(--chart-min); }
+#def-status.good { color: var(--chart-target); }
+.def-actions { gap: 4px 12px; margin: 6px 0 0; }
+.tests button.link, .def-editor button.link { background: none; border: none; box-shadow: none; padding: 4px 2px; min-height: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font: inherit; font-size: 13px; }
+.tests button.link.danger { color: var(--chart-min); }
+.section-head .actions, .def-editor .actions, .def-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.arms-table th, .arms-table td { font-variant-numeric: tabular-nums; }
+.arms-table tr.winner th, .arms-table tr.winner td { font-weight: 600; background: var(--band-ok); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.test-overlay a { color: var(--accent); }
