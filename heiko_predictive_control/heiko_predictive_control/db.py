@@ -259,8 +259,36 @@ def migrate(conn: sqlite3.Connection) -> None:
     _migrate_catalog_0_9_3(conn)
     _migrate_g13_range_0_22(conn)
     _migrate_g13_preheat_trip_0_22_4(conn)
+    _migrate_testdefs_0_24(conn)
     # 0.14.0: „eksperyment” Doradcy zastąpiła propozycja testu — oczekujące stare znikają, historia zostaje.
     conn.execute("UPDATE proposals SET status = 'wygasła' WHERE kind = 'eksperyment' AND status = 'oczekuje'")
+    conn.commit()
+
+
+_TEST_DEFS_DDL = """
+CREATE TABLE IF NOT EXISTS test_defs (
+    key TEXT PRIMARY KEY,
+    def_json TEXT NOT NULL,
+    builtin INTEGER NOT NULL DEFAULT 0,
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL
+)
+"""
+_TESTS_ADDED_COLUMNS = ("def_key", "def_json", "arms_json")
+
+
+def _migrate_testdefs_0_24(conn: sqlite3.Connection) -> None:
+    """Definicje testów (E4): tabela `test_defs`, kolumny `tests.def_key/def_json/arms_json`, backfill starych wierszy
+    wbudowaną definicją swojego `kind`. Idempotentna i addytywna (stara wersja nowe kolumny ignoruje)."""
+    conn.execute(_TEST_DEFS_DDL)
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(tests)")}
+    for name in _TESTS_ADDED_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE tests ADD COLUMN {name} TEXT")
+    from .testkit.builtin import BUILTIN                 # późny import: testkit.* importuje experiments, a ten db
+    for kind, defn in BUILTIN.items():
+        conn.execute("UPDATE tests SET def_key = ?, def_json = ? WHERE kind = ? AND def_json IS NULL",
+                     (kind, json.dumps(defn), kind))
     conn.commit()
 
 

@@ -110,7 +110,7 @@ def _run(conn, settings, now, st, get_state, get_numeric, writer, notify, sleep)
         room = _min_room(conn, now)
         if cut_at is None or now - cut_at >= timedelta(minutes=_num(settings, "tail_dhw_hold_min", 2)):
             reason = "koniec odcięcia"
-        elif experiments.running_test(conn) is not None:
+        elif experiments.writing_test(conn) is not None:
             reason = "trwa test"
         elif room is None or room < _num(settings, "tail_min_room_c", 20.5):
             reason = "pokój poniżej progu"
@@ -120,7 +120,7 @@ def _run(conn, settings, now, st, get_state, get_numeric, writer, notify, sleep)
             return None
         return _return_to_auto(conn, settings, st, now, get_state, writer, notify, sleep, reason)
 
-    if not active(settings) or experiments.running_test(conn) is not None:
+    if not active(settings) or experiments.writing_test(conn) is not None:
         st["tail_since"] = None
         return None
     if st.get("pause_until") and now < datetime.fromisoformat(st["pause_until"]):

@@ -38,6 +38,7 @@ class Ctx:
     day_kwh: Callable | None = None
 
     def __post_init__(self):
+        self.default_day_kwh = self.day_kwh is None
         if self.day_kwh is None:
             self.day_kwh = lambda *a: ex._day_kwh(*a)        # późne wiązanie (podmiana w testach)
 
@@ -92,6 +93,8 @@ def _to_utc(naive: datetime, tz: ZoneInfo) -> datetime:
 # --- miary `arm` ---
 
 def kwh_day(ctx: Ctx, days: list[ArmDay]) -> dict:
+    if ctx.now is None and ctx.default_day_kwh:           # domyślny hook dotyka HA i wymaga `now` — doby pomijamy
+        return {"value": None, "n": 0}
     values = [v for v in (ctx.day_kwh(ctx.conn, ctx.settings, d.start.date(), ctx.now) for d in days) if v is not None]
     return {"value": round(mean(values), 2) if values else None, "n": len(values)}
 

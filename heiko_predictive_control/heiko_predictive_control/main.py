@@ -19,6 +19,7 @@ from . import (__version__, advisor, battery_replay, comfort, attic_runs, cycle,
                summaries, tail_cut, tariff_feed, telemetry, vacation, vacation_exec)
 from . import attic as attic_mod
 from . import db as dbm
+from .testkit import engine
 from .workday import default_is_workday
 from .publisher import MQTTPublisher
 from .web import create_app
@@ -120,6 +121,7 @@ def main() -> None:
     conn = dbm.get_conn(db_path)
     dbm.migrate(conn)
     dbm.seed_from_options(conn, _options_from_env())
+    engine.seed_builtin(conn)
     conn.close()
 
     def get_settings() -> dict:
@@ -370,11 +372,19 @@ def main() -> None:
         finally:
             c.close()
 
+    def effective_settings(c, now: datetime) -> dict:
+        """Ustawienia z nakładką bieżącej doby testu A/B (`overrides` z definicji) — dla jobów G13 i tail_cut."""
+        settings = engine.effective(c, dbm.get_all_settings(c), now)
+        if settings.get("_overlay_rejected"):
+            logger.warning("Nakładka testu: pominięto nieznane opcje %s", settings["_overlay_rejected"])
+        return settings
+
     def run_g13_peak() -> None:
         """Tryb „Szczyt G13” (domyślnie wyłączony): przesunięcie krzywej w oknach 13–21 w dni robocze."""
         c = dbm.get_conn(db_path)
         try:
-            info = g13_exec.run(c, dbm.get_all_settings(c), datetime.now())
+            now = datetime.now()
+            info = g13_exec.run(c, effective_settings(c, now), now)
             if info is not None:
                 logger.info("Szczyt G13: %s", info)
         except Exception:
@@ -398,7 +408,8 @@ def main() -> None:
         """Odcinanie „ogona” grzania (domyślnie wyłączone): przełączenie Auto → CWU → Auto, co minutę."""
         c = dbm.get_conn(db_path)
         try:
-            info = tail_cut.run(c, dbm.get_all_settings(c), datetime.now())
+            now = datetime.now()
+            info = tail_cut.run(c, effective_settings(c, now), now)
             if info is not None:
                 logger.info("Ogon grzania: %s", info)
         except Exception:

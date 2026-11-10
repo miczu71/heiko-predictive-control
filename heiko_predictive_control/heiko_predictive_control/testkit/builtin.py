@@ -1,7 +1,7 @@
 """Wbudowane definicje testów jako dane (E2): `zapis`, `bezwladnosc`, `p0_ab`.
 
 Teksty (klucz, tytuł, opis) i stałe są importowane z `experiments`, nie kopiowane. Definicje muszą przechodzić
-`schema.validate` i odtwarzać harmonogramy `experiments.build_schedule` (złote testy w tests/test_testkit_schedule.py).
+`schema.validate` i odtwarzać harmonogramy `tests/legacy_oracle.build_schedule` (złote testy w tests/test_testkit_schedule.py).
 """
 from __future__ import annotations
 

@@ -7,6 +7,7 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import experiments as ex
+import legacy_oracle as lo
 from heiko_predictive_control import floor_learn as fl
 
 SHIFT = "number.heiko_heat_pump_heating_curve_parallel_shift"
@@ -89,19 +90,19 @@ def test_start_itself_writes_nothing(conn):
 
 def test_inertia_schedule_three_workdays_skips_weekend_and_started_windows():
     now = datetime(2026, 10, 8, 7, 0)       # czwartek, okno 6–12 już trwa
-    steps = ex.build_schedule("bezwladnosc", 0.0, now, workday)
+    steps = lo.build_schedule("bezwladnosc", 0.0, now, workday)
     days = sorted({s["at"][:10] for s in steps})
     assert days == ["2026-10-08", "2026-10-09", "2026-10-12"]           # czw (tylko 15–21), pt, pon
     assert len(steps) == 2 * (1 + 2 + 2)
     assert [s["value"] for s in steps[:2]] == [-1.0, 0.0] and steps[0]["at"] == "2026-10-08T15:00"
-    assert ex.validate(steps, 0.0) is None
+    assert lo.validate(steps, 0.0) is None
 
 
 def test_validate_hard_limits():
-    assert "zakresem" in ex.validate([{"at": "x", "value": -5}, {"at": "y", "value": -4}], -4)
-    assert "krok" in ex.validate([{"at": "x", "value": 2}, {"at": "y", "value": 0}], 0)
-    assert "powrotem" in ex.validate([{"at": "x", "value": 1}], 0)
-    assert ex.build_schedule("zapis", 3.0, T0, workday)[0]["value"] == 2.0     # przy +3 test idzie w dół
+    assert "zakresem" in lo.validate([{"at": "x", "value": -5}, {"at": "y", "value": -4}], -4)
+    assert "krok" in lo.validate([{"at": "x", "value": 2}, {"at": "y", "value": 0}], 0)
+    assert "powrotem" in lo.validate([{"at": "x", "value": 1}], 0)
+    assert lo.build_schedule("zapis", 3.0, T0, workday)[0]["value"] == 2.0     # przy +3 test idzie w dół
 
 
 def test_write_test_runs_to_completion(conn):
@@ -248,19 +249,19 @@ def _inertia_row(conn, status=ex.DONE, started="2026-10-01T10:00:00", ended="202
 
 def test_inertia_passed_on_sufficient_excitation_even_when_not_identified(conn):
     _inertia_row(conn, sufficient=True, identified=False)
-    passed = ex._passed(conn, "bezwladnosc")
+    passed = lo._passed(conn, "bezwladnosc")
     assert passed is not None and passed["identified"] is False
     assert passed["ended"] == "2026-10-04T10:00:00"
 
 
 def test_inertia_not_passed_without_sufficient_excitation(conn):
     _inertia_row(conn, sufficient=False, identified=True)
-    assert ex._passed(conn, "bezwladnosc") is None
+    assert lo._passed(conn, "bezwladnosc") is None
 
 
 def test_inertia_passed_reports_identified_flag(conn):
     _inertia_row(conn, sufficient=True, identified=True)
-    assert ex._passed(conn, "bezwladnosc")["identified"] is True
+    assert lo._passed(conn, "bezwladnosc")["identified"] is True
 
 
 def test_inertia_done_recently_window_30_days(conn):
@@ -358,19 +359,19 @@ def _p0_tick(conn, pump, now, settings=P0_SETTINGS):
 
 
 def test_p0_schedule_is_six_midnight_blocks_ABABAB_and_returns_to_baseline():
-    steps = ex.build_schedule("p0_ab", (1.0, 6.0), T0, workday)
+    steps = lo.build_schedule("p0_ab", (1.0, 6.0), T0, workday)
     assert [s["at"] for s in steps] == [f"2026-10-{d:02d}T00:00" for d in range(8, 15)]
     assert [(s["value"], s["stop"]) for s in steps] == [(1, 6), (5, 5), (1, 6), (5, 5), (1, 6), (5, 5), (1, 6)]
-    assert ex.validate(steps, (1.0, 6.0)) is None
-    swapped = ex.build_schedule("p0_ab", (5.0, 5.0), T0, workday)
+    assert lo.validate(steps, (1.0, 6.0)) is None
+    swapped = lo.build_schedule("p0_ab", (5.0, 5.0), T0, workday)
     assert (swapped[0]["value"], swapped[1]["value"], swapped[-1]["value"]) == (5, 1, 5)
-    assert ex.build_schedule("p0_ab", (3.0, 6.0), T0, workday) == []
+    assert lo.build_schedule("p0_ab", (3.0, 6.0), T0, workday) == []
 
 
 def test_p0_validate_rejects_other_pairs_and_missing_return():
     bad_pair = [{"at": "x", "value": 1.0, "stop": 5.0}, {"at": "y", "value": 1.0, "stop": 6.0}]
-    assert "spoza dozwolonych" in ex.validate(bad_pair, (1.0, 6.0))
-    assert "powrotem" in ex.validate([{"at": "x", "value": 5.0, "stop": 5.0}], (1.0, 6.0))
+    assert "spoza dozwolonych" in lo.validate(bad_pair, (1.0, 6.0))
+    assert "powrotem" in lo.validate([{"at": "x", "value": 5.0, "stop": 5.0}], (1.0, 6.0))
 
 
 def test_p0_start_blocks_until_d4b_done_curve_on_and_known_pair(conn):
@@ -487,7 +488,7 @@ def test_p0_rejected_second_write_forces_full_restore(conn):
 # --- werdykt ---------------------------------------------------------------------------------------------------
 def _fill(conn, spreads, outdoor=None, kwh=None, samples=16, insert_test=True):
     """Telemetria, energia i temp. zewn. dla 6 dób testu (start T0). `spreads` = {etykieta: (rozrzut, średnia)}."""
-    steps = ex.build_schedule("p0_ab", (1.0, 6.0), T0, workday)
+    steps = lo.build_schedule("p0_ab", (1.0, 6.0), T0, workday)
     if insert_test:
         conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline) VALUES ('p0_ab', ?, ?, ?, 1.0)",
                      (ex.RUNNING, "2026-10-07T10:00:00", json.dumps(steps)))
@@ -516,45 +517,45 @@ NOW_END = datetime(2026, 10, 14, 0, 5)
 
 def test_p0_verdict_5_5_wins_with_enough_gain_and_reports_kwh_and_confidence(conn):
     test = _fill(conn, {"1/6": (1.0, 21.0), "5/5": (0.6, 21.0)}, {"1/6": 8.0, "5/5": 9.0}, {"1/6": 20.0, "5/5": 20.4})
-    r = ex._result(conn, test, NOW_END, P0_SETTINGS)
+    r = lo._result(conn, test, NOW_END, P0_SETTINGS)
     assert r["verdict"] == "5/5" and r["gain_c"] == 0.4 and r["extra_kwh_day"] == 0.4 and r["confidence"] == "wysoka"
     assert r["variants"]["1/6"]["days"] == 3 and r["variants"]["5/5"]["spread_c"] == 0.6 and r["outdoor_c"] == 8.5
 
 
 def test_p0_verdict_stays_1_6_below_gain_threshold(conn):
     test = _fill(conn, {"1/6": (1.0, 21.0), "5/5": (0.8, 21.0)})
-    assert ex._result(conn, test, NOW_END, P0_SETTINGS)["verdict"] == "1/6"
+    assert lo._result(conn, test, NOW_END, P0_SETTINGS)["verdict"] == "1/6"
 
 
 def test_p0_verdict_threshold_is_inclusive_despite_float_noise(conn):
     test = _fill(conn, {"1/6": (1.2, 21.0), "5/5": (0.9, 21.0)})
-    assert ex._result(conn, test, NOW_END, P0_SETTINGS)["verdict"] == "5/5"
+    assert lo._result(conn, test, NOW_END, P0_SETTINGS)["verdict"] == "5/5"
 
 
 def test_p0_verdict_stays_1_6_when_zone_average_drops(conn):
     test = _fill(conn, {"1/6": (1.0, 21.0), "5/5": (0.4, 20.5)})
-    assert ex._result(conn, test, NOW_END, P0_SETTINGS)["verdict"] == "1/6"
+    assert lo._result(conn, test, NOW_END, P0_SETTINGS)["verdict"] == "1/6"
 
 
 def test_p0_weather_difference_over_3c_gives_low_confidence(conn):
     test = _fill(conn, {"1/6": (1.0, 21.0), "5/5": (0.5, 21.0)}, {"1/6": 4.0, "5/5": 8.0})
-    r = ex._result(conn, test, NOW_END, P0_SETTINGS)
+    r = lo._result(conn, test, NOW_END, P0_SETTINGS)
     assert r["verdict"] == "5/5" and r["confidence"] == "niska"
 
 
 def test_p0_without_enough_standby_samples_has_no_verdict_and_is_not_passed(conn):
     test = _fill(conn, {"1/6": (1.0, 21.0), "5/5": (0.5, 21.0)}, samples=2)
-    r = ex._result(conn, test, NOW_END, P0_SETTINGS)
+    r = lo._result(conn, test, NOW_END, P0_SETTINGS)
     assert r["verdict"] is None and r["confidence"] is None
     conn.execute("UPDATE tests SET status = ?, result = ? WHERE id = ?", (ex.DONE, json.dumps({**r, "writes": 0, "confirmed": 0}), test["id"]))
-    assert ex._passed(conn, "p0_ab") is None
+    assert lo._passed(conn, "p0_ab") is None
 
 
 def test_p0_full_run_finishes_with_verdict_notification_and_passed_card(conn):
     pump = P0Pump()
     _d4b(conn)
     _p0_start(conn, pump)
-    steps = ex.build_schedule("p0_ab", (1.0, 6.0), T0, workday)
+    steps = lo.build_schedule("p0_ab", (1.0, 6.0), T0, workday)
     _fill(conn, {"1/6": (1.0, 21.0), "5/5": (0.5, 21.0)}, insert_test=False)
     now = T0
     for step in steps:

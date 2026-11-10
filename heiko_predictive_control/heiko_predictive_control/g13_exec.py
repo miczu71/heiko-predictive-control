@@ -120,7 +120,7 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         return None                                    # urlop przejmuje krzywą (docisk szczytu robi vacation_exec)
 
     if not active(settings):
-        if base is None or experiments.running_test(conn) is not None:
+        if base is None or experiments.writing_test(conn) is not None:
             return None
         current = get_numeric(entity)
         if current is None:
@@ -140,7 +140,7 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         _save(conn, st, before)
         return {"reason": "tryb wyłączony — powrót do bazowego", "target": base, "wrote": wrote}
 
-    if experiments.running_test(conn) is not None:
+    if experiments.writing_test(conn) is not None:
         return None
 
     mode = conn.execute("SELECT id, ok, confirmed_at FROM pump_writes WHERE test_id IS NULL AND entity_id LIKE ? "

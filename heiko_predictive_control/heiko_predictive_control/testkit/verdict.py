@@ -24,6 +24,7 @@ def _confidence(spec: dict, valid: dict) -> str:
 
 
 def decide(spec: dict, per_arm: dict) -> dict:
+    """Werdykt A/B. Brak `better` = „higher” (schema `verdict.better` jest wymagane, więc to tylko obrona)."""
     valid = {arm: d for arm, d in per_arm.items() if d.get("value") is not None}
     outdoor = _outdoor(valid) if len(valid) == 2 else None
     if len(valid) != 2:

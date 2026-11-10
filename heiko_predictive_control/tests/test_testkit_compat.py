@@ -7,6 +7,7 @@ import pytest
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import experiments as ex
+import legacy_oracle as lo
 from heiko_predictive_control import floor_learn as fl
 from heiko_predictive_control.testkit import compat
 
@@ -64,7 +65,7 @@ def build(conn, spread_a=1.0, spread_b=0.4, avg_a=21.0, avg_b=21.0, out_a=5.0, o
 def both(conn, monkeypatch, **kw):
     test, fake = build(conn, **kw)
     monkeypatch.setattr(ex, "_day_kwh", lambda c, s, d, n: fake(c, s, d, n))
-    legacy = ex._p0_result(conn, SETTINGS, test, NOW)
+    legacy = lo._p0_result(conn, SETTINGS, test, NOW)
     return compat.p0_result(conn, SETTINGS, test, NOW, day_kwh=fake), legacy
 
 
@@ -95,7 +96,7 @@ def test_p0_golden_average_drops_keeps_1_6(conn, monkeypatch):
 def test_p0_default_day_kwh_uses_experiments_hook(conn, monkeypatch):
     test, fake = build(conn)
     monkeypatch.setattr(ex, "_day_kwh", lambda c, s, d, n: fake(c, s, d, n))
-    assert compat.p0_result(conn, SETTINGS, test, NOW) == ex._p0_result(conn, SETTINGS, test, NOW)
+    assert compat.p0_result(conn, SETTINGS, test, NOW) == lo._p0_result(conn, SETTINGS, test, NOW)
 
 
 # --- bezwładność i zapis ---
@@ -129,7 +130,7 @@ def test_inertia_golden(conn, monkeypatch, excite):
         return {"ok": excite, "reason": "ok", "rmse_c": 0.2, "tau_h": 6.0, "identified": excite, "other": 1}
 
     monkeypatch.setattr(fl, "refit_from_cycles", fake)
-    legacy = ex._result(conn, test, NOW, SETTINGS)
+    legacy = lo._result(conn, test, NOW, SETTINGS)
     new = compat.inertia_result(conn, SETTINGS, test, NOW)
     assert new == legacy and calls == [{"excitation_since": "2026-10-01T10:00:00"}] * 2
     assert new["excitation"]["sufficient"] is excite and set(new) == {"writes", "confirmed", "max_confirm_min",
@@ -148,4 +149,4 @@ def test_zapis_golden(conn, rows):
                  "'2026-10-07T10:00:00', '[]', 0)")
     test = conn.execute("SELECT * FROM tests").fetchone()
     _writes(conn, test, rows)
-    assert compat.zapis_result(conn, test) == ex._result(conn, test, NOW, SETTINGS)
+    assert compat.zapis_result(conn, test) == lo._result(conn, test, NOW, SETTINGS)

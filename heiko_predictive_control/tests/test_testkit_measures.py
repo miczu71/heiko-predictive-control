@@ -10,7 +10,7 @@ from heiko_predictive_control import experiments as ex
 from heiko_predictive_control import floor_learn as fl
 from heiko_predictive_control.testkit import measures as ms
 from heiko_predictive_control.testkit import params
-from heiko_predictive_control.testkit.measures import ArmDay, Ctx
+from heiko_predictive_control.testkit.measures import ArmDay
 
 TZ = ZoneInfo("Europe/Warsaw")
 SETTINGS = {"timezone": "Europe/Warsaw", "day_zone_temp_entities": "sensor.z1,sensor.z2"}
@@ -302,3 +302,9 @@ def test_evaluate_no_primary_arm_means_no_verdict(conn):
 def test_evaluate_unknown_measure_raises(conn):
     with pytest.raises(ValueError):
         ms.evaluate({"measures": ["nope"]}, ctx(conn), [])
+
+
+def test_kwh_day_default_hook_skips_days_when_now_is_none():
+    """E4: `Ctx.now is None` + domyślny `day_kwh` (dotykałby HA) → doba pominięta zamiast AttributeError."""
+    out = ms.kwh_day(ms.Ctx(None, SETTINGS, None, None), [day(FRI)])
+    assert out == {"value": None, "n": 0}

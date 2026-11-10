@@ -9,6 +9,7 @@ from pathlib import Path
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import experiments as ex
+import legacy_oracle as lo
 from heiko_predictive_control import floor_plan as fp
 from heiko_predictive_control import tariff_feed as tf
 
@@ -189,9 +190,9 @@ def test_inertia_windows_follow_feed_and_default_without_it():
     c = conn()
     f = feed(c, state(schedule(datetime(2026, 1, 14, 0), peak=lambda dt: 19 <= dt.hour < 22 or 7 <= dt.hour < 9)))
     f.refresh(NOW)
-    steps = ex.build_schedule("bezwladnosc", 0.0, datetime(2026, 1, 14, 5), lambda d: True, f)
+    steps = lo.build_schedule("bezwladnosc", 0.0, datetime(2026, 1, 14, 5), lambda d: True, f)
     assert [s["at"][11:16] for s in steps[:4]] == ["07:00", "08:00", "19:00", "21:00"]
-    default = ex.build_schedule("bezwladnosc", 0.0, datetime(2026, 1, 16, 5), lambda d: d.weekday() < 5, f)
+    default = lo.build_schedule("bezwladnosc", 0.0, datetime(2026, 1, 16, 5), lambda d: d.weekday() < 5, f)
     assert [s["at"][11:16] for s in default[:4]] == ["06:00", "12:00", "15:00", "21:00"]   # feed nie zna doby
 
 

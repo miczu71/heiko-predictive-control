@@ -1,4 +1,4 @@
-"""Adapter kształtu starych wyników (`experiments._p0_result` / `_result`) na katalog miar — dla E4 i odznak.
+"""Adapter kształtu starych wyników (`legacy_oracle._p0_result` / `_result`) na katalog miar — dla E4 i odznak.
 
 Werdykt P0 jest asymetryczny (5/5 albo 1/6) i liczony wzorem legacy 1:1, nie przez `verdict.decide`.
 """

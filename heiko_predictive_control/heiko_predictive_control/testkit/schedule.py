@@ -2,7 +2,7 @@
 
 `build(defn, baseline, now, is_workday, feed=None) -> Plan`:
 - `baseline`: `{param: wartość}`, np. `{"curve_shift": 0.0}` albo `{"p0_run": 1.0, "p0_stop": 6.0}`;
-- `is_workday(date) -> bool` i `feed` (z `day_peak_windows(date)`) są wstrzykiwane, jak w `experiments.build_schedule`;
+- `is_workday(date) -> bool` i `feed` (z `day_peak_windows(date)`) są wstrzykiwane, jak w `tests/legacy_oracle.build_schedule`;
 - definicja jest już zwalidowana (`schema.validate`); przy czymkolwiek nierozwiązywalnym (np. `other` przy bazie
   spoza `experiments.P0_PAIRS`) zwraca `Plan([], {})`.
 Semantyka: docs/PLAN_heiko_testkit_E2.md, „Semantyka schedule.build”.

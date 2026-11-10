@@ -14,8 +14,6 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from statistics import mean
-from zoneinfo import ZoneInfo
 
 from . import catalog, comfort, db as dbm, floor_learn, ha_client, live, summaries, tariff_feed, vacation
 from .cycle import curve_shift_entity
@@ -111,100 +109,79 @@ def _fmt(value) -> str:
     return "/".join(f"{v:g}" for v in value) if isinstance(value, tuple) else f"{value:g}"
 
 
-def _p0_schedule(baseline: tuple, now: datetime) -> list[dict]:
-    """A B A B A B w dobach od najbliższej północy; krok 7 (północ po ostatniej dobie) wraca do wartości wyjściowej."""
-    if baseline not in P0_PAIRS:
-        return []
-    other = next(p for p in P0_PAIRS if p != baseline)
-    first = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
-    return [{"at": (first + timedelta(days=i)).isoformat(timespec="minutes"), "value": pair[0], "stop": pair[1]}
-            for i, pair in enumerate([baseline, other] * (P0_DAYS // 2) + [baseline])]
+def _definition(kind) -> dict:
+    """Definicja testu: słownik albo dawny `Kind` (→ wbudowana definicja tego samego klucza)."""
+    if isinstance(kind, Kind):
+        from .testkit.builtin import BUILTIN            # późny import: testkit.* importuje ten moduł
+        return BUILTIN[kind.key]
+    return kind
 
 
-def _inertia_windows(day, feed) -> tuple | None:
-    """Okna testu na dobę: drogie strefy (`is_peak`) z feedu taryfy; None = feed nie zna doby (okna domyślne)."""
-    runs = feed.day_peak_windows(day) if feed is not None else None
-    if runs is None:
-        return None
-    return tuple((a, b - 1) for a, b in runs if b - a >= INERTIA_MIN_WINDOW_H)
-
-
-def build_schedule(kind: str, baseline, now: datetime, is_workday, feed=None) -> list[dict]:
-    """Kroki [{at, value}] od `now` (P0: też `stop`); ostatni krok zawsze wraca do wartości wyjściowej."""
-    steps: list[tuple[datetime, float]] = []
-    if kind == "p0_ab":
-        return _p0_schedule(baseline, now)
-    if kind == "zapis":
-        delta = MAX_STEP if baseline < SHIFT_MAX else -MAX_STEP
-        steps = [(now, baseline + delta), (now + timedelta(minutes=CONFIRM_MIN), baseline)]
-    elif kind == "bezwladnosc":
-        day, days = now.date(), 0
-        while days < INERTIA_DAYS and day <= now.date() + timedelta(days=14):
-            windows = _inertia_windows(day, feed)
-            if windows is not None or is_workday(day):
-                for start_h, end_h in (INERTIA_WINDOWS if windows is None else windows):
-                    start = datetime.combine(day, datetime.min.time()).replace(hour=start_h)
-                    if start >= now + timedelta(minutes=5):
-                        steps += [(start, baseline - 1), (start.replace(hour=end_h), baseline)]
-                days += any(at.date() == day for at, _ in steps)
-            day += timedelta(days=1)
-    return [{"at": at.isoformat(timespec="minutes"), "value": value} for at, value in steps]
-
-
-def _validate_p0(schedule: list[dict], baseline: tuple) -> str | None:
-    if not schedule or (schedule[-1]["value"], schedule[-1].get("stop")) != baseline:
-        return "harmonogram nie kończy się powrotem do wartości wyjściowej"
-    for step in schedule:
-        if (step["value"], step.get("stop")) not in P0_PAIRS:
-            return f"para {step['value']:g}/{step.get('stop')} spoza dozwolonych {', '.join(_fmt(p) for p in P0_PAIRS)}"
+def _after_missing(conn, defn: dict) -> str | None:
+    """Tytuł pierwszego testu z `requires.after`, który nie ma zakończonego przebiegu (None = wszystkie są)."""
+    from .testkit import engine
+    for key in (defn.get("requires") or {}).get("after") or []:
+        if conn.execute("SELECT 1 FROM tests WHERE kind = ? AND status = ? LIMIT 1", (key, DONE)).fetchone() is None:
+            return (engine.get_def(conn, key) or {}).get("title") or key
     return None
 
 
-def validate(schedule: list[dict], baseline) -> str | None:
-    """Twarde granice w kodzie, niezależnie od definicji testu. Zwraca przyczynę odrzucenia albo None."""
-    if isinstance(baseline, tuple):
-        return _validate_p0(schedule, baseline)
-    if not schedule or schedule[-1]["value"] != baseline:
-        return "harmonogram nie kończy się powrotem do wartości wyjściowej"
-    prev = baseline
-    for step in schedule:
-        if not SHIFT_MIN <= step["value"] <= SHIFT_MAX:
-            return f"wartość {step['value']:g} poza zakresem {SHIFT_MIN}…{SHIFT_MAX}"
-        if abs(step["value"] - prev) > MAX_STEP:
-            return f"krok {prev:g} → {step['value']:g} większy niż {MAX_STEP}"
-        prev = step["value"]
-    return None
-
-
-def _plan(kind: Kind, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
-          is_workday, p0: tuple | None = None, d4b_done: bool = True, feed=None) -> tuple[list[dict], str | None]:
-    """Harmonogram i ewentualna blokada Startu — to samo dla podglądu w UI i dla samego Startu."""
-    is_p0 = kind.target == "p0"
-    if not settings.get("heiko_enabled"):
+def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
+              is_workday, p0: tuple | None = None, after_missing: str | None = None, feed=None):
+    """Harmonogram (format `tests.schedule`), doby wariantów i ewentualna blokada Startu — to samo dla podglądu w UI
+    i dla samego Startu."""
+    from .testkit import engine, schema
+    errors = schema.validate(defn)
+    if errors:
+        return [], {}, f"definicja testu niepoprawna: {errors[0]}"
+    target, target_error = engine.writes_target(defn)
+    if target_error:
+        return [], {}, target_error
+    req = defn.get("requires") or {}
+    writes = engine.has_writes(defn)
+    if req.get("heiko_enabled", True) and not settings.get("heiko_enabled"):
         reason = "zapis do pompy wyłączony (Opcje → „Sterowanie aktywne (Heiko)”)"
-    elif settings.get("g13_peak_enabled"):
+    elif settings.get("g13_peak_enabled") and (writes or "g13_peak" not in (defn.get("coexist") or [])):
         reason = "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
     elif vacation.is_active(settings, now.date()):
         reason = "wyłącz tryb urlopowy (Opcje), żeby uruchomić test"
     elif running is not None:
         reason = "inny test jest w toku"
-    elif is_p0 and p0 is None:
+    elif target == "p0" and p0 is None:
         reason = "nie mogę odczytać czasu pracy i postoju pompy obiegowej P0"
-    elif not is_p0 and shift is None:
+    elif target == "curve" and shift is None:
         reason = "nie mogę odczytać przesunięcia krzywej"
-    elif curve_on is None:
+    elif req.get("curve_on") is not None and curve_on is None:
         reason = "nie wiem, czy krzywa grzewcza jest włączona (encja przełącznika w Opcjach)"
-    elif curve_on != kind.curve_on:
-        reason = f"wymaga {'włączonej' if kind.curve_on else 'wyłączonej'} krzywej grzewczej"
-    elif is_p0 and not d4b_done:
-        reason = "najpierw zakończ test „Bezwładność −1” (D4b)"
-    elif is_p0 and p0 not in P0_PAIRS:
+    elif req.get("curve_on") is not None and curve_on != req["curve_on"]:
+        reason = f"wymaga {'włączonej' if req['curve_on'] else 'wyłączonej'} krzywej grzewczej"
+    elif after_missing:
+        reason = f"najpierw zakończ test „{after_missing}”"
+    elif target == "p0" and p0 not in P0_PAIRS:
         reason = f"P0 ma teraz {_fmt(p0)} — test porównuje tylko {' i '.join(_fmt(p) for p in P0_PAIRS)}"
     else:
         reason = None
-    base = (p0 or P0_PAIRS[0]) if is_p0 else (shift if shift is not None else 0.0)
-    schedule = build_schedule(kind.key, base, now, is_workday, feed)
-    return schedule, reason or validate(schedule, base)
+    if target == "p0":
+        base, legacy_base = {"p0_run": (p0 or P0_PAIRS[0])[0], "p0_stop": (p0 or P0_PAIRS[0])[1]}, p0 or P0_PAIRS[0]
+    else:
+        legacy_base = shift if shift is not None else 0.0
+        base = {"curve_shift": legacy_base} if target == "curve" else {}
+    steps, arms = engine.plan(defn, base, now, is_workday, feed)
+    if reason is None and target is not None:
+        reason = engine.validate_steps(steps, legacy_base)
+    if reason is None and not arms:
+        reason = "w najbliższym czasie nie ma doby, w której test mógłby ruszyć"
+    return steps, arms, reason
+
+
+def _plan(kind, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
+          is_workday, p0: tuple | None = None, d4b_done: bool = True, feed=None) -> tuple[list[dict], str | None]:
+    """Skrót dla `_plan_def`: (harmonogram, blokada). `kind` = definicja albo `Kind`; `d4b_done=False` = nie spełniono
+    `requires.after`."""
+    defn = _definition(kind)
+    missing = None if d4b_done else ((defn.get("requires") or {}).get("after") or ["inny test"])[0]
+    steps, _, reason = _plan_def(defn, settings, now, shift, curve_on, running, is_workday, p0, missing, feed)
+    return steps, reason
 
 
 def _read(settings: dict, get_state, get_numeric) -> tuple[float | None, bool | None]:
@@ -225,12 +202,18 @@ def _read_p0(settings: dict, get_numeric) -> tuple[float, float] | None:
     return pair if pair and None not in pair else None
 
 
-def _d4b_done(conn) -> bool:
-    return conn.execute("SELECT 1 FROM tests WHERE kind = 'bezwladnosc' AND status = ? LIMIT 1", (DONE,)).fetchone() is not None
-
-
 def running_test(conn):
     return conn.execute("SELECT * FROM tests WHERE status = ? ORDER BY id DESC LIMIT 1", (RUNNING,)).fetchone()
+
+
+def writing_test(conn):
+    """Test w toku, który zapisuje do pompy (jego zamrożona definicja ma `writes`; brak `def_json` = stary wiersz, tak).
+    Test samych nakładek nie wyłącza G13/tail_cut/urlopu i nie jest przerywany restartem."""
+    from .testkit import engine
+    test = running_test(conn)
+    if test is None or test["def_json"] is None:
+        return test
+    return test if engine.has_writes(engine.frozen_def(test)) else None
 
 
 def _expected(test):
@@ -259,24 +242,6 @@ def _as_dict(conn, row) -> dict:
     pending = [w["ts"] for w in _last_writes(conn, row) if w["confirmed_at"] is None] if row["status"] == RUNNING else []
     d["pending_since"] = pending[0] if pending else None
     return d
-
-
-def _passed(conn, kind: str) -> dict | None:
-    """Ostatni zakończony test danego typu, jeśli spełnił swoją miarę wyniku (karta w UI: odznaka, na koniec listy)."""
-    for row in conn.execute("SELECT ended, result FROM tests WHERE kind = ? AND status = ? ORDER BY id DESC",
-                            (kind, DONE)):
-        r = json.loads(row["result"] or "{}")
-        if kind == "bezwladnosc":
-            ok = (r.get("excitation") or {}).get("sufficient")        # miara testu = wymuszenie, nie identyfikacja
-        elif kind == "p0_ab":
-            ok = r.get("verdict")
-        else:
-            ok = 0 < r.get("confirmed", 0) == r.get("writes")
-        if ok:
-            return {"ended": row["ended"], "confirmed": r["confirmed"], "writes": r["writes"],
-                    **({"verdict": r["verdict"]} if kind == "p0_ab" else {}),
-                    **({"identified": bool((r.get("refit") or {}).get("identified"))} if kind == "bezwladnosc" else {})}
-    return None
 
 
 def _inertia_tests(conn):
@@ -322,17 +287,23 @@ def recheck_inertia(conn, settings: dict, now: datetime) -> bool:
 
 
 def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_workday) -> dict:
-    """Dane zakładki „Testy”: typy testów z podglądem harmonogramu i blokadą, test w toku, historia, dziennik zapisów."""
+    """Dane zakładki „Testy”: definicje testów z podglądem harmonogramu i blokadą, test w toku, historia, dziennik zapisów."""
+    from .testkit import engine
     shift, curve_on = _read(settings, get_state, get_numeric)
-    p0, d4b = _read_p0(settings, get_numeric), _d4b_done(conn)
+    p0 = _read_p0(settings, get_numeric)
     running = running_test(conn)
     feed = tariff_feed.for_settings(conn, settings)
     kinds = []
-    for kind in KINDS.values():
-        schedule, blocked = _plan(kind, settings, now, shift, curve_on, running, is_workday, p0, d4b, feed)
-        kinds.append({"key": kind.key, "title": kind.title, "description": kind.description, "measure": kind.measure,
-                      "schedule": schedule, "blocked": blocked, "passed": _passed(conn, kind.key),
-                      "abort_conditions": P0_ABORT_CONDITIONS if kind.target == "p0" else ABORT_CONDITIONS})
+    for defn in engine.list_defs(conn):
+        schedule, _, blocked = _plan_def(defn, settings, now, shift, curve_on, running, is_workday, p0,
+                                         _after_missing(conn, defn), feed)
+        key = defn.get("key")
+        kind = KINDS.get(key)
+        p0_test = engine.writes_target(defn)[0] == "p0"
+        kinds.append({"key": key, "title": defn.get("title"), "description": defn.get("description", ""),
+                      "measure": kind.measure if kind else engine.describe_measure(defn),
+                      "schedule": schedule, "blocked": blocked, "passed": engine.passed(conn, defn),
+                      "abort_conditions": P0_ABORT_CONDITIONS if p0_test else ABORT_CONDITIONS})
     kinds.sort(key=lambda k: k["passed"] is not None)          # wykonane na koniec (sortowanie stabilne)
     history = conn.execute("SELECT * FROM tests ORDER BY id DESC LIMIT 20").fetchall()
     writes = conn.execute("SELECT * FROM pump_writes ORDER BY id DESC LIMIT 30").fetchall()
@@ -345,22 +316,26 @@ def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_wor
 
 def start(conn, settings: dict, kind_key: str, now: datetime, get_state, get_numeric, is_workday) -> dict:
     """Start = zgoda na cały harmonogram. Sam nic nie zapisuje — pierwszy krok wykonuje `tick`."""
-    kind = KINDS.get(kind_key)
-    if kind is None:
+    from .testkit import engine
+    defn = engine.get_def(conn, kind_key)
+    if defn is None:
         return {"ok": False, "error": "nieznany test"}
     shift, curve_on = _read(settings, get_state, get_numeric)
-    p0 = _read_p0(settings, get_numeric) if kind.target == "p0" else None
+    target = engine.writes_target(defn)[0]
+    p0 = _read_p0(settings, get_numeric) if target == "p0" else None
     with _lock:
-        schedule, reason = _plan(kind, settings, now, shift, curve_on, running_test(conn), is_workday, p0, _d4b_done(conn),
-                                  tariff_feed.for_settings(conn, settings))
+        schedule, arms, reason = _plan_def(defn, settings, now, shift, curve_on, running_test(conn), is_workday, p0,
+                                           _after_missing(conn, defn), tariff_feed.for_settings(conn, settings))
         if reason:
             return {"ok": False, "error": reason}
-        baseline = p0 if p0 else shift
-        cur = conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline) VALUES (?, ?, ?, ?, ?)",
-                           (kind.key, RUNNING, _iso(now), json.dumps(schedule), baseline[0] if p0 else baseline))
+        baseline = p0 if p0 else (shift if target == "curve" else 0.0)
+        cur = conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, def_key, def_json, arms_json) "
+                           "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                           (kind_key, RUNNING, _iso(now), json.dumps(schedule), baseline[0] if p0 else baseline, kind_key,
+                            json.dumps(defn), json.dumps(arms)))
         conn.commit()
-        logger.info("Test %s (#%d) uruchomiony, wartość wyjściowa %s, %d kroków", kind.key, cur.lastrowid,
-                    _fmt(baseline), len(schedule))
+        logger.info("Test %s (#%d) uruchomiony, wartość wyjściowa %s, %d kroków, %d dób", kind_key, cur.lastrowid,
+                    _fmt(baseline), len(schedule), len(arms))
         return {"ok": True, "id": cur.lastrowid}
 
 
@@ -441,8 +416,15 @@ def _write_to(conn, settings, test, old, new, now, writer, force: bool = False) 
 
 
 def _title(test) -> str:
-    kind = KINDS.get(test["kind"]) if test is not None else None
-    return "Heiko: test pompy obiegowej P0" if kind and kind.target == "p0" else "Heiko: test przesunięcia krzywej"
+    if test is None:
+        return "Heiko: test przesunięcia krzywej"
+    kind = KINDS.get(test["kind"])
+    if kind is not None:
+        return "Heiko: test pompy obiegowej P0" if kind.target == "p0" else "Heiko: test przesunięcia krzywej"
+    from .testkit import engine
+    target = engine.writes_target(engine.frozen_def(test))[0]
+    return {"p0": "Heiko: test pompy obiegowej P0", "curve": "Heiko: test przesunięcia krzywej"}.get(
+        target, "Heiko: test nakładki ustawień")
 
 
 def _notify(settings: dict, message: str, notify, title: str = "Heiko: test przesunięcia krzywej") -> None:
@@ -493,9 +475,10 @@ def abort(conn, settings: dict, now: datetime, reason: str = "przerwany przez u�
 
 
 def recover_on_start(conn, settings: dict, now: datetime, writer=None, notify=None) -> dict | None:
-    """Po starcie add-onu test „w toku” nie jest wznawiany: powrót do wartości wyjściowej."""
+    """Po starcie add-onu test z zapisami nie jest wznawiany: powrót do wartości wyjściowej. Test samych nakładek nic
+    nie zapisuje do pompy, więc wznawia się z bazy."""
     with _lock:
-        test = running_test(conn)
+        test = writing_test(conn)
         return _abort(conn, settings, test, "restart add-onu", now, writer, notify) if test else None
 
 
@@ -543,89 +526,35 @@ def _day_kwh(conn, settings: dict, day, now: datetime) -> float | None:
     return stored()
 
 
-def _p0_result(conn, settings: dict, test, now: datetime) -> dict:
-    """Wynik testu A/B: per wariant (para) średni rozrzut stref w standby, średnia stref, kWh/dobę i temp. zewn.;
-    werdykt: 5/5 wygrywa, gdy rozrzut niższy o ≥ P0_MIN_GAIN_C i średnia stref nie spada (z tolerancją szumu)."""
-    steps = json.loads(test["schedule"])
-    tz = ZoneInfo(settings.get("timezone") or "Europe/Warsaw")
-    pooled: dict[str, dict] = {}
-    for cur, nxt in zip(steps, steps[1:]):                 # doba = od kroku do następnego (ostatni krok to powrót)
-        start, end = datetime.fromisoformat(cur["at"]), datetime.fromisoformat(nxt["at"])
-        v = pooled.setdefault(_fmt((cur["value"], cur["stop"])), {"days": 0, "mode": {}, "zones": {}, "n": 0,
-                                                                  "kwh": [], "out": []})
-        v["days"] += 1
-        samples = summaries.zone_samples(conn, settings, int(start.replace(tzinfo=tz).timestamp()),
-                                         int(end.replace(tzinfo=tz).timestamp()))
-        if samples:
-            v["mode"].update(samples[0])
-            v["zones"].update(samples[1])
-            v["n"] = samples[2]
-        kwh = _day_kwh(conn, settings, start.date(), now)
-        if kwh is not None:
-            v["kwh"].append(kwh)
-        out = conn.execute("SELECT AVG(outdoor_temp_c) FROM cycles WHERE loop = 'heiko' AND ts >= ? AND ts < ?",
-                           (start.isoformat(), end.isoformat())).fetchone()[0]
-        if out is not None:
-            v["out"].append(out)
-    variants = {}
-    for label, v in pooled.items():
-        spread = summaries.standby_spread(v["mode"], v["zones"], v["n"]) if v["n"] else None
-        variants[label] = {"days": v["days"], "spread_c": spread and spread["spread_c"],
-                           "zones_avg_c": spread and spread["zones_avg_c"], "samples": spread["samples"] if spread else 0,
-                           "kwh_day": round(mean(v["kwh"]), 2) if v["kwh"] else None,
-                           "outdoor_c": round(mean(v["out"]), 1) if v["out"] else None}
-    a, b = variants.get("1/6"), variants.get("5/5")
-    result: dict = {"variants": variants, "verdict": None, "confidence": None}
-    if a and b and a["spread_c"] is not None and b["spread_c"] is not None:
-        gain = round(a["spread_c"] - b["spread_c"], 2)
-        result["gain_c"] = gain
-        result["verdict"] = "5/5" if gain >= P0_MIN_GAIN_C and b["zones_avg_c"] >= a["zones_avg_c"] - P0_AVG_TOLERANCE_C \
-            else "1/6"
-        if a["kwh_day"] is not None and b["kwh_day"] is not None:
-            result["extra_kwh_day"] = round(b["kwh_day"] - a["kwh_day"], 2)
-        weather = a["outdoor_c"] is not None and b["outdoor_c"] is not None
-        result["confidence"] = "niska" if not weather or abs(a["outdoor_c"] - b["outdoor_c"]) > P0_WEATHER_BAND_C else "wysoka"
-        result["outdoor_c"] = round((a["outdoor_c"] + b["outdoor_c"]) / 2, 1) if weather else None
-    return result
-
-
-def _done_message(test, result: dict) -> str:
-    if test["kind"] != "p0_ab":
-        return f"Test „{KINDS[test['kind']].title}” zakończony. Wynik w zakładce Testy."
-    if result["verdict"] is None:
-        return "Test P0 zakończony bez werdyktu (za mało próbek w standby). Szczegóły w zakładce Testy."
-    kwh = f", koszt {result['extra_kwh_day']:+g} kWh/dobę" if "extra_kwh_day" in result else ""
-    return (f"Test P0 zakończony: werdykt {result['verdict']} (rozrzut pokoi przy 5/5 {'niższy' if result['gain_c'] >= 0 else 'wyższy'} o {abs(result['gain_c']):g}°C{kwh}, "
-            f"pewność {result['confidence']}). Wynik w zakładce Testy.")
-
-
-def _result(conn, test, now: datetime, settings: dict) -> dict:
-    writes = conn.execute("SELECT ts, confirmed_at FROM pump_writes WHERE test_id = ?", (test["id"],)).fetchall()
-    delays = [(datetime.fromisoformat(w["confirmed_at"]) - datetime.fromisoformat(w["ts"])).total_seconds() / 60
-              for w in writes if w["confirmed_at"] not in (None, NO_CONFIRMATION, SUPERSEDED)]
-    result = {"writes": len(writes), "confirmed": len(delays),
-              "max_confirm_min": round(max(delays), 1) if delays else None}
-    if test["kind"] == "p0_ab":
-        result.update(_p0_result(conn, settings, test, now))
-    if test["kind"] == "bezwladnosc":
-        rows = conn.execute("SELECT reduced_active, water_setpoint_c, base_curve_c, curve_shift_c FROM cycles "
-                            "WHERE loop = 'heiko' AND ts >= ? ORDER BY id", (test["started"],)).fetchall()
-        result["excitation"] = floor_learn.excitation(rows)
-        refit = floor_learn.refit_from_cycles(conn, settings, now, excitation_since=test["started"])
-        result["refit"] = {k: refit.get(k) for k in ("ok", "reason", "rmse_c", "tau_h", "identified")}
-    return result
-
-
-def _current(kind: Kind | None, settings: dict, get_numeric):
+def _current(target: str | None, settings: dict, get_numeric):
     """Bieżąca nastawa: przesunięcie krzywej albo para P0 (None, gdy któregoś odczytu brak)."""
-    if kind is not None and kind.target == "p0":
+    if target == "p0":
         return _read_p0(settings, get_numeric)
     return get_numeric(curve_shift_entity(settings))
+
+
+def _complete(conn, settings: dict, test, defn: dict, now: datetime, notify, title: str) -> dict:
+    from .testkit import engine
+    result = engine.result(conn, settings, test, now)
+    _finish(conn, test, DONE, now, result=result)
+    _notify(settings, engine.done_message(defn, test, result), notify, title)
+    return {"status": DONE, "result": result}
+
+
+def _tick_overlay(conn, settings: dict, test, defn: dict, now: datetime, notify) -> dict:
+    """Test bez `writes` (same nakładki): nic nie czyta z pompy i nic nie zapisuje; kończy się po `engine.end_at`."""
+    from .testkit import engine
+    arms = json.loads(test["arms_json"] or "{}")
+    end = engine.end_at(defn, arms)
+    if end is None or now >= end:
+        return _complete(conn, settings, test, defn, now, notify, _title(test))
+    return {"status": RUNNING, "arm": engine.arm_for_day(test, now.date()), "until": _iso(end)}
 
 
 def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_state,
          writer=None, notify=None) -> dict | None:
     """Jeden krok wykonawcy: potwierdzenia → zmiana ręczna → komfort → następny krok harmonogramu → koniec."""
+    from .testkit import engine
     with _lock:
         if running_test(conn) is None and conn.execute(
                 "SELECT 1 FROM pump_writes WHERE ok = 1 AND confirmed_at IS NULL LIMIT 1").fetchone() is None:
@@ -634,9 +563,12 @@ def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_
         test = running_test(conn)
         if test is None:
             return None
-        kind, title = KINDS.get(test["kind"]), _title(test)
-        what = "nastawy P0" if kind is not None and kind.target == "p0" else "przesunięcia"
-        current = _current(kind, settings, get_numeric)
+        defn, title = engine.frozen_def(test), _title(test)
+        if not engine.has_writes(defn):
+            return _tick_overlay(conn, settings, test, defn, now, notify)
+        target = engine.writes_target(defn)[0]
+        what = "nastawy P0" if target == "p0" else "przesunięcia"
+        current = _current(target, settings, get_numeric)
         expected, last = _expected(test), _last_writes(conn, test)
         if any(w["confirmed_at"] == NO_CONFIRMATION for w in last):
             return _abort(conn, settings, test, f"pompa nie potwierdziła zapisu {_fmt(expected)} w {CONFIRM_MIN} min",
@@ -660,14 +592,12 @@ def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_
             step = schedule[test["step"]]
             if now < datetime.fromisoformat(step["at"]):
                 return {"status": RUNNING, "next": step}
-            target = (step["value"], step["stop"]) if "stop" in step else step["value"]
-            if target != current and not _write_to(conn, settings, test, current, target, now, writer):
+            target_value = (step["value"], step["stop"]) if "stop" in step else step["value"]
+            if target_value != current and not _write_to(conn, settings, test, current, target_value, now, writer):
                 return _abort(conn, settings, test, "HA odrzuciło zapis", now, writer, notify,
-                              force=isinstance(target, tuple))
+                              force=isinstance(target_value, tuple))
             conn.execute("UPDATE tests SET step = step + 1 WHERE id = ?", (test["id"],))
             conn.commit()
-            return {"status": RUNNING, "step": test["step"] + 1, **({"wrote": step["value"]} if target != current else {})}
-        result = _result(conn, test, now, settings)
-        _finish(conn, test, DONE, now, result=result)
-        _notify(settings, _done_message(test, result), notify, title)
-        return {"status": DONE, "result": result}
+            return {"status": RUNNING, "step": test["step"] + 1,
+                    **({"wrote": step["value"]} if target_value != current else {})}
+        return _complete(conn, settings, test, defn, now, notify, title)

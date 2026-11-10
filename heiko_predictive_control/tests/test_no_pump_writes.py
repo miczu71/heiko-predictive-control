@@ -11,9 +11,11 @@ from heiko_predictive_control import (advisor, analysis, catalog, comfort, cycle
                                        g13_exec, floor_model, floor_plan, kpi, live, publisher, summaries, tail_cut, telemetry, web)
 from heiko_predictive_control.analyzers import anomalies, curve, dhw, dhw_slot
 import heiko_predictive_control.analyzers as analyzers_pkg
+from heiko_predictive_control.testkit import compat, engine, measures, overlay, params, schedule, schema, verdict
 
 OBSERVING_MODULES = [advisor, analysis, catalog, comfort, dhw_cycles, floor_learn, floor_model, floor_plan, kpi, live,
-                     publisher, summaries, telemetry, web, analyzers_pkg, anomalies, curve, dhw, dhw_slot]
+                     publisher, summaries, telemetry, web, analyzers_pkg, anomalies, curve, dhw, dhw_slot,
+                     engine, schedule, measures, compat, verdict, schema, params, overlay]
 WRITE_NAMES = {"call_service"}
 
 

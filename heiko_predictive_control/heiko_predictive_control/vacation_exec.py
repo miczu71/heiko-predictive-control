@@ -202,7 +202,7 @@ def _dhw_enter(conn, settings: dict, st: dict, now: datetime, get_numeric, get_s
 
 def _dhw_exit(conn, settings: dict, st: dict, now: datetime, get_numeric, writer, notify) -> None:
     """Koniec trybu: jednorazowo `DHW_AFTER`, niezależnie od krzywej i od ręcznych zmian nastawy."""
-    if experiments.running_test(conn) is not None:
+    if experiments.writing_test(conn) is not None:
         return
     dhw = dhw_entity(settings)
     current = get_numeric(dhw)
@@ -245,7 +245,7 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
         if st.get("dhw_active"):
             _dhw_exit(conn, settings, st, now, get_numeric, writer, notify)
             before = dict(st)                          # stan CWU zapisany w helperze; krzywa porównuje już tylko swoje zmiany
-        if base is None or experiments.running_test(conn) is not None:
+        if base is None or experiments.writing_test(conn) is not None:
             return None
         current = get_numeric(entity)
         if current is None:
@@ -265,7 +265,7 @@ def _run(conn, settings, now, get_numeric, get_state, writer, notify, away_call)
         _save(conn, st, before)
         return {"reason": "tryb wyłączony — powrót do bazowego", "target": base, "wrote": wrote}
 
-    if experiments.running_test(conn) is not None:
+    if experiments.writing_test(conn) is not None:
         return None
 
     if not st.get("dhw_active"):                       # CWU jest od krzywej niezależne (też przy `suspended_day`)

@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta
 
 from heiko_predictive_control import db as dbm
 from heiko_predictive_control import experiments as ex
+import legacy_oracle as lo
 from heiko_predictive_control import tariff_feed as tf
 from heiko_predictive_control.testkit import schedule as sc
 from heiko_predictive_control.testkit.builtin import BUILTIN
@@ -75,7 +76,7 @@ def baseline_curve(v):
 def test_zapis_matches_legacy_for_base_0_and_3():
     for base in (0.0, 3.0):
         plan = sc.build(BUILTIN["zapis"], baseline_curve(base), T0, workday)
-        assert legacy(plan) == ex.build_schedule("zapis", base, T0, workday)
+        assert legacy(plan) == lo.build_schedule("zapis", base, T0, workday)
         assert plan.arms_by_day == {"2026-10-07": "A"}
     assert [s["value"] for s in sc.build(BUILTIN["zapis"], baseline_curve(3.0), T0, workday).steps] == [2.0, 3.0]
 
@@ -84,7 +85,7 @@ def test_bezwladnosc_without_feed_matches_legacy_three_workdays():
     now = datetime(2026, 10, 8, 7, 0)       # czwartek, okno 6–12 już trwa
     for base in (0.0, -2.0):
         plan = sc.build(BUILTIN["bezwladnosc"], baseline_curve(base), now, workday)
-        assert legacy(plan) == ex.build_schedule("bezwladnosc", base, now, workday)
+        assert legacy(plan) == lo.build_schedule("bezwladnosc", base, now, workday)
     plan = sc.build(BUILTIN["bezwladnosc"], baseline_curve(0.0), now, workday)
     assert plan.arms_by_day == {"2026-10-08": "A", "2026-10-09": "A", "2026-10-12": "A"}
     assert len(plan.steps) == 2 * (1 + 2 + 2)
@@ -96,11 +97,11 @@ def test_bezwladnosc_with_feed_matches_legacy_and_default_days():
     assert f.refresh(NOW)
     now = datetime(2026, 1, 14, 5)
     plan = sc.build(BUILTIN["bezwladnosc"], baseline_curve(0.0), now, lambda d: True, f)
-    assert legacy(plan) == ex.build_schedule("bezwladnosc", 0.0, now, lambda d: True, f)
+    assert legacy(plan) == lo.build_schedule("bezwladnosc", 0.0, now, lambda d: True, f)
     assert [s["at"][11:16] for s in plan.steps[:4]] == ["07:00", "08:00", "19:00", "21:00"]
     now2 = datetime(2026, 1, 16, 5)
     plan2 = sc.build(BUILTIN["bezwladnosc"], baseline_curve(0.0), now2, lambda d: d.weekday() < 5, f)
-    assert legacy(plan2) == ex.build_schedule("bezwladnosc", 0.0, now2, lambda d: d.weekday() < 5, f)
+    assert legacy(plan2) == lo.build_schedule("bezwladnosc", 0.0, now2, lambda d: d.weekday() < 5, f)
     assert [s["at"][11:16] for s in plan2.steps[:4]] == ["06:00", "12:00", "15:00", "21:00"]   # feed nie zna doby
 
 
@@ -108,13 +109,13 @@ def test_p0_matches_legacy_for_both_pairs_and_empty_for_foreign_baseline():
     for pair in ((1.0, 6.0), (5.0, 5.0)):
         base = {"p0_run": pair[0], "p0_stop": pair[1]}
         plan = sc.build(BUILTIN["p0_ab"], base, T0, workday)
-        assert legacy(plan) == ex.build_schedule("p0_ab", pair, T0, workday)
-        assert ex.validate(legacy(plan), pair) is None
+        assert legacy(plan) == lo.build_schedule("p0_ab", pair, T0, workday)
+        assert lo.validate(legacy(plan), pair) is None
         assert list(plan.arms_by_day.items()) == [
             (f"2026-10-{d:02d}", arm) for d, arm in zip(range(8, 14), "ABABAB")]
     plan = sc.build(BUILTIN["p0_ab"], {"p0_run": 3.0, "p0_stop": 6.0}, T0, workday)
     assert plan.steps == [] and plan.arms_by_day == {}
-    assert ex.build_schedule("p0_ab", (3.0, 6.0), T0, workday) == []
+    assert lo.build_schedule("p0_ab", (3.0, 6.0), T0, workday) == []
 
 
 def test_p0_swapped_baseline_first_day_is_base_then_other():
