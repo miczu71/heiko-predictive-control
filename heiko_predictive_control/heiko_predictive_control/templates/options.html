@@ -101,7 +101,7 @@
         <label>Bezpiecznik — minimum pokoi (°C) (10…25)
           <input type="number" step="0.5" min="10" max="25" name="vacation_min_room_c" value="{{ settings.get('vacation_min_room_c', 16) }}"></label>
         <label>Nastawa CWU na czas urlopu (°C) (16…60)
-          <input type="number" step="1" min="16" max="60" name="vacation_dhw_setpoint" value="{{ settings.get('vacation_dhw_setpoint', 20) }}"></label>
+          <input type="number" step="1" min="25" max="60" name="vacation_dhw_setpoint" value="{{ settings.get('vacation_dhw_setpoint', 25) }}"></label>
       </div>
       <label><input type="checkbox" name="vacation_with_away" {{ 'checked' if settings.vacation_with_away }}>
         Włącz też tryb Away (input_boolean.away_mode)</label>

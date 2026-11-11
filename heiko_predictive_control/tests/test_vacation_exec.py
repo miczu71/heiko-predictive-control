@@ -21,7 +21,7 @@ def at(h, m=0, day=9):
 
 
 class Pump:
-    def __init__(self, shift=0.0, confirm=True, accept=True, dhw=None, dhw_min=16, dhw_accept=True, away="off",
+    def __init__(self, shift=0.0, confirm=True, accept=True, dhw=None, dhw_min=25, dhw_accept=True, away="off",
                  away_ok=True):
         self.shift, self.confirm, self.accept = shift, confirm, accept
         self.away, self.away_ok, self.away_calls = away, away_ok, []
@@ -253,18 +253,18 @@ def test_running_test_blocks_mode(conn):
 
 def test_dhw_entity_and_target():
     assert vac.dhw_entity(ON) == DHW and vac.DHW_AFTER == 48
-    assert vac.dhw_target({}) == 20 and vac.dhw_target({"vacation_dhw_setpoint": 25}) == 25
-    assert vac.dhw_target({"vacation_dhw_setpoint": 5}) == 16 and vac.dhw_target({"vacation_dhw_setpoint": 99}) == 60
+    assert vac.dhw_target({}) == 25 and vac.dhw_target({"vacation_dhw_setpoint": 30}) == 30
+    assert vac.dhw_target({"vacation_dhw_setpoint": 5}) == 25 and vac.dhw_target({"vacation_dhw_setpoint": 99}) == 60
 
 
 def test_enable_writes_dhw_and_sets_active(conn):
     pump = Pump(dhw=48.0)
     go(conn, pump, at(12))
-    assert pump.dhw_calls == [20] and pump.calls == [-2.0]
+    assert pump.dhw_calls == [25] and pump.calls == [-2.0]
     st = state(conn)
     assert st["dhw_active"] is True and st["dhw_before"] == 48.0 and st.get("dhw_warn") is None
     go(conn, pump, at(12, 5))
-    assert pump.dhw_calls == [20]
+    assert pump.dhw_calls == [25]
 
 
 def test_dhw_min_above_target_no_write_warns_curve_works(conn, caplog):
@@ -276,9 +276,9 @@ def test_dhw_min_above_target_no_write_warns_curve_works(conn, caplog):
     st = state(conn)
     assert st["dhw_warn"] == "min" and not st.get("dhw_active")
     assert sum("CWU" in r.message for r in caplog.records) == 1
-    pump.dhw_min = 16                                          # po aktualizacji integracji zapis rusza sam
+    pump.dhw_min = 25                                          # po aktualizacji integracji zapis rusza sam
     go(conn, pump, at(12, 10))
-    assert pump.dhw_calls == [20] and state(conn)["dhw_active"] is True
+    assert pump.dhw_calls == [25] and state(conn)["dhw_active"] is True
 
 
 def test_dhw_unknown_warns_brak(conn):
@@ -288,25 +288,25 @@ def test_dhw_unknown_warns_brak(conn):
 
 
 def test_dhw_already_target_no_write(conn):
-    pump = Pump(dhw=20.0)
+    pump = Pump(dhw=25.0)
     go(conn, pump, at(12))
     assert pump.dhw_calls == []
     st = state(conn)
-    assert st["dhw_active"] is True and st["dhw_before"] == 20.0
+    assert st["dhw_active"] is True and st["dhw_before"] == 25.0
 
 
 def test_dhw_rejected_notifies_once_retries_next_day_curve_not_suspended(conn):
     pump = Pump(dhw=48.0, dhw_accept=False)
     go(conn, pump, at(12))
-    assert pump.dhw_calls == [20] and pump.calls == [-2.0]
+    assert pump.dhw_calls == [25] and pump.calls == [-2.0]
     assert len(pump.notes) == 1 and "CWU" in pump.notes[0] and "48" in pump.notes[0]
     st = state(conn)
     assert not st.get("dhw_active") and st["dhw_fail_day"] == "2026-11-09" and not st.get("suspended_day")
     go(conn, pump, at(12, 5))
     go(conn, pump, at(18))
-    assert pump.dhw_calls == [20] and len(pump.notes) == 1
+    assert pump.dhw_calls == [25] and len(pump.notes) == 1
     go(conn, pump, at(8, day=10))
-    assert pump.dhw_calls == [20, 20] and len(pump.notes) == 2
+    assert pump.dhw_calls == [25, 25] and len(pump.notes) == 2
 
 
 def test_disable_restores_dhw_48_once_and_clears(conn):
@@ -314,11 +314,11 @@ def test_disable_restores_dhw_48_once_and_clears(conn):
     go(conn, pump, at(12))
     go(conn, pump, at(12, 5))
     go(conn, pump, at(13), settings=OFF)
-    assert pump.dhw_calls == [20, 48] and pump.dhw == 48
+    assert pump.dhw_calls == [25, 48] and pump.dhw == 48
     st = state(conn)
     assert not st.get("dhw_active") and not any(k.startswith("dhw_") and st.get(k) for k in st)
     go(conn, pump, at(14), settings=OFF)
-    assert pump.dhw_calls == [20, 48]
+    assert pump.dhw_calls == [25, 48]
 
 
 def test_disable_dhw_rejected_retries_notify_daily(conn):
@@ -327,7 +327,7 @@ def test_disable_dhw_rejected_retries_notify_daily(conn):
     pump.dhw_accept = False
     go(conn, pump, at(13), settings=OFF)
     go(conn, pump, at(13, 5), settings=OFF)
-    assert pump.dhw_calls == [20, 48, 48] and state(conn)["dhw_active"] is True
+    assert pump.dhw_calls == [25, 48, 48] and state(conn)["dhw_active"] is True
     assert sum("CWU" in n for n in pump.notes) == 1
     pump.dhw_accept = True
     go(conn, pump, at(13, 10), settings=OFF)
@@ -342,7 +342,7 @@ def test_disable_restores_dhw_when_base_is_none(conn):
     go(conn, pump, at(12, 10))                                 # ręczna zmiana → base None, krzywa wstrzymana
     assert state(conn)["base"] is None and state(conn)["dhw_active"] is True
     go(conn, pump, at(13), settings=OFF)
-    assert pump.dhw_calls == [20, 48] and pump.dhw == 48
+    assert pump.dhw_calls == [25, 48] and pump.dhw == 48
 
 
 def test_master_switch_off_restores_dhw(conn):
@@ -353,8 +353,8 @@ def test_master_switch_off_restores_dhw(conn):
 
 
 def test_restart_after_intent_does_not_rewrite(conn):
-    pump = Pump(dhw=20.0)
-    dbm.set_setting(conn, vac.STATE_KEY, {"dhw_intent": 20, "dhw_active": False})
+    pump = Pump(dhw=25.0)
+    dbm.set_setting(conn, vac.STATE_KEY, {"dhw_intent": 25, "dhw_active": False})
     go(conn, pump, at(12))
     assert pump.dhw_calls == [] and state(conn)["dhw_active"] is True
 
@@ -436,12 +436,12 @@ def test_dates_before_in_after_window(conn):
     assert pump.calls == [] and pump.dhw_calls == []
     go(conn, pump, at(12, day=10), settings=s)
     go(conn, pump, at(12, 5, day=10), settings=s)
-    assert pump.calls == [-2.0] and pump.dhw_calls == [20]
+    assert pump.calls == [-2.0] and pump.dhw_calls == [25]
     go(conn, pump, at(12, day=12), settings=s)
     assert pump.calls == [-2.0]
     go(conn, pump, at(8, day=13), settings=s)
     assert pump.calls == [-2.0, 0.0] and pump.shift == 0.0
-    assert pump.dhw_calls == [20, 48]
+    assert pump.dhw_calls == [25, 48]
 
 
 def test_peak_pressure_minus_three_in_window(conn):
@@ -499,7 +499,7 @@ WINDOW = {**ON, "vacation_to": "2026-11-15"}
 def test_start_announced_once_to_family(conn):
     pump = Pump(shift=0.0, dhw=48)
     go(conn, pump, at(12), settings=WINDOW)
-    assert pump.family == ["Tryb urlopowy włączony do 15.11: krzywa −2, CWU 20."]
+    assert pump.family == ["Tryb urlopowy włączony do 15.11: krzywa −2, CWU 25."]
     assert [s for s, _ in pump.sent] == ["notify.family"]
     assert state(conn)["announced"] == "2026-11-09"
     go(conn, pump, at(12, 5), settings=WINDOW)
@@ -509,7 +509,7 @@ def test_start_announced_once_to_family(conn):
 def test_start_without_end_date(conn):
     pump = Pump(shift=0.0, dhw=48)
     go(conn, pump, at(12))
-    assert pump.family == ["Tryb urlopowy włączony: krzywa −2, CWU 20."]
+    assert pump.family == ["Tryb urlopowy włączony: krzywa −2, CWU 25."]
 
 
 def test_end_after_vacation_to_announced_once(conn):

@@ -1,7 +1,11 @@
 # Changelog
 
+## 0.25.1 — Minimalna nastawa CWU 25 °C
+- **Poprawka:** dolna granica nastawy CWU wynosi 25 °C (pompa nie przyjmuje niższych), a nie 16 °C. Dotyczy trybu urlopowego (pole „Nastawa CWU na urlop”, walidacja 25–60, domyślnie 25 zamiast 20), reguły zapisu `_WRITE_RULES` dla `dhw_setpoint` (testy z celem `dhw`: 25–60, całkowite) i zakresu w katalogu nastaw. Zapisana wcześniej wartość poniżej 25 jest przycinana do 25 przy zapisie do pompy.
+- Bez migracji bazy; powrót do 0.25.0 jest bezpieczny.
+
 ## 0.25.0 — Testy mogą zapisywać opóźnienie grzałki AH (slot 52) i nastawę CWU
-- **Nowe:** definicja testu może w `writes` używać `slot52` (opóźnienie grzałki AH) albo `dhw` (nastawa CWU) — jedna nastawa na test (mieszanki i para z krzywą są odrzucane). Zapis nadal wyłącznie przez `_write` i allowlistę `_WRITE_RULES` (slot 52: 20–60, krok 5, skok ≤ 5; CWU: 16–60, całkowite); encja pochodzi z katalogu, nie z definicji. Powrót do bazy, przerwanie, restart add-onu, potwierdzenia i „ręczna zmiana” działają jak dla krzywej. Test z `writes` jak dotąd wymaga wyłączonego Szczytu G13.
+- **Nowe:** definicja testu może w `writes` używać `slot52` (opóźnienie grzałki AH) albo `dhw` (nastawa CWU) — jedna nastawa na test (mieszanki i para z krzywą są odrzucane). Zapis nadal wyłącznie przez `_write` i allowlistę `_WRITE_RULES` (slot 52: 20–60, krok 5, skok ≤ 5; CWU: 16–60, całkowite (od 0.25.1: 25–60)); encja pochodzi z katalogu, nie z definicji. Powrót do bazy, przerwanie, restart add-onu, potwierdzenia i „ręczna zmiana” działają jak dla krzywej. Test z `writes` jak dotąd wymaga wyłączonego Szczytu G13.
 - **Zmiana (UI):** karta aktywnego testu i dziennik zapisów pokazują slot 52 w minutach, a CWU w °C (zamiast „+55°C”); `/api/tests` ma pole `target`; karta nie podaje warunku watchdoga krzywej dla slot52/CWU.
 - Znane ograniczenia: brak watchdoga HA dla slot52/CWU (przywraca tylko add-on, także po restarcie, o ile HA zwraca encje); automatyzacje CWU (PV, kąpiel) zmieniające nastawę w trakcie przerywają test jako „ręczna zmiana”; powiadomienie o niepotwierdzonym powrocie ma tytuł „Doradca”/„tryb urlopowy”; brak miar `ah_minutes`/`dhw_kwh` (definicje używają `kwh_day` i `min_room_at`).
 - Bez migracji bazy; powrót do 0.24.0 jest bezpieczny.

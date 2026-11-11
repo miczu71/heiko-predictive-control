@@ -61,7 +61,7 @@ SETTING_RANGES = {
     "g13_peak_preheat_shift": (-3, 3), "g13_peak_peak_shift": (-3, 3),
     "tail_margin_k": (0, 5), "tail_delay_min": (10, 240), "tail_min_pause_min": (5, 240),
     "tail_min_room_c": (15, 26), "tail_dhw_hold_min": (1, 10),
-    "vacation_curve_drop": (1, 3), "vacation_min_room_c": (10, 25), "vacation_dhw_setpoint": (16, 60),
+    "vacation_curve_drop": (1, 3), "vacation_min_room_c": (10, 25), "vacation_dhw_setpoint": (25, 60),
 }
 INTEGER_SETTINGS = ("vacation_curve_drop", "vacation_dhw_setpoint")
 

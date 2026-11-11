@@ -765,8 +765,8 @@ def test_write_mode_does_not_supersede_foreign_rows(conn):
 DHW = "number.heiko_heat_pump_dhw_setpoint"
 
 
-@pytest.mark.parametrize("old,new,ok", [(48, 20, True), (20, 48, True), (48, 16, True), (48, 60, True),
-                                        (48, 15, False), (48, 61, False), (48, 20.5, False)])
+@pytest.mark.parametrize("old,new,ok", [(48, 25, True), (25, 48, True), (48, 16, False), (48, 60, True),
+                                        (48, 24, False), (48, 61, False), (48, 20.5, False)])
 def test_dhw_setpoint_allowlist(conn, old, new, ok):
     calls = []
     writer = lambda d, s, data: calls.append(data["value"]) or True     # noqa: E731
@@ -788,15 +788,15 @@ def test_anti_legionella_setpoint_rejected(conn):
 def test_no_supersede_keeps_foreign_pending_write(conn):
     pump = Pump(confirm=False)
     ex._write(conn, SETTINGS, None, 0.0, 1.0, T0, pump.writer, supersede=True)
-    ex._write(conn, SETTINGS, None, 48, 20, T0, pump.writer, entity=DHW, supersede=False)
+    ex._write(conn, SETTINGS, None, 48, 25, T0, pump.writer, entity=DHW, supersede=False)
     assert conn.execute("SELECT confirmed_at FROM pump_writes ORDER BY id").fetchall()[0][0] is None
 
 
 def test_unconfirmed_dhw_write_notifies_about_dhw_not_p0(conn):
     pump = Pump()
-    ex._write(conn, SETTINGS, None, 48, 20, T0, pump.writer, entity=DHW, supersede=False)
+    ex._write(conn, SETTINGS, None, 48, 25, T0, pump.writer, entity=DHW, supersede=False)
     ex._confirm_writes(conn, SETTINGS, lambda e: 48.0, T0 + timedelta(minutes=ex.CONFIRM_MIN + 1), pump.notify)
-    assert len(pump.notes) == 1 and "CWU" in pump.notes[0] and "20" in pump.notes[0] and "P0" not in pump.notes[0]
+    assert len(pump.notes) == 1 and "CWU" in pump.notes[0] and "25" in pump.notes[0] and "P0" not in pump.notes[0]
 
 
 def test_plan_blocks_start_when_vacation_active():

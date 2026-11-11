@@ -59,9 +59,9 @@ def test_active_fields_and_defaults(conn):
     v = build(conn, BASE)
     assert v["status"] == "active" and v["status_label"] == "włączony"
     assert (v["enabled"], v["from"], v["to"]) == (True, "2026-11-01", "2026-11-15")
-    assert (v["drop"], v["min_room_c"], v["dhw"]) == (2, 16.0, 20)
+    assert (v["drop"], v["min_room_c"], v["dhw"]) == (2, 16.0, 25)
     assert v["with_away"] is False and v["peak_pressing"] is False
-    assert v["summary"] == "Urlop do 15.11 · krzywa −2 · CWU 20"
+    assert v["summary"] == "Urlop do 15.11 · krzywa −2 · CWU 25"
 
 
 def test_summary_without_end_date_and_custom_values(conn):

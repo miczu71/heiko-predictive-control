@@ -62,7 +62,7 @@ def dhw_entity(settings: dict) -> str:
 
 
 def dhw_target(settings: dict) -> int:
-    return max(experiments.DHW_MIN, min(experiments.DHW_MAX, int(_num(settings, "vacation_dhw_setpoint", 20))))
+    return max(experiments.DHW_MIN, min(experiments.DHW_MAX, int(_num(settings, "vacation_dhw_setpoint", 25))))
 
 
 def active(settings: dict, today: date) -> bool:

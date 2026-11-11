@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_ENTITY_SUFFIX = "heating_curve_parallel_shift"      # zapis tylko na encję przesunięcia krzywej (sprawdzane w _write)
 ALLOWED_SERVICE = ("number", "set_value")
 DHW_SUFFIX = "dhw_setpoint"                  # nastawa CWU (tryb urlopowy); NIE łapie anti_legionella_setpoint (endswith)
-DHW_MIN, DHW_MAX = 16, 60
+DHW_MIN, DHW_MAX = 25, 60
 SHIFT_MIN, SHIFT_MAX, MAX_STEP = -3, 3, 1
 G13_MAX_STEP = 2 * SHIFT_MAX               # tryb Szczyt G13: skok w całym zakresie ±3 (tylko przesunięcie krzywej, przez `_write`)
 # Pompa obiegowa P0 (test p0_ab): zapis tylko na dwóch encjach i tylko wartości z dwóch dozwolonych par (praca, postój).

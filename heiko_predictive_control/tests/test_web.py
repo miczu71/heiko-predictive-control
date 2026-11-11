@@ -1041,7 +1041,7 @@ def test_options_page_has_vacation_fields(client):
 
 @pytest.mark.parametrize("payload", [
     {"vacation_curve_drop": 0}, {"vacation_curve_drop": 4}, {"vacation_curve_drop": 1.5},
-    {"vacation_dhw_setpoint": 15}, {"vacation_dhw_setpoint": 61}, {"vacation_dhw_setpoint": 20.5},
+    {"vacation_dhw_setpoint": 24}, {"vacation_dhw_setpoint": 61}, {"vacation_dhw_setpoint": 20.5},
     {"vacation_min_room_c": 9}, {"vacation_min_room_c": 26},
     {"vacation_from": "15.11.2026"}, {"vacation_to": "jutro"}, {"vacation_from": 5},
     {"vacation_from": "2026-11-20", "vacation_to": "2026-11-10"},
@@ -1053,7 +1053,7 @@ def test_post_settings_vacation_invalid_is_400(tmp_path, payload):
 
 
 @pytest.mark.parametrize("payload", [
-    {"vacation_curve_drop": 1, "vacation_dhw_setpoint": 16, "vacation_min_room_c": 10},
+    {"vacation_curve_drop": 1, "vacation_dhw_setpoint": 25, "vacation_min_room_c": 10},
     {"vacation_curve_drop": 3, "vacation_dhw_setpoint": 60, "vacation_min_room_c": 25},
     {"vacation_from": "2026-11-10", "vacation_to": "2026-11-10"},
     {"vacation_from": "", "vacation_to": None}, {"vacation_from": "2026-11-10", "vacation_to": ""},
