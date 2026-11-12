@@ -31,10 +31,10 @@ def test_clamped_to_minus_three():
     assert dec(cur=-2.0, base=-2.0, cfg=v.Config(drop=3)).target == -3.0
 
 
-def test_drop_clamped_to_1_3():
-    assert dec(cfg=v.Config(drop=0)).target == -1.0
+def test_drop_clamped_to_0_3():
+    assert dec(cur=-1.0, base=-1.0, cfg=v.Config(drop=0)).target == -1.0   # 0 = krzywa zostaje na bazie
     assert dec(cfg=v.Config(drop=7)).target == -3.0
-    assert dec(cfg=v.Config(drop=-5)).target == -1.0
+    assert dec(cur=0.0, base=0.0, cfg=v.Config(drop=-5)).target == 0.0
 
 
 def test_breaker_trips_after_15_min_once():
@@ -109,6 +109,7 @@ def test_decide_in_peak_absolute_minus_three():
     assert d.target == -3.0 and d.reason == "urlop: szczyt" and d.base == 0.0
     d = dec(cur=-2.0, base=-2.0, cfg=v.Config(drop=1), in_peak=True)
     assert d.target == -3.0
+    assert dec(cur=0.0, cfg=v.Config(drop=0), in_peak=True).target == -3.0   # szczyt G13 działa też przy obniżce 0
 
 
 def test_decide_reason_off_peak():

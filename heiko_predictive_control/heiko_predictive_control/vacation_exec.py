@@ -33,7 +33,9 @@ def _notify_to(service: str, message: str, notify) -> None:
 def _announce_text(settings: dict) -> str:
     end = settings.get("vacation_to") or None
     until = f" do {date.fromisoformat(end).strftime('%d.%m')}" if end else ""
-    return f"Tryb urlopowy włączony{until}: krzywa −{_config(settings).drop}, CWU {dhw_target(settings)}."
+    drop = _config(settings).drop
+    curve = "bez obniżki" if drop == 0 else f"−{drop}"
+    return f"Tryb urlopowy włączony{until}: krzywa {curve}, CWU {dhw_target(settings)}."
 
 
 def _close(a, b) -> bool:

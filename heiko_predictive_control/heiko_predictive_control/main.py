@@ -393,7 +393,7 @@ def main() -> None:
             c.close()
 
     def run_vacation() -> None:
-        """Tryb urlopowy (domyślnie wyłączony): krzywa obniżona o `vacation_curve_drop` przez całą dobę."""
+        """Tryb urlopowy (domyślnie wyłączony): krzywa obniżona o `vacation_curve_drop` (0–3) przez całą dobę."""
         c = dbm.get_conn(db_path)
         try:
             info = vacation_exec.run(c, dbm.get_all_settings(c), datetime.now())

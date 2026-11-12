@@ -37,7 +37,7 @@ function render(d) {
   body.innerHTML = `${trip}
     <table class="day-table"><tbody>
       <tr><th scope="row">Okno dat</th><td>${esc(windowText(d))}</td></tr>
-      <tr><th scope="row">Obniżka krzywej</th><td>−${esc(String(d.drop))}</td></tr>
+      <tr><th scope="row">Obniżka krzywej</th><td>${d.drop === 0 ? "bez obniżki" : "−" + esc(String(d.drop))}</td></tr>
       <tr><th scope="row">CWU</th><td>${dhwText(d)}</td></tr>
       <tr><th scope="row">Minimum pokoju</th><td>${nf(d.min_room_c, 1)} °C</td></tr>
       <tr><th scope="row">Tryb Away</th><td>${d.with_away ? "tak" : "nie"}</td></tr>

@@ -51,7 +51,8 @@ def build(conn, settings: dict, now: datetime) -> dict:
     cfg, dhw = vacation_exec._config(settings), vacation_exec.dhw_target(settings)
     summary = ""
     if status != "off":
-        summary = f"Urlop{f' do {_dm(end)}' if end else ''} · krzywa −{cfg.drop} · CWU {dhw}"
+        drop_txt = "bez obniżki" if cfg.drop == 0 else f"−{cfg.drop}"
+        summary = f"Urlop{f' do {_dm(end)}' if end else ''} · krzywa {drop_txt} · CWU {dhw}"
     since = (today - timedelta(days=TRIP_DAYS)).isoformat()
     return {
         "enabled": bool(settings.get("vacation_enabled", False)), "status": status, "status_label": label,

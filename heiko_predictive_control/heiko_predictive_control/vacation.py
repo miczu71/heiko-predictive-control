@@ -1,4 +1,4 @@
-"""Tryb urlopowy: krzywa grzewcza obniżona o `drop` przez całą dobę (oszczędzanie podczas nieobecności).
+"""Tryb urlopowy: krzywa grzewcza obniżona o `drop` (0–3; 0 = bez obniżki) przez całą dobę (oszczędzanie podczas nieobecności).
 
 Czysta logika, bez I/O: dostaje bieżące i bazowe przesunięcie krzywej, minimum pokoi i stan bezpiecznika, a zwraca
 docelowe przesunięcie (obcięte do ±3 — allowlista zapisu). Wykonanie (zapis do pompy, ręczna zmiana, opcje w bazie)
@@ -57,7 +57,7 @@ def is_active(settings: dict, today: date) -> bool:
 def decide(now: datetime, *, current_shift: float, base_shift: float | None, min_room_c: float | None,
            state: State, cfg: Config, in_peak: bool = False) -> Decision:
     base = current_shift if base_shift is None else base_shift
-    drop = max(1, min(3, round(cfg.drop)))
+    drop = max(0, min(3, round(cfg.drop)))
     event = None
     if min_room_c is not None:
         if min_room_c >= cfg.min_room_c:

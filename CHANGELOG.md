@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.2 — Tryb urlopowy: obniżka krzywej może wynosić 0
+- **Zmiana:** pole „Obniżka krzywej” przyjmuje 0–3 (dotąd 1–3). 0 = krzywa zostaje na bazowym przesunięciu (bez obniżki); CWU działa jak dotąd wg urlopu, a w oknie Szczytu G13 (jeśli włączony) krzywa nadal idzie na −3. Podsumowanie, panel i powiadomienie pokazują „bez obniżki”.
+- Bez migracji bazy; powrót do 0.25.1 jest bezpieczny (zapisane 0 zostanie wtedy odrzucone przy następnym zapisie opcji).
+
 ## 0.25.1 — Minimalna nastawa CWU 25 °C
 - **Poprawka:** dolna granica nastawy CWU wynosi 25 °C (pompa nie przyjmuje niższych), a nie 16 °C. Dotyczy trybu urlopowego (pole „Nastawa CWU na urlop”, walidacja 25–60, domyślnie 25 zamiast 20), reguły zapisu `_WRITE_RULES` dla `dhw_setpoint` (testy z celem `dhw`: 25–60, całkowite) i zakresu w katalogu nastaw. Zapisana wcześniej wartość poniżej 25 jest przycinana do 25 przy zapisie do pompy.
 - Bez migracji bazy; powrót do 0.25.0 jest bezpieczny.
