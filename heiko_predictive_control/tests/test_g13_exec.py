@@ -1,4 +1,5 @@
 """Tryb „Szczyt G13” (E3): wykonanie — zapis przez experiments._write, ręczna zmiana, bezpiecznik, restart. Bez sieci."""
+import json
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -87,14 +88,19 @@ def test_disabled_writes_nothing(conn):
     assert pump.calls == [] and state(conn) == {}
 
 
+def _running_def(conn, defn, baseline=0):
+    """Wiersz testu w toku z zamrożoną definicją `defn`."""
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, def_key, def_json) "
+                 "VALUES (?, 'w_toku', ?, '[]', ?, ?, ?)",
+                 (defn["key"], at(12).isoformat(), baseline, defn["key"], json.dumps(defn)))
+    conn.commit()
+
+
 def _running_p0(conn, coexist=None):
     defn = {"key": "p0_x", "arms": {"A": {"writes": [{"param": "p0_run", "value": 5}, {"param": "p0_stop", "value": 5}]}}}
     if coexist:
         defn["coexist"] = coexist
-    import json
-    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, def_key, def_json) "
-                 "VALUES ('p0_x', 'w_toku', ?, '[]', 1, 'p0_x', ?)", (at(12).isoformat(), json.dumps(defn)))
-    conn.commit()
+    _running_def(conn, defn, baseline=1)
 
 
 def test_p0_test_with_coexist_lets_g13_write_peak(conn):
@@ -112,11 +118,7 @@ def test_p0_test_without_coexist_pauses_g13(conn):
 
 def test_curve_test_with_coexist_still_pauses_g13(conn):
     """Zamrożona definicja krzywej z `coexist` (nie przejdzie schematu, ale stary wiersz) nadal pauzuje tryb."""
-    import json
-    defn = {"key": "c", "coexist": ["g13_peak"], "arms": {"A": {"writes": [{"param": "curve_shift", "value": 1}]}}}
-    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, def_key, def_json) "
-                 "VALUES ('c', 'w_toku', ?, '[]', 0, 'c', ?)", (at(12).isoformat(), json.dumps(defn)))
-    conn.commit()
+    _running_def(conn, {"key": "c", "coexist": ["g13_peak"], "arms": {"A": {"writes": [{"param": "curve_shift", "value": 1}]}}})
     pump = Pump()
     assert go(conn, pump, at(17), confirm=False) is None and pump.calls == []
 

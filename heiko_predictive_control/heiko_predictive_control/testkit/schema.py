@@ -154,20 +154,14 @@ def _check_arms(arms: dict, errors: list[str]) -> None:
             _check_writes(f"{ap}.writes", body["writes"], errors)
 
 
-def _writes_curve(defn: dict) -> bool:
+def _has_writes(defn: dict, param: str | None = None) -> bool:
+    """Czy któryś wariant ma `writes` (z `param`: tylko zapis tej nastawy)."""
     arms = defn.get("arms")
     if not isinstance(arms, dict):
         return False
     return any(isinstance(b, dict) and isinstance(b.get("writes"), list)
-               and any(isinstance(w, dict) and w.get("param") == "curve_shift" for w in b["writes"])
+               and any(param is None or (isinstance(w, dict) and w.get("param") == param) for w in b["writes"])
                for b in arms.values())
-
-
-def _has_writes(defn: dict) -> bool:
-    arms = defn.get("arms")
-    if not isinstance(arms, dict):
-        return False
-    return any(isinstance(b, dict) and isinstance(b.get("writes"), list) and b["writes"] for b in arms.values())
 
 
 def _check_measure(i: int, item, errors: list[str]) -> str | None:
@@ -313,7 +307,7 @@ def validate(defn) -> list[str]:
         coexist = defn["coexist"]
         if not (isinstance(coexist, list) and all(_one_of(c, COEXIST_ALLOWED) for c in coexist)):
             errors.append("coexist: dozwolone tylko g13_peak")
-        elif "g13_peak" in coexist and _writes_curve(defn):
+        elif "g13_peak" in coexist and _has_writes(defn, "curve_shift"):
             errors.append("coexist: g13_peak nie łączy się z zapisem przesunięcia krzywej (dwóch pisarzy krzywej)")
 
     if "requires" in defn:

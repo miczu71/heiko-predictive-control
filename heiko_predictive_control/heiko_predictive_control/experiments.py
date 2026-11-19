@@ -13,9 +13,9 @@ import json
 import logging
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
-from . import catalog, comfort, db as dbm, floor_learn, ha_client, live, summaries, tariff_feed, vacation
+from . import catalog, comfort, db as dbm, floor_learn, g13_peak, ha_client, live, summaries, tariff_feed, vacation
 from .cycle import curve_shift_entity
 
 logger = logging.getLogger(__name__)
@@ -190,7 +190,7 @@ def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, cu
 def _g13_curve_conflict(steps: list[dict], settings: dict, shift: float | None, feed, g13_state: dict) -> str | None:
     """Test krzywej przy włączonym trybie Szczyt G13: blokada, gdy G13 trzyma przesunięcie różne od bazowego albo test
     zachodzi na okno G13 `[preheat_from:00, end:00)` (dwóch pisarzy krzywej). Inne cele nie piszą krzywej."""
-    from . import g13_exec, g13_peak                    # późny import: g13_exec importuje ten moduł
+    from . import g13_exec                              # późny import: g13_exec importuje ten moduł
     if not g13_exec.active(settings):
         return None
     base = g13_state.get("base")
@@ -199,18 +199,17 @@ def _g13_curve_conflict(steps: list[dict], settings: dict, shift: float | None, 
                 "tryb (Opcje)")
     first = datetime.fromisoformat(steps[0]["at"])
     last = datetime.fromisoformat(steps[-1]["at"]) + timedelta(minutes=CONFIRM_MIN)
-    day = first.date()
-    while day <= last.date():
+    for offset in range((last.date() - first.date()).days + 1):
+        day = first.date() + timedelta(days=offset)
         window = g13_peak.window_from_feed(feed, day) if feed is not None else None
         if window is None:
-            return (f"nie znam okna Szczytu G13 na {day:%d.%m} (brak harmonogramu taryfy) — wyłącz tryb (Opcje)")
-        if not window.empty:
-            midnight = datetime(day.year, day.month, day.day)
-            start, end = midnight + timedelta(hours=window.preheat_from), midnight + timedelta(hours=window.end)
-            if first < end and last > start:
-                return (f"test zachodzi na okno Szczytu G13 ({window.preheat_from:02d}:00–{window.end:02d}:00) — "
-                        "uruchom go poza oknem albo wyłącz tryb (Opcje)")
-        day += timedelta(days=1)
+            return f"nie znam okna Szczytu G13 na {day:%d.%m} (brak harmonogramu taryfy) — wyłącz tryb (Opcje)"
+        if window.empty:
+            continue
+        midnight = datetime.combine(day, time())
+        if first < midnight + timedelta(hours=window.end) and last > midnight + timedelta(hours=window.preheat_from):
+            return (f"test zachodzi na okno Szczytu G13 ({window.preheat_from:02d}:00–{window.end:02d}:00) — "
+                    "uruchom go poza oknem albo wyłącz tryb (Opcje)")
     return None
 
 
@@ -262,7 +261,8 @@ def running_test(conn):
 
 def writing_test(conn):
     """Test w toku, który zapisuje do pompy (jego zamrożona definicja ma `writes`; brak `def_json` = stary wiersz, tak).
-    Test samych nakładek nie wyłącza G13/tail_cut/urlopu i nie jest przerywany restartem."""
+    Test samych nakładek nie wyłącza G13/tail_cut/urlopu i nie jest przerywany restartem. Tryb Szczyt G13 pyta
+    o `g13_yield_test` (opt-in `coexist` dla zapisów innych niż krzywa); tail_cut i urlop — o to."""
     from .testkit import engine
     test = running_test(conn)
     if test is None or test["def_json"] is None:
