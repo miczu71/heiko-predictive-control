@@ -813,3 +813,36 @@ def test_start_blocked_in_vacation_and_works_outside_dates(conn):
     assert res["ok"] is False and "urlopowy" in res["error"] and ex.running_test(conn) is None
     outside = {**SETTINGS, "vacation_enabled": True, "vacation_from": "2026-11-01", "vacation_to": "2026-11-02"}
     assert _start(conn, pump, settings=outside)["ok"]
+
+
+# ── unieważnianie niepotwierdzonych zapisów tylko dla tej samej encji ───────────────────────────────────────
+
+P0_RUN = "number.lazienka_heiko_heat_pump_circulation_pump_p0_run_time"
+P0_STOP = "number.lazienka_heiko_heat_pump_circulation_pump_p0_stop_time"
+
+
+def _pending(conn, entity):
+    conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok) VALUES (?, NULL, ?, 0, 1, 1)",
+                 (T0.isoformat(timespec="seconds"), entity))
+    conn.commit()
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def _confirmed_at(conn, row_id):
+    return conn.execute("SELECT confirmed_at FROM pump_writes WHERE id = ?", (row_id,)).fetchone()[0]
+
+
+def test_curve_write_supersedes_only_same_entity(conn, monkeypatch):
+    p0_row, shift_row = _pending(conn, P0_RUN), _pending(conn, SHIFT)
+    ex._write(conn, SETTINGS, None, 0.0, 1.0, T0, Pump().writer)
+    assert _confirmed_at(conn, shift_row) == ex.SUPERSEDED                      # ta sama encja
+    assert _confirmed_at(conn, p0_row) is None                                  # P0 nietknięte
+
+
+def test_p0_write_does_not_supersede_curve_shift_row(conn, monkeypatch):
+    states = [{"entity_id": P0_RUN, "state": "1"}, {"entity_id": P0_STOP, "state": "6"}]
+    monkeypatch.setattr(ex.ha_client, "get_all_states", lambda: states)
+    shift_row, p0_row = _pending(conn, SHIFT), _pending(conn, P0_RUN)
+    ex._write_p0(conn, SETTINGS, None, (1.0, 6.0), (5.0, 5.0), T0, Pump().writer)
+    assert _confirmed_at(conn, p0_row) == ex.SUPERSEDED
+    assert _confirmed_at(conn, shift_row) is None

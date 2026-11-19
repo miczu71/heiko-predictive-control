@@ -360,3 +360,10 @@ def test_measure_window_grammar_matches_schema():
     from heiko_predictive_control.testkit import measures
     s, e = measures._window(date(2026, 10, 7), "10:00-12:00")
     assert (s.hour, e.hour) == (10, 12)
+
+
+def test_coexist_g13_rejects_curve_shift_in_arm_b_with_p0_in_arm_a():
+    d = copy_def(coexist=["g13_peak"])
+    d["arms"] = {"A": {"writes": [{"param": "p0_run", "value": "base"}, {"param": "p0_stop", "value": "base"}]},
+                 "B": {"writes": [{"param": "curve_shift", "value": 1}]}}
+    has_error(d, "coexist")

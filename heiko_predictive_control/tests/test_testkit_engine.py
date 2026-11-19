@@ -732,3 +732,107 @@ def test_overview_shows_new_definitions_with_block_reason(conn, monkeypatch):
     _add_def(conn, overlay)
     data = ex.overview(conn, {**SETTINGS, "g13_peak_enabled": True}, T0, pump.get_state, pump.get_numeric, workday)
     assert "Szczyt G13" in next(k for k in data["kinds"] if k["key"] == "preheat_no_coexist")["blocked"]
+
+
+# ── G13 × test krzywej/P0/slot52/dhw: granice okna, doby bez szczytu, stan G13, unieważnianie ─────────────────
+
+def _g13_state(conn, value):
+    from heiko_predictive_control import g13_exec
+    dbm.set_setting(conn, g13_exec.STATE_KEY, value)
+
+
+@pytest.mark.parametrize("hour,minute,ok", [(12, 39, True), (12, 40, True), (12, 41, False), (20, 59, False), (21, 0, True)])
+def test_curve_write_test_window_boundaries_g13(conn, hour, minute, ok):
+    _g13_feed(conn)
+    # zapis: kroki w t0 i t0+10 min, potwierdzenie +10 min → koniec t0+20; okno od 13:00, więc ostatni start to 12:40
+    res = _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, hour, minute), settings=G13_ON)
+    assert res["ok"] is ok, res
+    if not ok:
+        assert "13:00–21:00" in res["error"]
+
+
+def test_curve_write_test_starts_on_day_without_peak(conn):
+    _g13_feed(conn, window=(0, 0))                                             # feed jest, żadnej godziny evening_peak
+    assert _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, 14, 0), settings=G13_ON)["ok"]
+
+
+def test_curve_write_test_g13_disabled_ignores_window(conn):
+    _g13_feed(conn)
+    off = {**SETTINGS, "g13_peak_enabled": False}
+    assert _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, 14, 0), settings=off)["ok"]
+
+
+def test_curve_write_test_across_midnight_needs_next_day_feed(conn):
+    _g13_feed(conn, days=[7])                                                  # tylko doba startu
+    res = _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, 23, 55), settings=G13_ON)
+    assert res["ok"] is False and "nie znam okna" in res["error"] and "08.10" in res["error"]
+
+
+@pytest.mark.parametrize("state,shift,ok", [({"base": 0.0}, 0.04, True), ({"base": 0.0}, 0.05, False),
+                                            ({}, -3.0, True), ({"base": None}, -3.0, True)])
+def test_curve_write_test_holds_shift_threshold(conn, state, shift, ok):
+    _g13_feed(conn)
+    _g13_state(conn, state)
+    res = _start(conn, Pump(shift=shift), "zapis", now=datetime(2026, 10, 7, 21, 30), settings=G13_ON)
+    assert res["ok"] is ok, res
+    if not ok:
+        assert "trzyma" in res["error"]
+
+
+@pytest.mark.parametrize("target", ["p0", "slot52", "dhw"])
+def test_non_curve_targets_blocked_when_g13_holds_shift_unless_coexist(conn, monkeypatch, target):
+    from heiko_predictive_control import g13_exec
+    if target == "p0":
+        _d4b(conn)
+        defn = BUILTIN["p0_ab"]
+    else:
+        defn = _fixture("ah_delay_ab" if target == "slot52" else "dhw_setpoint_ab")
+
+    def attempt(key, shift, state, coexist=False):
+        d = {**defn, "key": key}
+        d = {**d, "coexist": ["g13_peak"]} if coexist else {k: v for k, v in d.items() if k != "coexist"}
+        _add_def(conn, d)
+        pump = _ent_pump(monkeypatch)
+        if target == "p0":
+            pump.curve = "on"
+            states = [{"entity_id": RUN, "state": "1"}, {"entity_id": STOP, "state": "6"}]
+            monkeypatch.setattr(ex.ha_client, "get_all_states", lambda: states)
+        pump.shift = shift
+        if state is not None:
+            _g13_state(conn, state)
+        res = _start(conn, pump, key, settings=G13_ON)
+        if res["ok"]:
+            ex.abort(conn, G13_ON, T0, writer=pump.writer, notify=pump.notify)
+        return res
+
+    blocked = attempt("t_held", -3.0, {"base": 0.0})
+    assert blocked["ok"] is False and "Szczyt G13 trzyma" in blocked["error"]
+    assert attempt("t_coexist", -3.0, {"base": 0.0}, coexist=True)["ok"]       # coexist = brak kontroli
+    assert attempt("t_equal", 0.0, {"base": 0.0})["ok"]                        # shift == base
+    conn.execute("DELETE FROM settings WHERE key = ?", (g13_exec.STATE_KEY,))
+    conn.commit()
+    assert attempt("t_nostate", -3.0, None)["ok"]                              # bez stanu
+
+
+@pytest.mark.parametrize("bad", ["uszkodzony", ["base", 0.0]])
+def test_corrupt_g13_state_is_ignored(conn, bad):
+    _g13_feed(conn)
+    _g13_state(conn, bad)
+    assert ex.read_g13_state(conn) == {}
+    pump = Pump(shift=-3.0)
+    data = ex.overview(conn, G13_ON, datetime(2026, 10, 7, 21, 30), pump.get_state, pump.get_numeric, workday)
+    assert next(k for k in data["kinds"] if k["key"] == "zapis")["blocked"] is None
+    assert _start(conn, pump, "zapis", now=datetime(2026, 10, 7, 21, 30), settings=G13_ON)["ok"]
+
+
+def test_g13_yield_test_frozen_def_variants(conn):
+    conn.execute("INSERT INTO tests (kind, status, started, schedule, baseline, def_json) VALUES ('stary', ?, ?, '[]', 0, NULL)",
+                 (ex.RUNNING, "2026-10-07T10:00:00"))
+    conn.commit()
+    assert ex.g13_yield_test(conn) is not None                                  # brak zamrożonej definicji → G13 pauzuje
+    conn.execute("UPDATE tests SET def_json = ?", (json.dumps({**BUILTIN["zapis"], "coexist": ["g13_peak"]}),))
+    conn.commit()
+    assert ex.g13_yield_test(conn) is not None                                  # cel curve + coexist → nadal pauzuje
+    conn.execute("UPDATE tests SET def_json = ?", (json.dumps({**BUILTIN["p0_ab"], "coexist": ["g13_peak"]}),))
+    conn.commit()
+    assert ex.g13_yield_test(conn) is None
