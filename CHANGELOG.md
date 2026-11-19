@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.26.0 — Testy przy włączonym Szczycie G13: blokada tylko przy realnym konflikcie
+- **Zmiana — testy P0, slot 52 i CWU startują przy włączonym Szczycie G13:** nie piszą przesunięcia krzywej, więc nie ma dwóch pisarzy tej samej nastawy. Na czas takiego testu G13 się **wstrzymuje** (jak dotąd przy teście z zapisem). Definicja z `coexist: ["g13_peak"]` (dozwolone dla zapisów innych niż krzywa) pozwala G13 działać równolegle. Wbudowany `p0_ab` nie ma `coexist`, więc czysty pomiar zostaje. Zastępuje to zdanie z 0.24/0.25 „test z `writes` blokuje G13”.
+- **Zmiana — test krzywej (`zapis`, `bezwladnosc`) blokowany tylko przy realnym konflikcie:** gdy zachodzi na okno G13 (od początku dogrzewania do końca szczytu; koniec testu = ostatni krok + 10 min potwierdzenia) albo gdy brak harmonogramu taryfy na którąś z dób testu. Komunikat podaje godziny okna. `zapis` poza oknem (np. rano) startuje bez wyłączania G13.
+- **Nowe — Start blokowany, gdy G13 trzyma przesunięcie ≠ bazowe:** dotyczy każdego testu z zapisem bez `coexist`, bo wstrzymany G13 nie wróciłby wtedy do bazowego przez cały test (np. −3 po 16:00).
+- **Poprawka — zapisy nie zastępują się między encjami:** zapis G13 nie oznacza już jako „zastąpiony” niepotwierdzonego zapisu P0 testu (i odwrotnie); unieważnianie dotyczy tylko tej samej encji.
+- **Poprawka:** uszkodzony stan trybu G13 w bazie nie wywala karty testów (ostrzeżenie w logu); schemat odrzuca `coexist: ["g13_peak"]` tylko przy zapisie `curve_shift`.
+- Znane (nieblokujące): uszkodzony `def_json` trwającego testu wyłącza tick G13 (wzorzec wspólny z `tail_cut` i trybem urlopowym); kontrola okna obejmuje cały przedział testu, więc test krzywej trwający dobę lub dłużej jest przy włączonym G13 zawsze blokowany; bezpiecznik komfortu G13 śpi na czas testu — test ma własne zabezpieczenie komfortu (do potwierdzenia na żywo).
+- Bez migracji bazy; powrót do 0.25.2 jest bezpieczny.
+
 ## 0.25.2 — Tryb urlopowy: obniżka krzywej może wynosić 0
 - **Zmiana:** pole „Obniżka krzywej” przyjmuje 0–3 (dotąd 1–3). 0 = krzywa zostaje na bazowym przesunięciu (bez obniżki); CWU działa jak dotąd wg urlopu, a w oknie Szczytu G13 (jeśli włączony) krzywa nadal idzie na −3. Podsumowanie, panel i powiadomienie pokazują „bez obniżki”.
 - Bez migracji bazy; powrót do 0.25.1 jest bezpieczny (zapisane 0 zostanie wtedy odrzucone przy następnym zapisie opcji).
