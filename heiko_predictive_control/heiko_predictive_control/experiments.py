@@ -182,9 +182,22 @@ def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, cu
         reason = engine.validate_steps(steps, legacy_base, TARGET_PARAM.get(target, "curve_shift"))
     if reason is None and target == "curve" and steps:
         reason = _g13_curve_conflict(steps, settings, shift, feed, g13_state or {})
+    elif reason is None and writes and "g13_peak" not in (defn.get("coexist") or []):
+        reason = _g13_holds_shift(settings, shift, g13_state or {})          # test wstrzyma G13 bez powrotu do bazowego
     if reason is None and not arms:
         reason = "w najbliższym czasie nie ma doby, w której test mógłby ruszyć"
     return steps, arms, reason
+
+
+def _g13_holds_shift(settings: dict, shift: float | None, g13_state: dict) -> str | None:
+    """Blokada Startu, gdy włączony tryb Szczyt G13 trzyma przesunięcie różne od bazowego: test z zapisem wstrzymuje
+    tryb (`g13_yield_test`), który nie wróciłby wtedy do bazowego przez cały czas testu."""
+    from . import g13_exec                              # późny import: g13_exec importuje ten moduł
+    base = g13_state.get("base")
+    if g13_exec.active(settings) and base is not None and shift is not None and abs(shift - base) >= 0.05:
+        return (f"Szczyt G13 trzyma teraz przesunięcie {shift:g} (bazowe {base:g}) — poczekaj na powrót albo wyłącz "
+                "tryb (Opcje)")
+    return None
 
 
 def _g13_curve_conflict(steps: list[dict], settings: dict, shift: float | None, feed, g13_state: dict) -> str | None:
@@ -193,10 +206,8 @@ def _g13_curve_conflict(steps: list[dict], settings: dict, shift: float | None, 
     from . import g13_exec                              # późny import: g13_exec importuje ten moduł
     if not g13_exec.active(settings):
         return None
-    base = g13_state.get("base")
-    if base is not None and shift is not None and abs(shift - base) >= 0.05:
-        return (f"Szczyt G13 trzyma teraz przesunięcie {shift:g} (bazowe {base:g}) — poczekaj na powrót albo wyłącz "
-                "tryb (Opcje)")
+    if held := _g13_holds_shift(settings, shift, g13_state):
+        return held
     first = datetime.fromisoformat(steps[0]["at"])
     last = datetime.fromisoformat(steps[-1]["at"]) + timedelta(minutes=CONFIRM_MIN)
     for offset in range((last.date() - first.date()).days + 1):
@@ -271,9 +282,14 @@ def writing_test(conn):
 
 
 def read_g13_state(conn) -> dict:
-    """Stan trybu Szczyt G13 z bazy (`{}` = brak)."""
+    """Stan trybu Szczyt G13 z bazy (`{}` = brak albo uszkodzony — wtedy ostrzeżenie w logu)."""
     from . import g13_exec                              # późny import: g13_exec importuje ten moduł
-    return dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
+    state = dbm.get_setting(conn, g13_exec.STATE_KEY)
+    if state and not isinstance(state, dict):
+        logger.warning("stan trybu Szczyt G13 (%s) jest uszkodzony — pomijam go przy sprawdzaniu Startu testu",
+                       g13_exec.STATE_KEY)
+        return {}
+    return state or {}
 
 
 def g13_yield_test(conn):
@@ -284,7 +300,7 @@ def g13_yield_test(conn):
     if test is None or test["def_json"] is None:
         return test
     defn = engine.frozen_def(test)
-    if engine.writes_target(defn)[0] != "curve" and "g13_peak" in (defn.get("coexist") or []):
+    if engine.writes_target(defn)[0] in ("p0", *SINGLE_TARGETS) and "g13_peak" in (defn.get("coexist") or []):
         return None
     return test
 
@@ -452,8 +468,9 @@ def _write(conn, settings: dict, test_id: int | None, old: float, new: float, no
         logger.warning("Odrzucony zapis %s: %s → %s (poza granicami)", entity, old, new)
         raise ValueError(f"zapis {entity} {old} → {new} poza granicami")
     ok = (writer or ha_client.call_service)(*ALLOWED_SERVICE, {"entity_id": entity, "value": new})
-    if supersede:
-        conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE confirmed_at IS NULL", (SUPERSEDED,))
+    if supersede:                                      # tylko ta sama encja: zapis G13 nie unieważnia zapisu P0 testu (opt-in coexist)
+        conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE confirmed_at IS NULL AND entity_id = ?",
+                     (SUPERSEDED, entity))
     conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok) VALUES (?, ?, ?, ?, ?, ?)",
                  (_iso(now), test_id, entity, old, new, int(ok)))
     conn.commit()
@@ -491,7 +508,8 @@ def _write_p0(conn, settings: dict, test_id: int | None, old: tuple, new: tuple,
     entities = p0_entities(settings)
     if entities is None:
         raise ValueError("nie znajduję encji P0 w HA")
-    conn.execute("UPDATE pump_writes SET confirmed_at = ? WHERE confirmed_at IS NULL", (SUPERSEDED,))
+    conn.execute(f"UPDATE pump_writes SET confirmed_at = ? WHERE confirmed_at IS NULL "
+                 f"AND entity_id IN ({','.join('?' * len(entities))})", (SUPERSEDED, *entities))
     return all([_write(conn, settings, test_id, o, n, now, writer, entity=e, supersede=False)
                 for e, o, n in zip(entities, old, new) if force or o != n])
 
