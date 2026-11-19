@@ -201,10 +201,17 @@ def test_alternate_needs_two_arms_and_matching_order():
 
 
 # Reguła 5: coexist i writes
-def test_writes_with_coexist_g13_peak_rejected():
+def test_curve_writes_with_coexist_g13_peak_rejected():
     d = copy_def(coexist=["g13_peak"])
     d["arms"]["A"]["writes"] = [{"param": "curve_shift", "value": 1}]
-    has_error(d, "coexist")
+    has_error(d, "coexist", "przesunięcia krzywej")
+
+
+def test_p0_writes_with_coexist_g13_peak_accepted():
+    d = copy_def(coexist=["g13_peak"])
+    d["arms"] = {"A": {"writes": [{"param": "p0_run", "value": 5}, {"param": "p0_stop", "value": 5}]},
+                 "B": {"writes": [{"param": "p0_run", "value": 1}, {"param": "p0_stop", "value": 6}]}}
+    assert validate(d) == []
 
 
 def test_coexist_only_g13_peak_allowed():

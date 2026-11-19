@@ -2,7 +2,9 @@
 
 Jedyna ścieżka zapisu to `experiments._write` (allowlista encji i zakresu ±3, krok dowolny tylko dla przesunięcia
 krzywej przez `G13_MAX_STEP`). Tryb jest domyślnie wyłączony (`g13_peak_enabled`), test uruchomiony przez usera ma
-pierwszeństwo, a ręczna zmiana przesunięcia albo brak potwierdzenia/odrzucenie zapisu wstrzymują tryb do jutra.
+pierwszeństwo (opt-in: test z zapisem innym niż przesunięcie i `coexist: ["g13_peak"]` nie wstrzymuje trybu —
+`experiments.g13_yield_test`), a ręczna zmiana przesunięcia albo brak potwierdzenia/odrzucenie zapisu wstrzymują tryb
+do jutra.
 Stan (baza, ostatni zapis, intencja, bezpiecznik) leży w bazie (`settings`, JSON) i przeżywa restart add-onu."""
 from __future__ import annotations
 
@@ -120,7 +122,7 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         return None                                    # urlop przejmuje krzywą (docisk szczytu robi vacation_exec)
 
     if not active(settings):
-        if base is None or experiments.writing_test(conn) is not None:
+        if base is None or experiments.g13_yield_test(conn) is not None:
             return None
         current = get_numeric(entity)
         if current is None:
@@ -140,7 +142,7 @@ def _run(conn, settings, now, get_numeric, writer, notify) -> dict | None:
         _save(conn, st, before)
         return {"reason": "tryb wyłączony — powrót do bazowego", "target": base, "wrote": wrote}
 
-    if experiments.writing_test(conn) is not None:
+    if experiments.g13_yield_test(conn) is not None:
         return None
 
     mode = conn.execute("SELECT id, ok, confirmed_at FROM pump_writes WHERE test_id IS NULL AND entity_id LIKE ? "

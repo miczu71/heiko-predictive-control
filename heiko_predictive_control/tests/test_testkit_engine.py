@@ -323,15 +323,83 @@ def test_generic_definition_passed_and_message():
 
 # ── definicja bez `writes` (nakładka) ───────────────────────────────────────────────────────────────────────
 
-def test_overlay_test_starts_with_g13_on_and_writing_definitions_do_not(conn):
+G13_ON = {**SETTINGS, "g13_peak_enabled": True}
+
+
+def _g13_feed(conn, window=(16, 21), days=range(6, 12)):
+    """Harmonogram taryfy z `evening_peak` w `window` (godziny [start, end)) dla dób 2026-10-06..11 (okno G13 = od start−3)."""
+    for d in days:
+        for h in range(24):
+            zone = "evening_peak" if window[0] <= h < window[1] else "other"
+            conn.execute("INSERT INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                         "VALUES (?, 'G13', ?, ?, NULL, 1.0, 'wysoka', '2026-10-06T00:00:00')",
+                         (f"2026-10-{d:02d}T{h:02d}", zone, int(zone == "evening_peak")))
+    conn.commit()
+
+
+def test_overlay_test_starts_with_g13_on_and_curve_write_in_g13_window_is_blocked(conn):
     _add_def(conn, PREHEAT)
     pump = Pump(curve="on")
-    g13 = {**SETTINGS, "g13_peak_enabled": True}
-    assert _start(conn, pump, "preheat_ab", settings=g13)["ok"]
-    ex.abort(conn, g13, T0, writer=pump.writer, notify=pump.notify)
-    res = _start(conn, pump, "zapis", settings=g13)
-    assert res["ok"] is False and "Szczyt G13" in res["error"]
+    _g13_feed(conn)
+    assert _start(conn, pump, "preheat_ab", settings=G13_ON)["ok"]
+    ex.abort(conn, G13_ON, T0, writer=pump.writer, notify=pump.notify)
+    res = _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, 14, 0), settings=G13_ON)
+    assert res["ok"] is False and "13:00–21:00" in res["error"] and "Szczytu G13" in res["error"]
     assert pump.calls == []
+
+
+def test_p0_test_starts_with_g13_on_without_window_check(conn):
+    _d4b(conn)
+    pump = Pump(curve="on")
+    assert _start(conn, pump, "p0_ab", now=datetime(2026, 10, 7, 14, 0), settings=G13_ON)["ok"]     # brak feedu, w oknie
+
+
+@pytest.mark.parametrize("hour,minute,ok", [(10, 0, True), (12, 55, False), (14, 0, False), (21, 30, True)])
+def test_curve_write_test_vs_g13_window(conn, hour, minute, ok):
+    _g13_feed(conn)
+    res = _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, hour, minute), settings=G13_ON)
+    assert res["ok"] is ok
+    if not ok:
+        assert "13:00–21:00" in res["error"]
+
+
+def test_curve_write_test_blocked_when_g13_holds_shift(conn):
+    _g13_feed(conn)
+    now = datetime(2026, 10, 7, 21, 30)
+    dbm.set_setting(conn, "g13_peak_state", {"base": 0.0})
+    assert _start(conn, Pump(shift=0.0), "zapis", now=now, settings=G13_ON)["ok"]
+    ex.abort(conn, G13_ON, now, writer=lambda *a: True, notify=lambda *a: True)
+    res = _start(conn, Pump(shift=-3.0), "zapis", now=now, settings=G13_ON)
+    assert res["ok"] is False and "trzyma teraz przesunięcie -3" in res["error"] and "bazowe 0" in res["error"]
+
+
+def test_curve_write_test_blocked_without_feed(conn):
+    res = _start(conn, Pump(), "zapis", settings=G13_ON)
+    assert res["ok"] is False and "nie znam okna" in res["error"] and "07.10" in res["error"]
+
+
+def test_curve_write_test_ignores_g13_when_mode_inactive(conn):
+    assert _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, 14, 0), settings={**G13_ON, "heiko_enabled": False})["ok"] is False
+    assert _start(conn, Pump(), "zapis", now=datetime(2026, 10, 7, 14, 0))["ok"]
+
+
+def test_inertia_blocked_by_g13_window(conn):
+    _d4b(conn)
+    _g13_feed(conn)
+    res = _start(conn, Pump(curve="on"), "bezwladnosc", now=datetime(2026, 10, 7, 5, 0), settings=G13_ON)
+    assert res["ok"] is False and "13:00–21:00" in res["error"]
+
+
+def test_g13_yield_test_only_curve_or_no_coexist(conn):
+    _d4b(conn)
+    pump = Pump(curve="on")
+    assert _start(conn, pump, "p0_ab")["ok"]
+    assert ex.g13_yield_test(conn) is not None                                  # P0 bez coexist → G13 pauzuje
+    ex.abort(conn, SETTINGS, T0, writer=pump.writer, notify=pump.notify)
+    _add_def(conn, {**BUILTIN["p0_ab"], "key": "p0_coexist", "coexist": ["g13_peak"]})
+    assert _start(conn, pump, "p0_coexist")["ok"]
+    assert ex.g13_yield_test(conn) is None                                      # P0 z coexist → G13 działa równolegle
+    assert ex.writing_test(conn) is not None
 
 
 def test_overlay_without_g13_coexist_is_blocked_by_g13(conn):
@@ -565,7 +633,8 @@ def test_new_definition_starts_with_base_and_variant_values_and_returns_to_base(
 def test_new_definition_blocks(conn, monkeypatch, key, ent):
     _add_def(conn, _fixture(key))
     pump = _ent_pump(monkeypatch)
-    assert "Szczyt G13" in _start(conn, pump, key, settings={**SETTINGS, "g13_peak_enabled": True})["error"]
+    assert _start(conn, pump, key, settings={**SETTINGS, "g13_peak_enabled": True})["ok"]       # G13 nie blokuje slot52/CWU
+    ex.abort(conn, SETTINGS, T0, writer=pump.writer, notify=pump.notify)
     absent = _ent_pump(monkeypatch, present=False)
     assert "nie mogę odczytać" in _start(conn, absent, key)["error"]
     no_read = _ent_pump(monkeypatch)
@@ -658,4 +727,8 @@ def test_overview_shows_new_definitions_with_block_reason(conn, monkeypatch):
     _add_def(conn, _fixture("ah_delay_ab"))
     data = ex.overview(conn, {**SETTINGS, "g13_peak_enabled": True}, T0, pump.get_state, pump.get_numeric, workday)
     card = next(k for k in data["kinds"] if k["key"] == "ah_delay_ab")
-    assert "Szczyt G13" in card["blocked"]
+    assert card["blocked"] is None                                                      # G13 nie blokuje slot52/CWU
+    overlay = {k: v for k, v in PREHEAT.items() if k != "coexist"} | {"key": "preheat_no_coexist"}
+    _add_def(conn, overlay)
+    data = ex.overview(conn, {**SETTINGS, "g13_peak_enabled": True}, T0, pump.get_state, pump.get_numeric, workday)
+    assert "Szczyt G13" in next(k for k in data["kinds"] if k["key"] == "preheat_no_coexist")["blocked"]

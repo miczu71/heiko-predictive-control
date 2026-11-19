@@ -141,7 +141,8 @@ def preview(conn, settings: dict, defn, now: datetime, get_state, get_numeric, i
     target = engine.writes_target(defn)[0]
     p0 = ex._read_p0(settings, get_numeric) if target == "p0" else None
     steps, arms, blocked = ex._plan_def(defn, settings, now, shift, curve_on, ex.running_test(conn), is_workday, p0,
-                                        ex._after_missing(conn, defn), tariff_feed.for_settings(conn, settings))
+                                        ex._after_missing(conn, defn), tariff_feed.for_settings(conn, settings),
+                                        g13_state=ex.read_g13_state(conn))
     horizon = (now.date() + timedelta(days=PREVIEW_DAYS)).isoformat()
     today = now.date().isoformat()
     writes = engine.has_writes(defn)

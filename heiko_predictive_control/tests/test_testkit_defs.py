@@ -202,6 +202,20 @@ def test_preview_blocked_when_g13_on_without_coexist(conn):
     assert with_coexist["blocked"] is None
 
 
+def test_preview_curve_write_in_g13_window_blocked_with_hours(conn):
+    for h in range(24):
+        zone = "evening_peak" if 16 <= h < 21 else "other"
+        conn.execute("INSERT INTO tariff_hours (hour, tariff, zone, is_peak, level, gross, confidence, fetched_at) "
+                     "VALUES (?, 'G13', ?, ?, NULL, 1.0, 'wysoka', '2026-10-06T00:00:00')",
+                     (f"2026-10-07T{h:02d}", zone, int(zone == "evening_peak")))
+    conn.commit()
+    settings = {**SETTINGS, "g13_peak_enabled": True}
+    now = datetime(2026, 10, 7, 14, 0)
+    zapis = engine.get_def(conn, "zapis")
+    pv = defs.preview(conn, settings, zapis, now, lambda e: {"state": "off"}, lambda e: 0.0, workday)["preview"]
+    assert "13:00–21:00" in pv["blocked"]
+
+
 def test_preview_invalid_has_null_preview(conn):
     out = defs.preview(conn, SETTINGS, {**PREHEAT, "wat": 1}, T0, lambda e: None, lambda e: 0.0, workday)
     assert out["ok"] is False and out["preview"] is None and out["errors"]

@@ -682,25 +682,26 @@ def test_write_max_step_does_not_loosen_slot52(conn):
         ex._write(conn, SETTINGS, None, 20.0, 60.0, T0, lambda *a: True, entity=entity, max_step=ex.G13_MAX_STEP)
 
 
-@pytest.mark.parametrize("kind", ["zapis", "bezwladnosc", "p0_ab"])
-def test_plan_blocks_start_when_g13_mode_enabled(kind):
+@pytest.mark.parametrize("kind,expected", [("zapis", "nie znam okna Szczytu G13"), ("bezwladnosc", "nie znam okna Szczytu G13"),
+                                           ("p0_ab", None)])
+def test_plan_g13_blocks_only_curve_tests_without_known_window(kind, expected):
     settings = {**SETTINGS, "g13_peak_enabled": True}
     _, reason = ex._plan(ex.KINDS[kind], settings, T0, 0.0, kind != "zapis", None, workday, (1.0, 6.0), True)
-    assert reason == "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
+    assert (reason is None) if expected is None else reason.startswith(expected)
 
 
-def test_plan_g13_block_comes_after_heiko_enabled_and_before_running_test():
+def test_plan_g13_no_longer_blocks_before_running_test():
     on = {**SETTINGS, "g13_peak_enabled": True}
     _, reason = ex._plan(ex.KINDS["zapis"], {**on, "heiko_enabled": False}, T0, 0.0, False, None, workday)
     assert reason.startswith("zapis do pompy wyłączony")
     _, reason = ex._plan(ex.KINDS["zapis"], on, T0, 0.0, False, object(), workday)
-    assert reason == "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
+    assert reason == "inny test jest w toku"
 
 
-def test_start_refused_when_g13_mode_enabled(conn):
+def test_start_refused_when_g13_mode_enabled_without_known_window(conn):
     pump = Pump(shift=0.0, curve="off")
     res = ex.start(conn, {**SETTINGS, "g13_peak_enabled": True}, "zapis", T0, pump.get_state, pump.get_numeric, workday)
-    assert res["ok"] is False and "Szczyt G13" in res["error"]
+    assert res["ok"] is False and "okna Szczytu G13" in res["error"]
     assert ex.running_test(conn) is None
     assert _start(conn, pump)["ok"]                            # bez trybu start działa jak dotąd
 

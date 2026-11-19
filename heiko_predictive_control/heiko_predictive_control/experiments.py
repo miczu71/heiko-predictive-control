@@ -133,9 +133,9 @@ def _after_missing(conn, defn: dict) -> str | None:
 
 def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
               is_workday, p0: tuple | None = None, after_missing: str | None = None, feed=None,
-              single: float | None = None):
+              single: float | None = None, g13_state: dict | None = None):
     """Harmonogram (format `tests.schedule`), doby wariantów i ewentualna blokada Startu — to samo dla podglądu w UI
-    i dla samego Startu."""
+    i dla samego Startu. `g13_state` = stan trybu Szczyt G13 (tylko dla testu krzywej: trzymane przesunięcie)."""
     from .testkit import engine, schema
     errors = schema.validate(defn)
     if errors:
@@ -147,7 +147,7 @@ def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, cu
     writes = engine.has_writes(defn)
     if req.get("heiko_enabled", True) and not settings.get("heiko_enabled"):
         reason = "zapis do pompy wyłączony (Opcje → „Sterowanie aktywne (Heiko)”)"
-    elif settings.get("g13_peak_enabled") and (writes or "g13_peak" not in (defn.get("coexist") or [])):
+    elif settings.get("g13_peak_enabled") and not writes and "g13_peak" not in (defn.get("coexist") or []):
         reason = "wyłącz tryb Szczyt G13 (Opcje), żeby uruchomić test"
     elif vacation.is_active(settings, now.date()):
         reason = "wyłącz tryb urlopowy (Opcje), żeby uruchomić test"
@@ -180,9 +180,38 @@ def _plan_def(defn: dict, settings: dict, now: datetime, shift: float | None, cu
     steps, arms = engine.plan(defn, base, now, is_workday, feed)
     if reason is None and target is not None:
         reason = engine.validate_steps(steps, legacy_base, TARGET_PARAM.get(target, "curve_shift"))
+    if reason is None and target == "curve" and steps:
+        reason = _g13_curve_conflict(steps, settings, shift, feed, g13_state or {})
     if reason is None and not arms:
         reason = "w najbliższym czasie nie ma doby, w której test mógłby ruszyć"
     return steps, arms, reason
+
+
+def _g13_curve_conflict(steps: list[dict], settings: dict, shift: float | None, feed, g13_state: dict) -> str | None:
+    """Test krzywej przy włączonym trybie Szczyt G13: blokada, gdy G13 trzyma przesunięcie różne od bazowego albo test
+    zachodzi na okno G13 `[preheat_from:00, end:00)` (dwóch pisarzy krzywej). Inne cele nie piszą krzywej."""
+    from . import g13_exec, g13_peak                    # późny import: g13_exec importuje ten moduł
+    if not g13_exec.active(settings):
+        return None
+    base = g13_state.get("base")
+    if base is not None and shift is not None and abs(shift - base) >= 0.05:
+        return (f"Szczyt G13 trzyma teraz przesunięcie {shift:g} (bazowe {base:g}) — poczekaj na powrót albo wyłącz "
+                "tryb (Opcje)")
+    first = datetime.fromisoformat(steps[0]["at"])
+    last = datetime.fromisoformat(steps[-1]["at"]) + timedelta(minutes=CONFIRM_MIN)
+    day = first.date()
+    while day <= last.date():
+        window = g13_peak.window_from_feed(feed, day) if feed is not None else None
+        if window is None:
+            return (f"nie znam okna Szczytu G13 na {day:%d.%m} (brak harmonogramu taryfy) — wyłącz tryb (Opcje)")
+        if not window.empty:
+            midnight = datetime(day.year, day.month, day.day)
+            start, end = midnight + timedelta(hours=window.preheat_from), midnight + timedelta(hours=window.end)
+            if first < end and last > start:
+                return (f"test zachodzi na okno Szczytu G13 ({window.preheat_from:02d}:00–{window.end:02d}:00) — "
+                        "uruchom go poza oknem albo wyłącz tryb (Opcje)")
+        day += timedelta(days=1)
+    return None
 
 
 def _plan(kind, settings: dict, now: datetime, shift: float | None, curve_on: bool | None, running,
@@ -239,6 +268,25 @@ def writing_test(conn):
     if test is None or test["def_json"] is None:
         return test
     return test if engine.has_writes(engine.frozen_def(test)) else None
+
+
+def read_g13_state(conn) -> dict:
+    """Stan trybu Szczyt G13 z bazy (`{}` = brak)."""
+    from . import g13_exec                              # późny import: g13_exec importuje ten moduł
+    return dbm.get_setting(conn, g13_exec.STATE_KEY) or {}
+
+
+def g13_yield_test(conn):
+    """Test, na czas którego tryb Szczyt G13 pauzuje: `writing_test`, chyba że to test z zapisem innym niż przesunięcie
+    krzywej i definicją z `coexist: ["g13_peak"]` (opt-in — G13 działa równolegle, nie piszą tej samej nastawy)."""
+    from .testkit import engine
+    test = writing_test(conn)
+    if test is None or test["def_json"] is None:
+        return test
+    defn = engine.frozen_def(test)
+    if engine.writes_target(defn)[0] != "curve" and "g13_peak" in (defn.get("coexist") or []):
+        return None
+    return test
 
 
 def _expected(test):
@@ -327,12 +375,13 @@ def overview(conn, settings: dict, now: datetime, get_state, get_numeric, is_wor
     p0 = _read_p0(settings, get_numeric)
     running = running_test(conn)
     feed = tariff_feed.for_settings(conn, settings)
+    g13_state = read_g13_state(conn)
     kinds = []
     for defn in engine.list_defs(conn):
         target = engine.writes_target(defn)[0]
         single = _read_single(target, settings, get_numeric) if target in SINGLE_TARGETS else None
         schedule, _, blocked = _plan_def(defn, settings, now, shift, curve_on, running, is_workday, p0,
-                                         _after_missing(conn, defn), feed, single)
+                                         _after_missing(conn, defn), feed, single, g13_state)
         key = defn.get("key")
         kind = KINDS.get(key)
         p0_test = target == "p0"
@@ -362,7 +411,8 @@ def start(conn, settings: dict, kind_key: str, now: datetime, get_state, get_num
     single = _read_single(target, settings, get_numeric) if target in SINGLE_TARGETS else None
     with _lock:
         schedule, arms, reason = _plan_def(defn, settings, now, shift, curve_on, running_test(conn), is_workday, p0,
-                                           _after_missing(conn, defn), tariff_feed.for_settings(conn, settings), single)
+                                           _after_missing(conn, defn), tariff_feed.for_settings(conn, settings), single,
+                                           read_g13_state(conn))
         if reason:
             return {"ok": False, "error": reason}
         baseline = p0 if p0 else (single if target in SINGLE_TARGETS else (shift if target == "curve" else 0.0))
