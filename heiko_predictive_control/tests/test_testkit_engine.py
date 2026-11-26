@@ -173,13 +173,13 @@ def test_end_at_overlay_only_adds_window_end_after_midnight():
 
 
 def test_seed_builtin_and_lookup(conn):
-    assert [d["key"] for d in engine.list_defs(conn)] == ["zapis", "bezwladnosc", "p0_ab"]
+    assert [d["key"] for d in engine.list_defs(conn)] == ["zapis", "bezwladnosc", "p0_ab", "ogon_ab"]
     assert engine.get_def(conn, "p0_ab") == BUILTIN["p0_ab"] and engine.get_def(conn, "nie_ma") is None
     _add_def(conn, PREHEAT)
-    assert [d["key"] for d in engine.list_defs(conn)] == ["zapis", "bezwladnosc", "p0_ab", "preheat_ab"]
+    assert [d["key"] for d in engine.list_defs(conn)] == ["zapis", "bezwladnosc", "p0_ab", "ogon_ab", "preheat_ab"]
     engine.seed_builtin(conn)
     engine.seed_builtin(conn)
-    assert conn.execute("SELECT COUNT(*) FROM test_defs").fetchone()[0] == 4
+    assert conn.execute("SELECT COUNT(*) FROM test_defs").fetchone()[0] == 5
 
 
 def test_get_def_falls_back_to_builtin_without_seed():
@@ -559,10 +559,10 @@ def test_overview_lists_every_definition_with_legacy_card_shape(conn):
     _add_def(conn, PREHEAT)
     pump = Pump()
     data = ex.overview(conn, SETTINGS, T0, pump.get_state, pump.get_numeric, workday)
-    assert [k["key"] for k in data["kinds"]] == ["zapis", "bezwladnosc", "p0_ab", "preheat_ab"]
+    assert [k["key"] for k in data["kinds"]] == ["zapis", "bezwladnosc", "p0_ab", "ogon_ab", "preheat_ab"]
     for card in data["kinds"]:
         assert {"key", "title", "description", "measure", "schedule", "blocked", "passed", "abort_conditions"} <= set(card)
-    pre = data["kinds"][3]
+    pre = data["kinds"][4]
     assert pre["schedule"] == [] and pre["measure"] and pre["abort_conditions"] == ex.ABORT_CONDITIONS
     assert data["kinds"][0]["measure"] == ex.KINDS["zapis"].measure
     assert data["kinds"][2]["abort_conditions"] == ex.P0_ABORT_CONDITIONS

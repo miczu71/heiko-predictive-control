@@ -55,4 +55,20 @@ BUILTIN: dict[str, dict] = {
         "verdict": {"primary": "zone_spread", "better": "lower", "min_gain": ex.P0_MIN_GAIN_C,
                     "weather_band_c": ex.P0_WEATHER_BAND_C, "min_n": ex.P0_DAYS // 2},
     },
+    # E1: poza `ex.KINDS` — tytuł i opis wpisane tutaj (nie ma legacy-harmonogramu).
+    "ogon_ab": {
+        "key": "ogon_ab",
+        "title": "Ogon grzania A/B",
+        "description": "Na przemian: A = odcinanie ogona włączone, B = wyłączone. Miara główna: kWh na stopniodzień.",
+        "requires": {"heiko_enabled": True},
+        "coexist": ["g13_peak"],
+        "days": {"filter": "all", "count": 14},
+        "design": "alternate",
+        "order": ["A", "B"],
+        "arms": {"A": {"overrides": {"tail_cut_enabled": True}},
+                 "B": {"overrides": {"tail_cut_enabled": False}}},
+        "measures": ["kwh_hdd", "kwh_day", {"name": "floor_cost", "window": "00:00→00:00"}, "room_day",
+                     "tail_cuts", "safety_trips"],
+        "verdict": {"primary": "kwh_hdd", "better": "lower", "min_gain": 0.08, "weather_band_c": 3.0, "min_n": 5},
+    },
 }

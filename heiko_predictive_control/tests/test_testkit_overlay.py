@@ -50,3 +50,14 @@ def test_forbidden_keys_never_overwrite_settings():
     assert out["heiko_enabled"] is True
     assert "pv_roi_url" not in out
     assert sorted(out["_overlay_rejected"]) == ["heiko_enabled", "pv_roi_url"]
+
+
+def test_bool_override_tail_cut_b_arm_switches_tail_cut_off():
+    from heiko_predictive_control import tail_cut
+
+    on = {**SETTINGS, "tail_cut_enabled": True}
+    assert tail_cut.active(effective_settings(on, {"overrides": {"tail_cut_enabled": True}})) is True
+    out = effective_settings(on, {"overrides": {"tail_cut_enabled": False}})
+    assert out["tail_cut_enabled"] is False
+    assert tail_cut.active(out) is False
+    assert "_overlay_rejected" not in out

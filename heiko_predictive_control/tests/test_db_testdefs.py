@@ -46,14 +46,14 @@ def test_old_tests_table_gets_columns_and_backfill():
     assert conn.execute("SELECT COUNT(*) FROM tests").fetchone()[0] == 2
 
 
-def test_seed_builtin_inserts_three_and_is_idempotent():
+def test_seed_builtin_inserts_all_and_is_idempotent():
     conn = dbm.get_conn(":memory:")
     dbm.migrate(conn)
     engine.seed_builtin(conn)
     engine.seed_builtin(conn)
     rows = conn.execute("SELECT key, def_json, builtin FROM test_defs ORDER BY key").fetchall()
-    assert [r["key"] for r in rows] == ["bezwladnosc", "p0_ab", "zapis"] and all(r["builtin"] == 1 for r in rows)
-    assert json.loads(rows[1]["def_json"]) == BUILTIN["p0_ab"]
+    assert [r["key"] for r in rows] == ["bezwladnosc", "ogon_ab", "p0_ab", "zapis"] and all(r["builtin"] == 1 for r in rows)
+    assert json.loads(rows[2]["def_json"]) == BUILTIN["p0_ab"]
 
 
 def test_seed_builtin_overwrites_stale_builtin_but_keeps_user_defs():

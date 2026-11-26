@@ -217,13 +217,13 @@ def test_overview_marks_passed_kind_and_moves_it_last(conn):
     _tick(conn, pump, T0)
     ex.abort(conn, SETTINGS, T0 + timedelta(minutes=5), writer=pump.writer, notify=pump.notify)
     data = ex.overview(conn, SETTINGS, T0, pump.get_state, pump.get_numeric, workday)
-    assert [k["passed"] for k in data["kinds"]] == [None, None, None]              # przerwany ≠ wykonany
+    assert [k["passed"] for k in data["kinds"]] == [None, None, None, None]        # przerwany ≠ wykonany (E1: +ogon_ab)
     _start(conn, pump, now=T0 + timedelta(minutes=20))
     for m in (20, 30, 35):
         _tick(conn, pump, T0 + timedelta(minutes=m))
     data = ex.overview(conn, SETTINGS, T0, pump.get_state, pump.get_numeric, workday)
-    assert [k["key"] for k in data["kinds"]] == ["bezwladnosc", "p0_ab", "zapis"]
-    assert data["kinds"][2]["passed"] == {"ended": "2026-10-07T10:35:00", "confirmed": 2, "writes": 2}
+    assert [k["key"] for k in data["kinds"]] == ["bezwladnosc", "p0_ab", "ogon_ab", "zapis"]
+    assert data["kinds"][3]["passed"] == {"ended": "2026-10-07T10:35:00", "confirmed": 2, "writes": 2}
 
 
 def test_excitation_counts_curve_shift_steps():

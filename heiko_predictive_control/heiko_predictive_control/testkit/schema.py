@@ -144,11 +144,15 @@ def _check_arms(arms: dict, errors: list[str]) -> None:
                 if name not in OVERRIDABLE:
                     errors.append(f"{op}: nieznana opcja (niedozwolona do nadpisania)")
                     continue
+                if OVERRIDABLE[name] is None:          # opcja logiczna (np. tail_cut_enabled)
+                    if not isinstance(value, bool):
+                        errors.append(f"{op}: oczekiwano bool")
+                    continue
                 if not _is_num(value):
                     errors.append(f"{op}: oczekiwano liczby")
                     continue
                 bounds = OVERRIDABLE[name]
-                if bounds is not None and not bounds[0] <= value <= bounds[1]:
+                if not bounds[0] <= value <= bounds[1]:
                     errors.append(f"{op}: poza zakresem {bounds[0]}–{bounds[1]}")
         if "writes" in body:
             _check_writes(f"{ap}.writes", body["writes"], errors)

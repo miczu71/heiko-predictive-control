@@ -145,7 +145,7 @@ def test_list_all_flags_builtin_and_broken(conn):
                  (json.dumps({"key": "niepelny", "title": "Niepełny"}),))
     conn.commit()
     items = defs.list_all(conn)
-    assert [i["key"] for i in items] == ["zapis", "bezwladnosc", "p0_ab", "moj_test", "niepelny", "zepsuty"]
+    assert [i["key"] for i in items] == ["zapis", "bezwladnosc", "p0_ab", "ogon_ab", "moj_test", "niepelny", "zepsuty"]
     by = {i["key"]: i for i in items}
     assert all(by[k]["builtin"] and by[k]["errors"] == [] for k in ("zapis", "bezwladnosc", "p0_ab"))
     assert by["moj_test"] == {"key": "moj_test", "title": "Mój test", "description": "", "builtin": False, "errors": []}
@@ -270,7 +270,7 @@ def test_http_bad_bodies_are_400_without_write(api, body):
     resp = api.post("/api/test-defs/validate", data=body, content_type="application/json")
     data = resp.get_json()
     assert resp.status_code == (200 if body == b"{}" else 400) and data["ok"] is False and data["errors"]
-    assert set(rows(api)) == {"zapis", "bezwladnosc", "p0_ab"}
+    assert set(rows(api)) == {"zapis", "bezwladnosc", "p0_ab", "ogon_ab"}
 
 
 def test_http_oversized_body_413_without_write(api):

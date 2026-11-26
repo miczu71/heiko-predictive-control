@@ -317,7 +317,8 @@ def test_overridable_ranges_match_web_for_shared_keys():
 
 def test_overridable_excludes_forbidden_options():
     for key in OVERRIDABLE:
-        assert not key.endswith("_enabled"), key
+        # E1: jedyny wyjątek — `tail_cut_enabled` (bool, wariant A/B „Ogon grzania”), świadoma decyzja.
+        assert not key.endswith("_enabled") or key == "tail_cut_enabled", key
         assert not key.startswith(("vacation_", "advisor_")), key
     assert "pv_roi_url" not in OVERRIDABLE
     assert "g13_peak_min_room_c" in OVERRIDABLE
@@ -325,7 +326,7 @@ def test_overridable_excludes_forbidden_options():
 
 def test_measures_names():
     assert MEASURES == {"floor_cost", "kwh_day", "min_room_at", "safety_trips", "zone_spread",
-                        "excitation", "inertia_refit", "writes_confirmed"}
+                        "excitation", "inertia_refit", "writes_confirmed", "kwh_hdd", "room_day", "tail_cuts"}
     assert params.MEASURE_PARAMS["floor_cost"]["window"] is True
 
 
@@ -367,3 +368,28 @@ def test_coexist_g13_rejects_curve_shift_in_arm_b_with_p0_in_arm_a():
     d["arms"] = {"A": {"writes": [{"param": "p0_run", "value": "base"}, {"param": "p0_stop", "value": "base"}]},
                  "B": {"writes": [{"param": "curve_shift", "value": 1}]}}
     has_error(d, "coexist")
+
+
+# E1: nakładka bool (`tail_cut_enabled`, zakres None = wymagany bool)
+def test_override_bool_bool_option_accepted():
+    d = copy_def(coexist=[])
+    d["arms"]["A"]["overrides"]["tail_cut_enabled"] = True
+    d["arms"]["B"]["overrides"]["tail_cut_enabled"] = False
+    assert validate(d) == []
+
+
+def test_override_bool_option_rejects_number():
+    d = copy_def(coexist=[])
+    d["arms"]["A"]["overrides"]["tail_cut_enabled"] = 1
+    has_error(d, "arms.A.overrides.tail_cut_enabled", "oczekiwano bool")
+
+
+def test_override_number_option_rejects_bool():
+    d = copy_def()
+    d["arms"]["A"]["overrides"]["tail_margin_k"] = True
+    has_error(d, "arms.A.overrides.tail_margin_k")
+
+
+def test_tail_cut_enabled_is_overridable_bool_without_range():
+    assert "tail_cut_enabled" in OVERRIDABLE and OVERRIDABLE["tail_cut_enabled"] is None
+    assert {"kwh_hdd", "room_day", "tail_cuts"} <= MEASURES

@@ -32,6 +32,9 @@ MEASURE_TEXT = {
     "excitation": "dostateczne wymuszenie (przejścia i spadek celu wody) do uczenia modelu",
     "inertia_refit": "dopasowanie modelu bezwładności podłogi (RMSE)",
     "writes_confirmed": "zapisy potwierdzone z ramki pompy w czasie",
+    "kwh_hdd": "energia pompy na stopniodzień grzania (kWh/HDD, niższy lepszy); doby z HDD poniżej 1 pomijane",
+    "room_day": "komfort z całej doby: średnia dobowych średnich i najniższe minimum najzimniejszego pokoju",
+    "tail_cuts": "średnia liczba odcięć ogona grzania na dobę (potwierdzone przełączenia na CWU)",
 }
 
 

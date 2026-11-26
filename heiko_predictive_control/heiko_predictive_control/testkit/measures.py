@@ -163,6 +163,62 @@ def safety_trips(ctx: Ctx, days: list[ArmDay]) -> dict:
     return {"value": count, "n": len(days)}
 
 
+def _hdd(conn, start: datetime, end: datetime) -> float | None:
+    """Stopniodzień grzania doby (jak `floor_cost` per="hdd"); None, gdy brak temp. zewnętrznej."""
+    out = _avg_outdoor(conn, start, end)
+    return None if out is None else max(0.0, floor_learn.HEATING_MAX_OUTDOOR_C - out)
+
+
+def kwh_hdd(ctx: Ctx, days: list[ArmDay]) -> dict:
+    """Energia pompy na stopniodzień (kWh/HDD) — miara główna „Ogona”; doby z HDD < 1 pomijane (jak floor_cost)."""
+    if ctx.now is None and ctx.default_day_kwh:           # domyślny hook dotyka HA i wymaga `now` — doby pomijamy
+        return {"value": None, "n": 0, "per_day": []}
+    per_day = []
+    for d in days:
+        kwh = ctx.day_kwh(ctx.conn, ctx.settings, d.start.date(), ctx.now)
+        hdd = _hdd(ctx.conn, d.start, d.end)
+        if kwh is None or hdd is None or hdd < 1.0:
+            continue
+        per_day.append({"day": d.start.date().isoformat(), "value": round(kwh / hdd, 3)})
+    value = round(mean(p["value"] for p in per_day), 3) if per_day else None
+    return {"value": value, "n": len(per_day), "per_day": per_day}
+
+
+def room_day(ctx: Ctx, days: list[ArmDay]) -> dict:
+    """Komfort z całej doby: średnia dobowych średnich i najniższe minimum pokoju (`cycles.min_room_c`, pętla heiko)."""
+    per_day = []
+    for d in days:
+        mean_c, min_c = ctx.conn.execute(
+            "SELECT AVG(min_room_c), MIN(min_room_c) FROM cycles WHERE loop = 'heiko' AND min_room_c IS NOT NULL "
+            "AND ts >= ? AND ts < ?", (d.start.isoformat(), d.end.isoformat())).fetchone()
+        if mean_c is None:
+            continue
+        per_day.append({"day": d.start.date().isoformat(), "mean": round(mean_c, 1), "min": round(min_c, 1),
+                        "value": round(mean_c, 1)})
+    value = round(mean(p["mean"] for p in per_day), 1) if per_day else None
+    low = min(p["min"] for p in per_day) if per_day else None
+    return {"value": value, "min": low, "n": len(per_day), "per_day": per_day}
+
+
+def tail_cuts(ctx: Ctx, days: list[ArmDay]) -> dict:
+    """Odcięcia ogona na dobę: potwierdzone zapisy trybu `dhw` (cięcie) w oknie doby.
+
+    `pump_writes.ts` i `cycles.ts` to naiwny czas lokalny (`datetime.now()`; run.sh ustawia TZ z opcji timezone),
+    więc porównuje się je z naiwnymi granicami doby bez `_to_utc`. Doby, które jeszcze się nie zaczęły, pomijane.
+    """
+    per_day = []
+    for d in days:
+        if ctx.now is not None and d.start > ctx.now:
+            continue
+        cuts = ctx.conn.execute(
+            "SELECT COUNT(*) FROM pump_writes WHERE entity_id = ? AND new = ? AND ok = 1 AND confirmed_at IS NOT NULL "
+            "AND confirmed_at NOT IN (?, ?) AND ts >= ? AND ts < ?",
+            (ex.MODE_WRITE_ID, ex.MODE_CODES["dhw"], ex.NO_CONFIRMATION, ex.SUPERSEDED,
+             d.start.isoformat(), d.end.isoformat())).fetchone()[0]
+        per_day.append({"day": d.start.date().isoformat(), "value": cuts})
+    value = round(mean(p["value"] for p in per_day), 2) if per_day else None
+    return {"value": value, "n": len(per_day), "per_day": per_day}
+
 # --- miary `test` ---
 
 def excitation(ctx: Ctx) -> dict:
@@ -192,6 +248,9 @@ CATALOG: dict[str, Measure] = {
     "floor_cost": Measure("arm", floor_cost),
     "min_room_at": Measure("arm", min_room_at),
     "safety_trips": Measure("arm", safety_trips),
+    "kwh_hdd": Measure("arm", kwh_hdd),
+    "room_day": Measure("arm", room_day),
+    "tail_cuts": Measure("arm", tail_cuts),
     "excitation": Measure("test", excitation),
     "inertia_refit": Measure("test", inertia_refit),
     "writes_confirmed": Measure("test", writes_confirmed),

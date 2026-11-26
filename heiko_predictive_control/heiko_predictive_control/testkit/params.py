@@ -33,10 +33,11 @@ _OVERRIDE_KEYS = ("g13_peak_preheat_shift", "g13_peak_peak_shift", "tail_margin_
 # Opcje, które definicja może nadpisać w dobie testu, z zakresem (włącznie).
 OVERRIDABLE: dict[str, tuple[float, float] | None] = {k: SETTING_RANGES[k] for k in _OVERRIDE_KEYS}
 OVERRIDABLE["g13_peak_min_room_c"] = (10, 25)
+OVERRIDABLE["tail_cut_enabled"] = None                # bool (E1): zakres None = wymagany bool, bez zakresu
 
 # Nazwy mierzalnych wielkości (implementacja w E3).
 MEASURES = frozenset({"floor_cost", "kwh_day", "min_room_at", "safety_trips", "zone_spread", "excitation",
-                      "inertia_refit", "writes_confirmed"})
+                      "inertia_refit", "writes_confirmed", "kwh_hdd", "room_day", "tail_cuts"})
 
 # Parametry miar: nazwa → {parametr: wymagany?}. Miary spoza słownika nie przyjmują parametrów.
 MEASURE_PARAMS: dict[str, dict[str, bool]] = {

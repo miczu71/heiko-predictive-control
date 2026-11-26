@@ -308,3 +308,87 @@ def test_kwh_day_default_hook_skips_days_when_now_is_none():
     """E4: `Ctx.now is None` + domyślny `day_kwh` (dotykałby HA) → doba pominięta zamiast AttributeError."""
     out = ms.kwh_day(ms.Ctx(None, SETTINGS, None, None), [day(FRI)])
     assert out == {"value": None, "n": 0}
+
+
+# --- E1: kwh_hdd, room_day, tail_cuts ---
+
+def _write(conn, ts, new=3, ok=1, confirmed="auto", entity=None):
+    conf = {"auto": ts + timedelta(minutes=2), "none": None}.get(confirmed, confirmed)
+    conn.execute("INSERT INTO pump_writes (ts, test_id, entity_id, old, new, ok, confirmed_at) "
+                 "VALUES (?, NULL, ?, 4, ?, ?, ?)",
+                 (ts.isoformat(), entity or ex.MODE_WRITE_ID, new, ok,
+                  conf.isoformat() if isinstance(conf, datetime) else conf))
+    conn.commit()
+
+
+def test_kwh_hdd_divides_day_kwh_by_heating_degree_days(conn):
+    cycle(conn, datetime(2026, 10, 9, 12), outdoor=4.0)     # HDD = 14 - 4 = 10
+    cycle(conn, datetime(2026, 10, 10, 12), outdoor=10.0)   # HDD = 4
+    kwh = {FRI: 20.0, FRI + timedelta(days=1): 8.0}
+    c = ctx(conn, day_kwh=lambda _c, _s, d, _n: kwh.get(d))
+    out = ms.kwh_hdd(c, [day(FRI), day(FRI + timedelta(days=1))])
+    assert out["n"] == 2
+    assert out["value"] == 2.0
+    assert out["per_day"] == [{"day": "2026-10-09", "value": 2.0}, {"day": "2026-10-10", "value": 2.0}]
+
+
+def test_kwh_hdd_skips_days_with_hdd_below_one_or_unknown(conn):
+    cycle(conn, datetime(2026, 10, 9, 12), outdoor=13.5)    # HDD 0,5 → pominięta
+    c = ctx(conn, day_kwh=lambda *a: 5.0)                  # doba 10.10 bez cykli → HDD None → pominięta
+    out = ms.kwh_hdd(c, [day(FRI), day(FRI + timedelta(days=1))])
+    assert out == {"value": None, "n": 0, "per_day": []}
+
+
+def test_kwh_hdd_default_hook_without_now_gives_no_value(conn):
+    cycle(conn, datetime(2026, 10, 9, 12), outdoor=4.0)
+    c = ms.Ctx(conn, SETTINGS, None, None, None)
+    assert ms.kwh_hdd(c, [day(FRI)])["value"] is None
+
+
+def test_room_day_mean_of_daily_means_and_worst_minimum(conn):
+    cycle(conn, datetime(2026, 10, 9, 6), min_room=20.0)
+    cycle(conn, datetime(2026, 10, 9, 12), min_room=22.0)
+    cycle(conn, datetime(2026, 10, 10, 6), min_room=19.0)
+    cycle(conn, datetime(2026, 10, 10, 12), min_room=23.0)
+    cycle(conn, datetime(2026, 10, 11, 12), min_room=None)  # brak danych → doba pominięta
+    out = ms.room_day(ctx(conn), [day(FRI), day(FRI + timedelta(days=1)), day(FRI + timedelta(days=2))])
+    assert out["n"] == 2
+    assert out["value"] == 21.0
+    assert out["min"] == 19.0
+    assert out["per_day"][0] == {"day": "2026-10-09", "mean": 21.0, "min": 20.0, "value": 21.0}
+    assert out["per_day"][1] == {"day": "2026-10-10", "mean": 21.0, "min": 19.0, "value": 21.0}
+
+
+def test_room_day_uses_heiko_loop_only(conn):
+    cycle(conn, datetime(2026, 10, 9, 12), min_room=10.0, loop="attic")
+    assert ms.room_day(ctx(conn), [day(FRI)])["n"] == 0
+
+
+def test_tail_cuts_counts_confirmed_dhw_mode_writes_per_day(conn):
+    t = datetime(2026, 10, 9, 10)
+    _write(conn, t)                                                  # liczy się
+    _write(conn, t + timedelta(hours=1))                             # liczy się
+    _write(conn, t + timedelta(hours=2), confirmed=ex.NO_CONFIRMATION)
+    _write(conn, t + timedelta(hours=3), confirmed=ex.SUPERSEDED)
+    _write(conn, t + timedelta(hours=4), confirmed=None)
+    _write(conn, t + timedelta(hours=5), new=4)                      # tryb auto, nie cięcie
+    _write(conn, t + timedelta(hours=6), ok=0)                       # HA odrzuciło
+    _write(conn, t + timedelta(hours=7), entity="heiko_heatpump.other")
+    out = ms.tail_cuts(ctx(conn), [day(FRI), day(FRI + timedelta(days=1))])
+    assert out["n"] == 2
+    assert out["per_day"] == [{"day": "2026-10-09", "value": 2}, {"day": "2026-10-10", "value": 0}]
+    assert out["value"] == 1.0
+
+
+def test_tail_cuts_day_not_yet_started_is_not_counted(conn):
+    future = date(2026, 10, 25)
+    out = ms.tail_cuts(ctx(conn), [day(future)])
+    assert out["n"] == 0 and out["value"] is None
+
+
+def test_arm_measures_registered_and_described():
+    from heiko_predictive_control.testkit.engine import MEASURE_TEXT
+
+    for name in ("kwh_hdd", "room_day", "tail_cuts"):
+        assert ms.CATALOG[name].scope == "arm"
+        assert MEASURE_TEXT.get(name)
