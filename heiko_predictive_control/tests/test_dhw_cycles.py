@@ -177,12 +177,12 @@ def test_store_cycles_persists_complete_cycles_only_and_is_idempotent(conn):
     now = datetime(2026, 9, 22, 0, 20)
     stored = dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, day, states, now, get_history=fake_history, get_logbook=lambda *a: None)
     assert stored == 1
-    loaded = dc.load_cycles(conn)
+    loaded = dc.load_cycles(conn, days=36500)
     assert len(loaded) == 1 and loaded[0]["duration_min"] == 25.0
 
     stored_again = dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, day, states, now, get_history=fake_history, get_logbook=lambda *a: None)
     assert stored_again == 1
-    assert len(dc.load_cycles(conn)) == 1                          # INSERT OR REPLACE — bez duplikatu
+    assert len(dc.load_cycles(conn, days=36500)) == 1                          # INSERT OR REPLACE — bez duplikatu
 
 
 def test_bath_trigger_source_accepts_naive_when():
@@ -201,7 +201,7 @@ def _store_bath_cycle(conn, get_logbook):
 
     dc.store_cycles(conn, {"timezone": "Europe/Warsaw"}, date(2026, 9, 21), states, datetime(2026, 9, 22, 0, 20),
                     get_history=fake_history, get_logbook=get_logbook)
-    return dc.load_cycles(conn)[0]
+    return dc.load_cycles(conn, days=36500)[0]
 
 
 def test_store_cycles_classifies_bath_from_logbook(conn):
@@ -333,7 +333,7 @@ def test_store_cycles_prices_battery_part_with_battery_cost_from_pump_cycles(con
                            get_history=fake_history, get_logbook=lambda *a: None) == 1
     assert {"sensor.power_meter_consumption", "sensor.battery_total_discharge",
             "sensor.current_rce_price_kwh"} <= set(asked)
-    assert dc.load_cycles(conn)[0]["ah_pln"] == pytest.approx(0.2)                     # 0,4 kWh z baterii × 0,5
+    assert dc.load_cycles(conn, days=36500)[0]["ah_pln"] == pytest.approx(0.2)                     # 0,4 kWh z baterii × 0,5
 
 
 def test_ah_cost_without_battery_history_is_priced_by_tariff_and_not_split():

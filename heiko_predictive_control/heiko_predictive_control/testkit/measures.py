@@ -79,6 +79,12 @@ def _avg_outdoor(conn, start: datetime, end: datetime) -> float | None:
                         (start.isoformat(), end.isoformat())).fetchone()[0]
 
 
+def _hdd(conn, start: datetime, end: datetime) -> float | None:
+    """Stopniodzień grzania okna; None, gdy brak temp. zewnętrznej."""
+    out = _avg_outdoor(conn, start, end)
+    return None if out is None else max(0.0, floor_learn.HEATING_MAX_OUTDOOR_C - out)
+
+
 def outdoor_c(ctx: Ctx, days: list[ArmDay]) -> float | None:
     """Kowariata: średnia z dobowych średnich temp. zewn. (nie miara)."""
     temps = [t for t in (_avg_outdoor(ctx.conn, d.start, d.end) for d in days) if t is not None]
@@ -132,8 +138,7 @@ def floor_cost(ctx: Ctx, days: list[ArmDay], window: str, per: str | None = None
             continue
         cost = sum(r["cost_pln"] for r in runs)
         if per == "hdd":
-            out = _avg_outdoor(ctx.conn, start, end)
-            hdd = None if out is None else max(0.0, floor_learn.HEATING_MAX_OUTDOOR_C - out)
+            hdd = _hdd(ctx.conn, start, end)
             if hdd is None or hdd < 1.0:
                 continue
             cost /= hdd
@@ -161,12 +166,6 @@ def safety_trips(ctx: Ctx, days: list[ArmDay]) -> dict:
     trips = set((dbm.get_setting(ctx.conn, "g13_peak_state") or {}).get("trips") or [])
     count = sum(1 for d in days if d.start.date().isoformat() in trips)
     return {"value": count, "n": len(days)}
-
-
-def _hdd(conn, start: datetime, end: datetime) -> float | None:
-    """Stopniodzień grzania doby (jak `floor_cost` per="hdd"); None, gdy brak temp. zewnętrznej."""
-    out = _avg_outdoor(conn, start, end)
-    return None if out is None else max(0.0, floor_learn.HEATING_MAX_OUTDOOR_C - out)
 
 
 def kwh_hdd(ctx: Ctx, days: list[ArmDay]) -> dict:
@@ -218,6 +217,7 @@ def tail_cuts(ctx: Ctx, days: list[ArmDay]) -> dict:
         per_day.append({"day": d.start.date().isoformat(), "value": cuts})
     value = round(mean(p["value"] for p in per_day), 2) if per_day else None
     return {"value": value, "n": len(per_day), "per_day": per_day}
+
 
 # --- miary `test` ---
 
