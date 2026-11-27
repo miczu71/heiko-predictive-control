@@ -77,3 +77,12 @@ def test_ogon_ab_schedule_alternates_a_b_over_14_days():
     assert len(days) == 14
     assert [arms[d] for d in days] == ["A", "B"] * 7
     assert days[0] == "2026-12-01"
+
+
+def test_ogon_ab_started_during_day_skips_partial_start_day():
+    from datetime import datetime
+
+    from heiko_predictive_control.testkit import engine
+
+    _, arms = engine.plan(BUILTIN["ogon_ab"], {}, datetime(2026, 12, 1, 10, 0), lambda d: True, None)
+    assert min(arms) == "2026-12-02" and len(arms) == 14

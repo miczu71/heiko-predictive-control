@@ -268,11 +268,12 @@ def create_app(db_path: str,
     @app.get("/api/tail_cut")
     def api_tail_cut():
         """Kafel „Ogon grzania” na pulpicie (0.22.0): stan, odliczanie i liczniki odcięć."""
+        from .testkit import engine                       # leniwie: testkit importuje SETTING_RANGES z web
         settings = get_settings()
         now = _local_now(settings)
         conn = db_conn()
         try:
-            return jsonify(tail_cut_view.build(conn, settings, now))
+            return jsonify(tail_cut_view.build(conn, engine.effective(conn, settings, now), now))   # nakładka testu
         finally:
             conn.close()
 

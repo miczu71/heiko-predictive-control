@@ -836,3 +836,16 @@ def test_g13_yield_test_frozen_def_variants(conn):
     conn.execute("UPDATE tests SET def_json = ?", (json.dumps({**BUILTIN["p0_ab"], "coexist": ["g13_peak"]}),))
     conn.commit()
     assert ex.g13_yield_test(conn) is None
+
+
+def test_overlay_floor_cost_waits_for_nightly_heating_runs(conn):
+    defn = dict(PREHEAT, key="night_floor", measures=[{"name": "floor_cost", "window": "00:00→00:00"}],
+                verdict=dict(PREHEAT["verdict"], primary="floor_cost", guards=[]))
+    _add_def(conn, defn)
+    pump = Pump(curve="on")
+    assert _start(conn, pump, "night_floor")["ok"]
+    row = _test(conn)
+    end = engine.end_at(engine.frozen_def(row), json.loads(row["arms_json"]))
+    assert end.hour == 0
+    assert _tick(conn, pump, end + timedelta(minutes=10))["status"] == ex.RUNNING    # przed zapisem przebiegów 00:30
+    assert _tick(conn, pump, end + timedelta(minutes=45))["status"] == ex.DONE

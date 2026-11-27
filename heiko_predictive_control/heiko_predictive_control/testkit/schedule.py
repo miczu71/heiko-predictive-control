@@ -79,7 +79,12 @@ def _build(defn: dict, baseline: dict, now: datetime, is_workday, feed) -> Plan:
     collected: list[tuple[datetime, str, float]] = []
     arms_by_day: dict[str, str] = {}
     last = None                                   # (dzień, wariant) ostatniej liczącej się doby
+    # Test bez zapisów: doby startu, której okno miary już trwa, nie liczymy (byłaby niepełna, z nastawami sprzed testu).
+    overlay_only = not any(a.get("writes") for a in arms.values())
+    window = next((m["window"] for m in defn.get("measures", []) if isinstance(m, dict) and m.get("window")), "00:00")
     day = ctx.today
+    if overlay_only and _at(day, window[:5]) < now:
+        day += timedelta(days=1)
     while len(arms_by_day) < count and day <= ctx.today + timedelta(days=max(14, 2 * count + 7)):
         n = len(arms_by_day)
         if design == "sequence" and n >= len(order):

@@ -8,5 +8,5 @@ Szczegóły i kontrakt wykonawcy: `PLAN_tail_ab_E1.md`.
 ## Handoff po E1 (2026-11-26)
 - Zrobione: kod i testy w `main` (bez pusha, bez wydania). Wersja na żywo nadal 0.26.0.
 - Do decyzji przy E2: `tail_cuts` liczy bieżącą, niepełną dobę jak pełną (wynik powstaje dopiero po zakończeniu testu, więc dziś nie szkodzi).
-- Istniejące przed E1: 4 czerwone testy w `tests/test_dhw_cycles.py` (IndexError) — sprawdzić przed wydaniem.
+- 4 czerwone testy w `tests/test_dhw_cycles.py` (dane z 09.2026 poza oknem 60 dni) naprawione w E2.
 - Wznowienie w niedzielę 2026-11-29: bramka „żaden test nie trwa”, potem E2 wg `PLAN_tail_ab_E1.md`.

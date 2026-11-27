@@ -19,7 +19,7 @@ const VERDICT_NOTE = r => r.verdict
     `${r.gain_c !== undefined ? ")" : ""}, pewność ${r.confidence}`
   : "bez werdyktu (za mało próbek w standby)";
 const nf = v => (v === null || v === undefined) ? "—" : Number(v).toLocaleString("pl-PL", { maximumFractionDigits: 2 });
-const mval = m => (m && typeof m === "object") ? nf(m.value) + (m.n ? ` <span class="sub">(n=${m.n})</span>` : "") : nf(m);
+const mval = m => (m && typeof m === "object") ? nf(m.value) + (m.min !== undefined && m.min !== null ? ` <span class="sub">min ${nf(m.min)}</span>` : "") + (m.n ? ` <span class="sub">(n=${m.n})</span>` : "") : nf(m);
 // Wynik testu z definicji (result.arms): tabela wariant × miara + werdykt. Trzy wbudowane mają własny opis (VERDICT_NOTE).
 function armsTable(r) {
   const arms = Object.keys(r.arms || {}).sort();

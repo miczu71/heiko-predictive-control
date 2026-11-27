@@ -670,7 +670,10 @@ def _tick_overlay(conn, settings: dict, test, defn: dict, now: datetime, notify)
     from .testkit import engine
     arms = json.loads(test["arms_json"] or "{}")
     end = engine.end_at(defn, arms)
-    if end is None or now >= end:
+    # Okno kończące się o północy: przebiegi podłogówki ostatniej doby zapisuje dopiero zadanie o 00:30.
+    names = {m["name"] if isinstance(m, dict) else m for m in defn.get("measures", [])}
+    settle = timedelta(minutes=45) if end and end.time() == time() and "floor_cost" in names else timedelta(0)
+    if end is None or now >= end + settle:
         return _complete(conn, settings, test, defn, now, notify, _title(test))
     return {"status": RUNNING, "arm": engine.arm_for_day(test, now.date()), "until": _iso(end)}
 

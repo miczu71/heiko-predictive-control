@@ -59,7 +59,8 @@ BUILTIN: dict[str, dict] = {
     "ogon_ab": {
         "key": "ogon_ab",
         "title": "Ogon grzania A/B",
-        "description": "Na przemian: A = odcinanie ogona włączone, B = wyłączone. Miara główna: kWh na stopniodzień.",
+        "description": "Na przemian: A = odcinanie ogona włączone, B = wyłączone. Miara główna: kWh na stopniodzień. "
+                       "Uwaga: w dobach A add-on przełącza tryb pompy (Auto → CWU → Auto), także gdy odcinanie jest wyłączone w opcjach.",
         "requires": {"heiko_enabled": True},
         "coexist": ["g13_peak"],
         "days": {"filter": "all", "count": 14},

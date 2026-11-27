@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0 — Test A/B „Ogon grzania”
+- **Nowe — test `ogon_ab`:** 14 dób na przemian, A = odcinanie ogona włączone, B = wyłączone. Miara główna kWh na stopniodzień; obok kWh/dobę, koszt, temperatura pokoju (średnia i minimum), liczba odcięć. Bez strażnika komfortu. W dobach A add-on przełącza tryb pompy także przy wyłączonej opcji odcinania.
+- **Nowe:** definicja może nadpisać `tail_cut_enabled` (tak/nie); miary `kwh_hdd`, `room_day`, `tail_cuts`.
+- **Poprawka:** test bez zapisów uruchomiony w ciągu doby zaczyna liczyć od następnej doby (nie od niepełnej dzisiejszej).
+- **Poprawka:** test z oknem kosztu do północy kończy się po 00:45, a nie tuż po północy (koszt ostatniej doby nie wychodzi 0 zł).
+- **Poprawka:** kafel „Ogon grzania” uwzględnia nakładkę trwającego testu; tabela wyników pokazuje minimum pokoju.
+- Znane ograniczenia: werdykt nie sprawdza, czy w dobach A cokolwiek odcięto (patrz kolumna `tail_cuts`); jedna ciepła doba mocno waży w kWh/stopniodzień.
+- Bez migracji bazy; powrót do 0.26.0 jest bezpieczny (przy trwającym teście `ogon_ab` najpierw go przerwać).
+
 ## 0.26.0 — Testy przy włączonym Szczycie G13: blokada tylko przy realnym konflikcie
 - **Zmiana — testy P0, slot 52 i CWU startują przy włączonym Szczycie G13:** nie piszą przesunięcia krzywej, więc nie ma dwóch pisarzy tej samej nastawy. Na czas takiego testu G13 się **wstrzymuje** (jak dotąd przy teście z zapisem). Definicja z `coexist: ["g13_peak"]` (dozwolone dla zapisów innych niż krzywa) pozwala G13 działać równolegle. Wbudowany `p0_ab` nie ma `coexist`, więc czysty pomiar zostaje. Zastępuje to zdanie z 0.24/0.25 „test z `writes` blokuje G13”.
 - **Zmiana — test krzywej (`zapis`, `bezwladnosc`) blokowany tylko przy realnym konflikcie:** gdy zachodzi na okno G13 (od początku dogrzewania do końca szczytu; koniec testu = ostatni krok + 10 min potwierdzenia) albo gdy brak harmonogramu taryfy na którąś z dób testu. Komunikat podaje godziny okna. `zapis` poza oknem (np. rano) startuje bez wyłączania G13.
