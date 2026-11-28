@@ -6,9 +6,8 @@
 
     <fieldset>
       <legend>🔥 Heiko — podłogówka</legend>
-      <p class="hint">Wyłącznik gasi tylko zapis do pompy — obserwacja i plan
-        działają zawsze. Jedyne zapisy to kroki testów uruchomionych przez Ciebie w zakładce
-        „Testy” (przesunięcie krzywej); bez tego przełącznika żaden test nie wystartuje.</p>
+      <p class="hint">Wyłącznik gasi wszystkie zapisy do pompy: testy z zakładki „Testy”, tryby Szczyt G13, urlopowy
+        i odcinanie ogona grzania oraz zatwierdzenie slotu 52 w Doradcy. Obserwacja i plan działają zawsze.</p>
       <label><input type="checkbox" name="heiko_enabled" {{ 'checked' if settings.heiko_enabled }}>
         Sterowanie aktywne (Heiko)</label>
 
@@ -86,7 +85,7 @@
     <fieldset>
       <legend>Tryb urlopowy</legend>
       <p class="hint">Całodobowa obniżka krzywej grzewczej o wybraną wartość na czas nieobecności; w szczycie taryfy (przy włączonym trybie „Szczyt G13”)
-        przesunięcie spada do −3. Nastawa CWU na czas urlopu i 48 po nim. Gdy najzimniejszy pokój spadnie poniżej minimum na 15 min, bezpiecznik
+        przesunięcie spada do −3. Nastawa CWU na czas urlopu, a po nim powrót do 48 °C. Gdy najzimniejszy pokój spadnie poniżej minimum na 15 min, bezpiecznik
         przywraca bazowe przesunięcie do ocieplenia i wysyła powiadomienie. Tryb nie uruchamia anty-legionelli (brak jej cyklu w czasie urlopu).
         Puste daty = bez ograniczenia. Wymaga włączonego „Sterowanie aktywne (Heiko)”. Wyłączenie przywraca bazowe przesunięcie.</p>
       <label><input type="checkbox" name="vacation_enabled" {{ 'checked' if settings.vacation_enabled }}>
@@ -100,7 +99,7 @@
           <input type="number" step="1" min="0" max="3" name="vacation_curve_drop" value="{{ settings.get('vacation_curve_drop', 2) }}"></label>
         <label>Bezpiecznik — minimum pokoi (°C) (10…25)
           <input type="number" step="0.5" min="10" max="25" name="vacation_min_room_c" value="{{ settings.get('vacation_min_room_c', 16) }}"></label>
-        <label>Nastawa CWU na czas urlopu (°C) (16…60)
+        <label>Nastawa CWU na czas urlopu (°C) (25…60)
           <input type="number" step="1" min="25" max="60" name="vacation_dhw_setpoint" value="{{ settings.get('vacation_dhw_setpoint', 25) }}"></label>
       </div>
       <label><input type="checkbox" name="vacation_with_away" {{ 'checked' if settings.vacation_with_away }}>
@@ -186,8 +185,8 @@
 
     <fieldset>
       <legend>🧭 Doradca</legend>
-      <p class="hint">Doradca proponuje zmiany nastaw, ale w tej wersji <strong>niczego nie zapisuje do pompy</strong> —
-        „Zatwierdź” zapisuje tylko decyzję. Poniższe ustawienia działają od następnego przebiegu, bez restartu.</p>
+      <p class="hint">Doradca proponuje zmiany nastaw. Do pompy trafia tylko zatwierdzony slot 52 (przycisk „Zatwierdź i zapisz
+        w pompie”, przy włączonym „Sterowanie aktywne (Heiko)”); pozostałe propozycje są próbne. Poniższe ustawienia działają od następnego przebiegu, bez restartu.</p>
       <label>Wyróżniona soczewka i powiadomienia
         <select name="advisor_lens">
           <option value="żaden" {{ 'selected' if (settings.advisor_lens or 'żaden') == 'żaden' }}>Żaden (bez powiadomień)</option>

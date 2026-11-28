@@ -29,7 +29,7 @@
     <span class="stat-sub">przesunięcie krzywej{% if writes.g13.base is not none %} (bazowe {{ writes.g13.base|replace("-", "−") }}){% endif %}: {{ writes.g13.phase }}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
     {% else %}
     <span class="stat-value">brak</span>
-    <span class="stat-sub">pompa na własnej krzywej{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
+    <span class="stat-sub">{% if writes.modes %}brak kroku testu i G13 · włączone: {{ writes.modes|join(", ") }}{% else %}pompa na własnej krzywej{% endif %}{% if writes.pending %} · <a href="{{ base }}/advisor">propozycje Doradcy: {{ writes.pending }}</a>{% endif %}</span>
     {% endif %}
   </div>
 </section>

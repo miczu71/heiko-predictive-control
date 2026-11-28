@@ -7,9 +7,9 @@
 <section class="detail" data-card="loop_heiko">
   <header>
     <h2><svg class="ico"><use href="#i-fan"/></svg> {{ pump_eq.label if pump_eq else 'Pompa ciepła' }}</h2>
-    <span class="status">tylko obserwacja</span>
+    <span class="status {{ 'on' if settings.heiko_enabled }}">{{ 'steruje' if settings.heiko_enabled else 'tylko obserwacja' }}</span>
   </header>
-  <p class="sub">Podłogówka całego domu · pętla A. Grzaniem steruje pompa (krzywa grzewcza + ograniczona nastawa z panelu). Add-on zapisuje do pompy tylko kroki testów, które uruchomisz, i zatwierdzone propozycje Doradcy; plan poniżej jest poglądowy.
+  <p class="sub">Podłogówka całego domu · pętla A. Grzaniem steruje pompa (krzywa grzewcza + ograniczona nastawa z panelu). Add-on zmienia nastawy pompy tylko przy włączonym „Sterowanie aktywne (Heiko)”: kroki uruchomionych testów, włączone tryby (Szczyt G13, urlopowy, odcinanie ogona grzania) i zatwierdzony w Doradcy slot 52. Plan poniżej jest poglądowy.
     {% if pump_eq and pump_eq.note %}{{ pump_eq.note }}{% endif %}</p>
   <dl class="kv">
     <dt>Tryb pracy</dt><dd data-live="heiko.mode">{{ live.heiko.mode }}</dd>

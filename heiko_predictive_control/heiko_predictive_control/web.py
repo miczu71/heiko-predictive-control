@@ -15,7 +15,7 @@ from flask import Flask, jsonify, render_template, request
 
 from . import (__version__, advisor, analysis, attic, attic_runs, catalog, comfort, costs, day_summary, dhw_cycles, dhw_model, experiments, floor_learn,
                ha_client, heating_runs, layout, live, rooms, stats, tariff_feed, telemetry)
-from . import floor_model, g13_view, kpi, tail_cut_view, vacation_view
+from . import floor_model, g13_view, kpi, tail_cut, tail_cut_view, vacation_exec, vacation_view
 from . import db as dbm
 from .workday import default_is_workday
 
@@ -228,8 +228,11 @@ def create_app(db_path: str,
                     g13_now = g13_view.now_view(conn, settings, now)
                 except Exception:                      # kafel pomocniczy nie może położyć Pulpitu
                     logger.warning("pulpit: nie udało się odczytać stanu trybu Szczyt G13", exc_info=True)
+            modes = [label for label, on in (("tryb urlopowy", vacation_exec.active(settings, now.date())),
+                                             ("odcinanie ogona grzania", tail_cut.active(settings))) if on]
             writes = {"test": test,
                       "g13": g13_now,
+                      "modes": modes,
                       "pending": conn.execute("SELECT COUNT(*) FROM proposals WHERE status = ?",
                                               (advisor.STATUS_PENDING,)).fetchone()[0]}
         finally:
@@ -588,6 +591,8 @@ def create_app(db_path: str,
                 conn.close()
 
             def apply(row: dict) -> tuple[bool, str]:
+                if not get_settings().get("heiko_enabled"):
+                    return False, "Sterowanie aktywne (Heiko) jest wyłączone — włącz je w Opcjach, żeby zapisać do pompy"
                 entity = catalog.resolve_params(states).get(row["param_key"])
                 if not entity:
                     return False, "nie znajduję encji slotu 52 w HA"

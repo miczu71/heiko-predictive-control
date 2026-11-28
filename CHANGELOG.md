@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.28.3 — Wyłącznik „Sterowanie aktywne (Heiko)” obejmuje Doradcę, prawdziwe opisy zapisów
+- **Zmiana:** przy wyłączonym „Sterowanie aktywne (Heiko)” zatwierdzenie slotu 52 w Doradcy nie zapisuje do pompy; propozycja czeka, a Doradca mówi dlaczego.
+- **Poprawki tekstów:** karta pompy na Pulpicie pokazuje „steruje” albo „tylko obserwacja” według wyłącznika; kafel „Zapisy do pompy” wymienia włączony tryb urlopowy i odcinanie ogona; Opcje (Heiko, Doradca, Urlop) opisują faktyczne zapisy i zakres nastawy CWU (25–60 °C).
+- Bez migracji bazy.
+
 ## 0.28.2 — Prawdziwy opis zapisów do pompy w Doradcy
 - **Poprawka:** baner w Doradcy twierdził, że nic nie trafia do pompy i że zmienia ją tylko strona Testy po kliknięciu. Teraz mówi, że „Zatwierdź i zapisz w pompie” zmienia nastawę, a testy i włączone tryby (Szczyt G13, urlopowy, odcinanie ogona grzania) zapisują same. Działanie bez zmian.
 - Bez migracji bazy.

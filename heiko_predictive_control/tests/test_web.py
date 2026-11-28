@@ -1,5 +1,6 @@
 """Render pulpitu i /api/live z fałszywym stanem HA — bez sieci, na przykładowym domu."""
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -313,7 +314,7 @@ def test_dashboard_heiko_card_has_plan_containers_and_no_write_claims(tmp_path):
     html = _app_with_db(tmp_path, SETTINGS).test_client().get("/").get_data(as_text=True)
     for element_id in ("heiko-chart", "heiko-savings", "heiko-blocks", "heiko-model", "hp-fuse"):
         assert f'id="{element_id}"' in html
-    assert "Add-on zapisuje do pompy" in html and "poglądow" in html
+    assert "Add-on zmienia nastawy pompy" in html and "poglądow" in html
     assert "steruje" not in html.split('data-card="loop_heiko"')[1].split("</section>")[0].replace("Grzaniem steruje pompa", "")
 
 
@@ -803,7 +804,7 @@ def test_approving_slot52_proposal_calls_injected_write_once(tmp_path, monkeypat
     calls = []
     monkeypatch.setattr(experiments, "write_setting", lambda conn, entity, old, new, now, writer=None: calls.append((entity, old, new)) or True)
     _force_draft(monkeypatch)
-    client, db_path = _proposal_client(tmp_path, states=_slot_states())
+    client, db_path = _proposal_client(tmp_path, states=_slot_states(), settings={"heiko_enabled": True})
     _insert_slot_proposal(db_path)
     resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
     assert resp.status_code == 200 and resp.get_json() == {"ok": True, "status": "zatwierdzona", "trial": False, "written": True}
@@ -816,7 +817,8 @@ def test_approving_slot52_without_entity_is_409_and_stays_pending(tmp_path, monk
     monkeypatch.setattr(experiments, "write_setting", lambda *a, **k: calls.append(a) or True)
     from heiko_predictive_control import advisor
     monkeypatch.setattr(advisor, "make_revalidator", lambda *a, **k: (lambda row: (True, "")))     # sprawdzamy gałąź apply, nie rewalidację
-    client, db_path = _proposal_client(tmp_path, states=[{"entity_id": "sensor.cokolwiek", "state": "1"}])
+    client, db_path = _proposal_client(tmp_path, states=[{"entity_id": "sensor.cokolwiek", "state": "1"}],
+                                       settings={"heiko_enabled": True})
     _insert_slot_proposal(db_path)
     resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
     assert resp.status_code == 409 and calls == [] and "slotu 52" in resp.get_json()["error"]
@@ -826,7 +828,7 @@ def test_approving_slot52_without_entity_is_409_and_stays_pending(tmp_path, monk
 def test_slot52_write_rejected_by_ha_or_allowlist_is_409_and_stays_pending(tmp_path, monkeypatch):
     from heiko_predictive_control import experiments
     _force_draft(monkeypatch)
-    client, db_path = _proposal_client(tmp_path, states=_slot_states())
+    client, db_path = _proposal_client(tmp_path, states=_slot_states(), settings={"heiko_enabled": True})
     _insert_slot_proposal(db_path)
     monkeypatch.setattr(experiments, "write_setting", lambda *a, **k: False)
     resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
@@ -846,6 +848,18 @@ def test_rejecting_slot52_proposal_never_writes(tmp_path, monkeypatch):
     client, db_path = _proposal_client(tmp_path, states=_slot_states())
     _insert_slot_proposal(db_path)
     assert client.post("/api/proposals/1/decision", json={"decision": "odrzucona"}).get_json()["trial"] is True
+
+
+def test_approving_slot52_with_main_switch_off_never_writes(tmp_path, monkeypatch):
+    from heiko_predictive_control import experiments
+    calls = []
+    monkeypatch.setattr(experiments, "write_setting", lambda *a, **k: calls.append(a) or True)
+    _force_draft(monkeypatch)
+    client, db_path = _proposal_client(tmp_path, states=_slot_states())     # SETTINGS: heiko_enabled False
+    _insert_slot_proposal(db_path)
+    resp = client.post("/api/proposals/1/decision", json={"decision": "zatwierdzona"})
+    assert resp.status_code == 409 and calls == [] and "Sterowanie aktywne (Heiko)" in resp.get_json()["error"]
+    assert client.get("/api/proposals").get_json()["pending"][0]["status"] == "oczekuje"
 
 
 # ── /api/costs (K2) ──
@@ -1062,3 +1076,21 @@ def test_post_settings_vacation_valid_saved(tmp_path, payload):
     saved = {}
     resp = _recording_client(tmp_path, saved).post("/api/settings", json=payload)
     assert resp.status_code == 200 and saved == payload
+
+
+@pytest.mark.parametrize("settings, label", [
+    ({"heiko_enabled": True, "vacation_enabled": True}, "włączone: tryb urlopowy"),
+    ({"heiko_enabled": True, "tail_cut_enabled": True}, "włączone: odcinanie ogona grzania"),
+    ({"heiko_enabled": False, "tail_cut_enabled": True}, "pompa na własnej krzywej"),
+])
+def test_dashboard_writes_tile_names_other_writing_modes(tmp_path, settings, label):
+    client, _ = _proposal_client(tmp_path, settings)
+    assert label in client.get("/").get_data(as_text=True)
+
+
+@pytest.mark.parametrize("enabled, status", [(True, "steruje"), (False, "tylko obserwacja")])
+def test_pump_card_status_follows_main_switch(tmp_path, enabled, status):
+    client, _ = _proposal_client(tmp_path, {"heiko_enabled": enabled})
+    html = client.get("/").get_data(as_text=True)
+    card = html[html.index('data-card="loop_heiko"'):]
+    assert re.search(r'<span class="status[^"]*">([^<]+)</span>', card).group(1) == status
