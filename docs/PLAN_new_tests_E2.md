@@ -117,3 +117,8 @@ zachowania `floor_cost`.
 ## Po wydaniu (rodzic)
 
 Definicje przez API (roadmapa E2 pkt 5). Rollback: 0.27.0 z Supervisora, `git revert`.
+
+## Zmiany po planie
+- Review: restart w oknie czekania nie przerywa już testu, który czeka tylko na nocny zapis; `floor_cost` z oknem przez
+  północ czeka na przebiegi (poprawka zachowania, wbrew „NIE RÓB”). `waits_for_dhw_log` zastąpione przez `ready_at`.
+- 0.28.1 (decyzja usera): `dhw_cycle` bierze poranne starty o 4/6/8 (−1…+5 min) zamiast typu „zegar”.

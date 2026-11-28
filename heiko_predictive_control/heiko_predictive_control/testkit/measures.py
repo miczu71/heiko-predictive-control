@@ -228,13 +228,28 @@ def _mean_known(values: list) -> float | None:
     return mean(known) if known else None
 
 
+# Poranne grzanie z harmonogramu panelu: start do 5 min po pełnej godzinie (zegar panelu spóźnia się o 1–3 min).
+# Własne kryterium zamiast typu „zegar” (`dhw_cycles`, 04/08 ±60 s), który nie widzi dzisiejszych startów 06:0x.
+_DHW_HOURS = (4, 6, 8)
+_DHW_EARLY, _DHW_LATE = timedelta(minutes=1), timedelta(minutes=5)
+_DHW_TYPES = ("zegar", "zapotrzebowanie")      # bez kąpieli, PV i innych zmian celu
+
+
+def _morning_cycle(cycle: dict, tz: ZoneInfo) -> bool:
+    if not cycle.get("complete") or cycle.get("type") not in _DHW_TYPES:
+        return False
+    local = datetime.fromisoformat(cycle["start"]).astimezone(tz)
+    return any(-_DHW_EARLY <= local - local.replace(hour=h, minute=0, second=0, microsecond=0) <= _DHW_LATE
+               for h in _DHW_HOURS)
+
+
 def dhw_cycle(ctx: Ctx, days: list[ArmDay]) -> dict:
-    """Cykl CWU z zegara panelu (bez kąpieli, PV i zapotrzebowania): per doba średnie z kompletnych cykli, wariant =
-    średnia dób. `dhw_cycles.start` to UTC, doby wariantu są lokalne. Doba bez cyklu z energią pomijana."""
+    """Poranny cykl CWU z harmonogramu panelu: per doba średnie z pasujących cykli, wariant = średnia dób.
+    `dhw_cycles.start` to UTC, doby wariantu są lokalne. Doba bez cyklu z energią pomijana."""
     per_day = []
     for d in days:
         cycles = [c for c in dhw_cycles.load_range(ctx.conn, _to_utc(d.start, ctx.tz), _to_utc(d.end, ctx.tz))
-                  if c.get("complete") and c.get("type") == "zegar"]
+                  if _morning_cycle(c, ctx.tz)]
         means = {k: _mean_known([c.get(k) for c in cycles]) for k in _DHW_FIELDS}
         if means["kwh_total"] is not None:
             per_day.append({"day": d.start.date().isoformat(), **means})

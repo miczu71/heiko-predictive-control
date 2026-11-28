@@ -397,8 +397,8 @@ def test_arm_measures_registered_and_described():
 # --- miara dhw_cycle ---
 
 def dhw_row(conn, start_local, **fields):
-    data = {"complete": True, "type": "zegar", **fields}
     end = start_local + timedelta(minutes=25)
+    data = {"complete": True, "type": "zapotrzebowanie", "start": local_to_utc(start_local).isoformat(), **fields}
     conn.execute("INSERT INTO dhw_cycles (start, end, data) VALUES (?, ?, ?)",
                  (local_to_utc(start_local).isoformat(), local_to_utc(end).isoformat(), json.dumps(data)))
     conn.commit()
@@ -407,10 +407,10 @@ def dhw_row(conn, start_local, **fields):
 def test_dhw_cycle_means_per_day_then_mean_of_days(conn):
     d1, d2 = date(2026, 10, 5), date(2026, 10, 6)
     dhw_row(conn, datetime.combine(d1, time(6, 0)), kwh_total=1.0, ah_kwh=0.4)
-    dhw_row(conn, datetime.combine(d1, time(18, 0)), kwh_total=2.0, ah_kwh=0.6)
-    dhw_row(conn, datetime.combine(d1, time(12, 0)), type="nadwyzka PV", kwh_total=9.0)
-    dhw_row(conn, datetime.combine(d1, time(13, 0)), complete=False, kwh_total=9.0)
-    dhw_row(conn, datetime.combine(d2, time(7, 0)), kwh_total=0.8)
+    dhw_row(conn, datetime.combine(d1, time(8, 2)), kwh_total=2.0, ah_kwh=0.6)
+    dhw_row(conn, datetime.combine(d1, time(6, 1)), type="nadwyżka PV", kwh_total=9.0)
+    dhw_row(conn, datetime.combine(d1, time(6, 2)), complete=False, kwh_total=9.0)
+    dhw_row(conn, datetime.combine(d2, time(6, 3)), kwh_total=0.8)
     out = ms.dhw_cycle(ctx(conn), [day(d1), day(d2)])
     assert out["n"] == 2
     assert out["per_day"][0]["day"] == "2026-10-05" and out["per_day"][0]["value"] == 1.5
@@ -418,10 +418,19 @@ def test_dhw_cycle_means_per_day_then_mean_of_days(conn):
     assert out["value"] == pytest.approx(1.15) and out["kwh_total"] == out["value"]
 
 
+@pytest.mark.parametrize("start,counted", [
+    (time(3, 59), True), (time(4, 0), True), (time(6, 2, 50), True), (time(8, 5), True),
+    (time(5, 58), False), (time(6, 5, 1), False), (time(7, 0), False), (time(18, 0), False)])
+def test_dhw_cycle_counts_only_morning_schedule_starts(conn, start, counted):
+    d = date(2026, 10, 5)
+    dhw_row(conn, datetime.combine(d, start), kwh_total=1.0)
+    assert ms.dhw_cycle(ctx(conn), [day(d)])["n"] == int(counted)
+
+
 def test_dhw_cycle_day_boundary_is_local_time(conn):
     d = date(2026, 10, 6)
-    dhw_row(conn, datetime.combine(d, time(0, 30)), kwh_total=0.5)   # w UTC to poprzedni dzień 22:30
-    assert ms.dhw_cycle(ctx(conn), [day(d)])["value"] == 0.5
+    dhw_row(conn, datetime.combine(d, time(4, 0)), kwh_total=0.5)
+    assert ms.dhw_cycle(ctx(conn), [day(d, start="03:00")])["value"] == 0.5      # w UTC cykl o 02:00
     assert ms.dhw_cycle(ctx(conn), [day(date(2026, 10, 5))])["value"] is None
 
 
@@ -433,7 +442,7 @@ def test_dhw_cycle_no_cycles_gives_none(conn):
 def test_dhw_cycle_null_field_is_skipped_per_field(conn):
     d = date(2026, 10, 5)
     dhw_row(conn, datetime.combine(d, time(6, 0)), kwh_total=1.0, ah_kwh=0.4)
-    dhw_row(conn, datetime.combine(d, time(18, 0)), kwh_total=2.0, ah_kwh=None)
+    dhw_row(conn, datetime.combine(d, time(8, 2)), kwh_total=2.0, ah_kwh=None)
     out = ms.dhw_cycle(ctx(conn), [day(d)])
     assert out["value"] == 1.5 and out["ah_kwh"] == 0.4
 

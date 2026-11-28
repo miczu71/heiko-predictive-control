@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.1 — `dhw_cycle` liczy poranne starty o 4, 6 i 8
+- **Poprawka:** miara `dhw_cycle` brała tylko cykle typu „zegar” (04:00/08:00 ±60 s), których od 24.10 nie ma. Teraz bierze kompletne cykle rozpoczęte o 04, 06 lub 08 (od −1 do +5 min), bez kąpieli, nadwyżki PV i innych zmian celu. Działa też na starych rekordach.
+- Bez migracji bazy.
+
 ## 0.28.0 — Miara `dhw_cycle` (energia cyklu CWU)
 - **Nowe — miara `dhw_cycle`:** średnia energia cyklu CWU z zegara panelu (kWh, niższy lepszy). Liczy kompletne cykle typu zegar: per doba średnia z cykli, wariant = średnia dób. Pomija cykle „nadwyżka PV”, niekompletne i kąpiel; pola bez wartości (np. `ah_kwh`) nie psują średniej pozostałych.
 - **Zmiana:** test z miarą `dhw_cycle` zamyka się od 00:45 po ostatniej dobie (cykle CWU zapisuje zadanie o 00:25). Test z zapisami po ostatnim kroku czeka na ten zapis, nie pilnuje w tym czasie ręcznych zmian i przeżywa restart add-onu.

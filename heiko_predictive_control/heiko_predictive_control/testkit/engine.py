@@ -35,7 +35,7 @@ MEASURE_TEXT = {
     "kwh_hdd": "energia pompy na stopniodzień grzania (kWh/HDD, niższy lepszy); doby z HDD poniżej 1 pomijane",
     "room_day": "komfort z całej doby: średnia dobowych średnich i najniższe minimum najzimniejszego pokoju",
     "tail_cuts": "średnia liczba odcięć ogona grzania na dobę (potwierdzone przełączenia na CWU)",
-    "dhw_cycle": "średnia energia cyklu CWU z zegara panelu (kWh, niższy lepszy); bez kąpieli i grzania z PV",
+    "dhw_cycle": "średnia energia porannego cyklu CWU (start 4, 6 lub 8, kWh, niższy lepszy); bez kąpieli i grzania z PV",
 }
 
 
