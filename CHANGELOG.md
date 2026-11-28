@@ -2,7 +2,9 @@
 
 ## 0.28.0 — Miara `dhw_cycle` (energia cyklu CWU)
 - **Nowe — miara `dhw_cycle`:** średnia energia cyklu CWU z zegara panelu (kWh, niższy lepszy). Liczy kompletne cykle typu zegar: per doba średnia z cykli, wariant = średnia dób. Pomija cykle „nadwyżka PV”, niekompletne i kąpiel; pola bez wartości (np. `ah_kwh`) nie psują średniej pozostałych.
-- **Zmiana:** test z miarą `dhw_cycle` zamyka się od 00:45 po ostatniej dobie (cykle CWU zapisuje zadanie o 00:25). Test z zapisami po ostatnim kroku czeka na ten zapis i nie pilnuje w tym czasie ręcznych zmian nastawy CWU.
+- **Zmiana:** test z miarą `dhw_cycle` zamyka się od 00:45 po ostatniej dobie (cykle CWU zapisuje zadanie o 00:25). Test z zapisami po ostatnim kroku czeka na ten zapis, nie pilnuje w tym czasie ręcznych zmian i przeżywa restart add-onu.
+- **Poprawka:** test nakładek z `floor_cost` i oknem przez północ (np. 13:00→13:00) czeka na zapis przebiegów (00:45 następnej doby); dotąd wynik nie obejmował godzin po północy ostatniej doby.
+- Znane ograniczenia: gdy nocny zapis się nie uda, wynik liczy się bez tej doby (widać po `n`); grzanie kąpieli lub z PV rozpoczęte dokładnie o 04:00/08:00 liczy się jako zegarowe.
 - Bez migracji bazy; przed powrotem do 0.27.0 przerwać test używający miary `dhw_cycle`.
 
 ## 0.27.0 — Test A/B „Ogon grzania”

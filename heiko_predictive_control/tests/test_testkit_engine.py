@@ -471,7 +471,7 @@ def test_overlay_test_finishes_after_end_at_with_evaluated_result(conn):
     end = engine.end_at(engine.frozen_def(row), json.loads(row["arms_json"]))
     assert end == datetime.fromisoformat(max(json.loads(row["arms_json"]))) + timedelta(days=1, hours=13)
     assert _tick(conn, pump, end - timedelta(minutes=1))["status"] == ex.RUNNING
-    out = _tick(conn, pump, end)
+    out = _tick(conn, pump, end + timedelta(hours=11, minutes=45))      # 00:45, po zapisie przebiegów (floor_cost)
     assert out["status"] == ex.DONE and _test(conn)["status"] == ex.DONE
     result = json.loads(_test(conn)["result"])
     assert result["verdict"]["winner"] is None and set(result["arms"]) == {"A", "B"} and result["writes"] == 0
@@ -861,6 +861,7 @@ def test_overlay_dhw_cycle_waits_for_nightly_dhw_log(conn):
     end = engine.end_at(engine.frozen_def(row), json.loads(row["arms_json"]))
     assert end.hour == 0
     assert _tick(conn, pump, end + timedelta(minutes=10))["status"] == ex.RUNNING    # przed zapisem cykli 00:25
+    assert _tick(conn, pump, end + timedelta(minutes=44))["status"] == ex.RUNNING
     assert _tick(conn, pump, end + timedelta(minutes=45))["status"] == ex.DONE
 
 
@@ -882,3 +883,31 @@ def test_dhw_cycle_writing_test_waits_for_last_day_log(conn, monkeypatch):
     calls = len(pump.calls)
     assert _tick(conn, pump, end + timedelta(minutes=45))["status"] == ex.DONE      # zmiana nadal trwa
     assert len(pump.calls) == calls                                                 # i nie jest nadpisywana
+
+
+def test_overlay_floor_cost_window_past_midnight_waits_for_next_log(conn):
+    _add_def(conn, dict(PREHEAT, key="noon_floor"))                      # okno 13:00→13:00
+    pump = Pump(curve="on")
+    assert _start(conn, pump, "noon_floor")["ok"]
+    row = _test(conn)
+    end = engine.end_at(engine.frozen_def(row), json.loads(row["arms_json"]))
+    ready = datetime.combine(end.date() + timedelta(days=1), datetime.min.time()) + timedelta(minutes=45)
+    assert end.hour == 13
+    assert _tick(conn, pump, end + timedelta(minutes=5))["status"] == ex.RUNNING     # po północy brak jeszcze runów
+    assert _tick(conn, pump, ready - timedelta(minutes=1))["status"] == ex.RUNNING
+    assert _tick(conn, pump, ready)["status"] == ex.DONE
+
+
+@pytest.mark.parametrize("confirmed,status", [(True, ex.RUNNING), (False, ex.ABORTED)])
+def test_restart_while_waiting_for_dhw_log(conn, monkeypatch, confirmed, status):
+    defn = dict(_fixture("dhw_setpoint_ab"), measures=["dhw_cycle"],
+                verdict=dict(_fixture("dhw_setpoint_ab")["verdict"], primary="dhw_cycle", guards=[]))
+    _add_def(conn, defn)
+    pump = _ent_pump(monkeypatch)
+    _run(conn, pump, "dhw_setpoint_ab", DHW_ENT)
+    assert _test(conn)["status"] == ex.RUNNING
+    if not confirmed:
+        conn.execute("UPDATE pump_writes SET confirmed_at = NULL")
+    end = engine.end_at(engine.frozen_def(_test(conn)), json.loads(_test(conn)["arms_json"]))
+    ex.recover_on_start(conn, SETTINGS, end + timedelta(minutes=10), writer=pump.writer, notify=pump.notify)
+    assert _test(conn)["status"] == status

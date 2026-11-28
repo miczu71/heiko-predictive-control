@@ -593,10 +593,20 @@ def abort(conn, settings: dict, now: datetime, reason: str = "przerwany przez u�
 
 def recover_on_start(conn, settings: dict, now: datetime, writer=None, notify=None) -> dict | None:
     """Po starcie add-onu test z zapisami nie jest wznawiany: powrót do wartości wyjściowej. Test samych nakładek nic
-    nie zapisuje do pompy, więc wznawia się z bazy."""
+    nie zapisuje do pompy, więc wznawia się z bazy; tak samo test, któremu został tylko dziennik cykli CWU."""
     with _lock:
         test = writing_test(conn)
-        return _abort(conn, settings, test, "restart add-onu", now, writer, notify) if test else None
+        if test is None or _only_awaits_dhw_log(conn, test):
+            return None
+        return _abort(conn, settings, test, "restart add-onu", now, writer, notify)
+
+
+def _only_awaits_dhw_log(conn, test) -> bool:
+    """Wszystkie kroki wykonane i potwierdzone (nastawa już bazowa), a wynik czeka na nocny zapis cykli CWU."""
+    from .testkit import engine
+    if not engine.needs_dhw_log(engine.frozen_def(test)) or test["step"] < len(json.loads(test["schedule"])):
+        return False
+    return all(w["confirmed_at"] not in (None, NO_CONFIRMATION) for w in _last_writes(conn, test))
 
 
 def _confirm_writes(conn, settings: dict, get_numeric, now: datetime, notify) -> None:

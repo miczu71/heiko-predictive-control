@@ -436,3 +436,10 @@ def test_dhw_cycle_null_field_is_skipped_per_field(conn):
     dhw_row(conn, datetime.combine(d, time(18, 0)), kwh_total=2.0, ah_kwh=None)
     out = ms.dhw_cycle(ctx(conn), [day(d)])
     assert out["value"] == 1.5 and out["ah_kwh"] == 0.4
+
+
+def test_dhw_cycle_day_without_energy_is_not_counted(conn):
+    d = date(2026, 10, 5)
+    dhw_row(conn, datetime.combine(d, time(4, 0)), kwh_total=None, duration_min=20.0)
+    out = ms.dhw_cycle(ctx(conn), [day(d)])
+    assert out["n"] == 0 and out["value"] is None and out["per_day"] == []

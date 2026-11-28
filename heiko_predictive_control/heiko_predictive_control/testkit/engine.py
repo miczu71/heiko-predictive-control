@@ -216,18 +216,14 @@ def needs_dhw_log(defn: dict) -> bool:
 
 
 def ready_at(defn: dict, arms_by_day: dict[str, str]) -> datetime | None:
-    """Od kiedy można liczyć wynik: `end_at`, ale miary z nocnych dzienników czekają na ich zapis — cykle CWU (00:25)
-    do 00:45 po ostatniej dobie, przebiegi podłogówki (00:30) 45 min po końcu o północy. None = brak dób."""
+    """Od kiedy można liczyć wynik: `end_at`, ale miary z nocnych dzienników (cykle CWU 00:25, przebiegi podłogówki
+    00:30 — oba zapisują poprzednią dobę kalendarzową) czekają do 00:45 po dacie, w której kończy się ostatnia doba.
+    None = brak dób."""
     end = end_at(defn, arms_by_day)
-    if end is None:
-        return None
-    names = _measure_names(defn)
-    if needs_dhw_log(defn):
-        last = (end - timedelta(microseconds=1)).date()
-        return datetime.combine(last + timedelta(days=1), time(0, 45))
-    if "floor_cost" in names and end.time() == time():
-        return end + timedelta(minutes=45)
-    return end
+    if end is None or not _measure_names(defn) & {"dhw_cycle", "floor_cost"}:
+        return end
+    last = (end - timedelta(microseconds=1)).date()
+    return datetime.combine(last + timedelta(days=1), time(0, 45))
 
 
 # --- wariant doby i nakładka ---
