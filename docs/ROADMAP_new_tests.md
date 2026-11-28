@@ -6,7 +6,7 @@ Decyzja 2026-11-28: nie dublować istniejących definicji z bazy add-onu (`prehe
 
 - [x] E1 — warianty jako dane: `curve_day_m1_ab`, `preheat_2_ab` (`docs/testdefs/`, zapisane przez `/api/test-defs`).
   Rollback: `DELETE /api/test-defs/<key>`.
-- [ ] E2 — miara `dhw_cycle`, wydanie 0.28.0 (na żywo 2026-11-28), potem definicje (WSTRZYMANE, niżej). Rollback: 0.27.0 z Supervisora, `git revert`.
+- [x] E2 — miara `dhw_cycle`, wydania 0.28.0 i 0.28.1, definicje zapisane (2026-11-28).
 
 ## E2 — kroki
 1. `testkit/measures.py`: `dhw_cycle(ctx, days)` z tabeli `dhw_cycles` (JSON `data`): cykle `complete`, tylko
@@ -21,13 +21,17 @@ Decyzja 2026-11-28: nie dublować istniejących definicji z bazy add-onu (`prehe
    `min_room_at` 06:00); `PUT` dla `ah_delay_ab` i `dhw_setpoint_ab` — dołożyć `dhw_cycle` jako miarę główną.
    JSON wszystkich trzech do `docs/testdefs/` (poprzednie wersje zapisać przed `PUT`).
 
-## Stan E2 (2026-11-28)
+## Stan E2 (2026-11-28, zakończony)
 
-Kroki 1–4 zrobione (v0.28.0). Krok 5 wstrzymany: po 2026-10-24 nie ma cykli typu `zegar`. Poranne starty są teraz
-o 06:01–06:03 i 08:01–08:03 (19 z 32 dób od 25.10, przesunięcie 83–170 s), a `dhw_cycles` wymaga 04:00/08:00 ±60 s.
-`dhw_cycle` zwróciłaby więc „za mało danych”. Do decyzji usera: kryterium miary. Nie zapisano `ah_delay_m5_ab`
-ani `PUT` dla `ah_delay_ab`, `dhw_setpoint_ab`.
+- Na żywo 0.28.1. `dhw_cycle` liczy poranne starty o 4/6/8 (−1…+5 min); typ „zegar” (04/08 ±60 s) nie miał cykli od 24.10.
+- Zapisane przez API: `ah_delay_m5_ab` (nowa), `ah_delay_ab` i `dhw_setpoint_ab` (`dhw_cycle` główna, `min_gain` 0,15 kWh).
+  JSON w `docs/testdefs/` (`*.prev.json` = wersje sprzed PUT; cofnięcie: PUT tych plików, `DELETE /api/test-defs/ah_delay_m5_ab`).
+- Moc testów: doba z porannym cyklem 26/32, średnio 1,44 kWh, odchylenie 0,33. Przy 8 dobach (4 na wariant, `min_n` 4)
+  jedna doba bez cyklu daje „za mało danych”, a różnica 0,15 kWh ginie w szumie. Do rozważenia przed Startem: więcej dób.
 
-Uwagi z review, niepoprawione: wynik liczy się bez doby, gdy nocny zapis się nie uda (także wyścig z backfillem po
-restarcie); test z zapisami i `floor_cost` bez `dhw_cycle` nie czeka na przebiegi 00:30; doba z częścią cykli bez
-`kwh_total` miesza pola; przy `floor_cost` 13:00 w teście z zapisami czekanie trwa do ~25 h i blokuje G13.
+Znane, niepoprawione:
+- Podgląd w edytorze definicji (`testkit/defs.preview`) nie przekazuje bieżącej nastawy do `_plan_def`, więc dla `slot52`
+  i `dhw` zawsze pokazuje „nie mogę odczytać…”. Starsze niż E2.
+- Wynik liczy się bez doby, gdy nocny zapis się nie uda (także wyścig z backfillem po restarcie).
+- Test z zapisami i `floor_cost` bez `dhw_cycle` nie czeka na przebiegi 00:30.
+- Przy `floor_cost` 13:00 w teście z zapisami czekanie trwa do ~25 h i blokuje G13.

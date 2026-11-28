@@ -1,0 +1,57 @@
+{
+  "days": {
+    "count": 8,
+    "filter": "all"
+  },
+  "design": "alternate",
+  "order": [
+    "A",
+    "B"
+  ],
+  "requires": {
+    "heiko_enabled": true
+  },
+  "key": "ah_delay_m5_ab",
+  "title": "Opóźnienie grzałki AH: baza vs baza−5 min",
+  "description": "Czy wcześniejsze włączanie grzałki AH (slot 52) zmienia energię porannego cyklu CWU. Zapisuje do pompy, wymaga wyłączonego Szczytu G13. AH wchodzi rzadko, więc wynik będzie mało pewny.",
+  "arms": {
+    "A": {
+      "writes": [
+        {
+          "param": "slot52",
+          "value": "base"
+        }
+      ]
+    },
+    "B": {
+      "writes": [
+        {
+          "param": "slot52",
+          "value": "base-5"
+        }
+      ]
+    }
+  },
+  "measures": [
+    "dhw_cycle",
+    "kwh_day",
+    {
+      "at": "06:00",
+      "name": "min_room_at"
+    }
+  ],
+  "verdict": {
+    "better": "lower",
+    "min_gain": 0.15,
+    "min_n": 4,
+    "primary": "dhw_cycle",
+    "weather_band_c": 4,
+    "guards": [
+      {
+        "measure": "min_room_at",
+        "op": ">=",
+        "value": 19
+      }
+    ]
+  }
+}

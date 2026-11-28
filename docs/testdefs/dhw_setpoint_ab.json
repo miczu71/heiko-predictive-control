@@ -1,0 +1,46 @@
+{
+  "days": {
+    "count": 8,
+    "filter": "all"
+  },
+  "design": "alternate",
+  "order": [
+    "A",
+    "B"
+  ],
+  "requires": {
+    "heiko_enabled": true
+  },
+  "key": "dhw_setpoint_ab",
+  "title": "Nastawa CWU: baza vs baza−3°C",
+  "description": "Czy obniżenie nastawy CWU o 3°C zmniejsza energię porannego cyklu CWU. Zapisuje do pompy, wymaga wyłączonego Szczytu G13. Automatyzacje PV i kąpieli też zmieniają nastawę CWU, co zaburza pomiar.",
+  "arms": {
+    "A": {
+      "writes": [
+        {
+          "param": "dhw",
+          "value": "base"
+        }
+      ]
+    },
+    "B": {
+      "writes": [
+        {
+          "param": "dhw",
+          "value": "base-3"
+        }
+      ]
+    }
+  },
+  "measures": [
+    "dhw_cycle",
+    "kwh_day"
+  ],
+  "verdict": {
+    "better": "lower",
+    "min_gain": 0.15,
+    "min_n": 4,
+    "primary": "dhw_cycle",
+    "weather_band_c": 4
+  }
+}
