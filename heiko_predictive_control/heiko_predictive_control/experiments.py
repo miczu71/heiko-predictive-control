@@ -704,7 +704,8 @@ def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_
         # Po ostatnim kroku nastawa jest już bazowa i test czeka tylko na dziennik cykli CWU: zmiany ręczne w tym oknie
         # (i przy jego końcu) nie mogą przerwać testu i skasować wyniku.
         if test["step"] >= len(schedule) and engine.needs_dhw_log(defn):
-            if engine.waits_for_dhw_log(defn, json.loads(test["arms_json"] or "{}"), now):
+            ready = engine.ready_at(defn, json.loads(test["arms_json"] or "{}"))
+            if ready is not None and now < ready:
                 return {"status": RUNNING, "waiting": "zapis cykli CWU"}
             return _complete(conn, settings, test, defn, now, notify, title)
         if current is None:

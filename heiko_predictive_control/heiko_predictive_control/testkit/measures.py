@@ -243,8 +243,9 @@ def dhw_cycle(ctx: Ctx, days: list[ArmDay]) -> dict:
         return {k: None if source[k] is None else round(source[k], digits) for k, digits in _DHW_FIELDS.items()}
 
     total = rounded({k: _mean_known([p[k] for p in per_day]) for k in _DHW_FIELDS})
+    rows = [(p["day"], rounded(p)) for p in per_day]
     return {"value": total["kwh_total"], **total, "n": len(per_day),
-            "per_day": [{"day": p["day"], "value": rounded(p)["kwh_total"], **rounded(p)} for p in per_day]}
+            "per_day": [{"day": day, "value": r["kwh_total"], **r} for day, r in rows]}
 
 
 # --- miary `test` ---

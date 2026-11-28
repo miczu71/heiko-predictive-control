@@ -208,7 +208,7 @@ def end_at(defn: dict, arms_by_day: dict[str, str]) -> datetime | None:
 
 
 def _measure_names(defn: dict) -> set[str]:
-    return {m["name"] if isinstance(m, dict) else m for m in defn.get("measures") or []}
+    return {measures._spec(m)[0] for m in defn.get("measures") or []}
 
 
 def needs_dhw_log(defn: dict) -> bool:
@@ -228,14 +228,6 @@ def ready_at(defn: dict, arms_by_day: dict[str, str]) -> datetime | None:
     if "floor_cost" in names and end.time() == time():
         return end + timedelta(minutes=45)
     return end
-
-
-def waits_for_dhw_log(defn: dict, arms_by_day: dict[str, str], now: datetime) -> bool:
-    """Test z zapisami po ostatnim kroku: czy czekać z wynikiem na dziennik cykli CWU."""
-    if not needs_dhw_log(defn):
-        return False
-    ready = ready_at(defn, arms_by_day)
-    return ready is not None and now < ready
 
 
 # --- wariant doby i nakładka ---
