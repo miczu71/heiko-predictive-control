@@ -1,4 +1,4 @@
-// Doradca — propozycje i decyzje w trybie próbnym (bez zapisu do pompy). Wszystkie fetch-e względne (ingress).
+// Doradca — propozycje i decyzje; próbne poza parametrami z `writes` (te „Zatwierdź” zapisuje do pompy). Wszystkie fetch-e względne (ingress).
 const esc = HPC.esc;
 const num = (v, d = 2) => (v === null || v === undefined) ? "—" : Number(v).toLocaleString("pl-PL", { maximumFractionDigits: d });
 const signed = (v, d = 2) => (v === null || v === undefined) ? "—" : `${v > 0 ? "+" : ""}${num(v, d)}`;

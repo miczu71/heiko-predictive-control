@@ -531,7 +531,7 @@ def _insert_alert(db_path, status="oczekuje", expires="2999-01-01T00:00:00"):
 def test_advisor_page_and_nav_render(tmp_path):
     client, _ = _proposal_client(tmp_path)
     html = client.get("/advisor").get_data(as_text=True)
-    assert "Propozycje Doradcy" in html and "Nic nie trafia do pompy" in html and 'href="/advisor"' in html
+    assert "Propozycje Doradcy" in html and "zmienia nastawę w pompie" in html and 'href="/advisor"' in html
 
 
 def test_proposals_api_lists_pending_with_lens(tmp_path):

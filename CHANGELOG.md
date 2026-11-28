@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.2 — Prawdziwy opis zapisów do pompy w Doradcy
+- **Poprawka:** baner w Doradcy twierdził, że nic nie trafia do pompy i że zmienia ją tylko strona Testy po kliknięciu. Teraz mówi, że „Zatwierdź i zapisz w pompie” zmienia nastawę, a testy i włączone tryby (Szczyt G13, urlopowy, odcinanie ogona grzania) zapisują same. Działanie bez zmian.
+- Bez migracji bazy.
+
 ## 0.28.1 — `dhw_cycle` liczy poranne starty o 4, 6 i 8
 - **Poprawka:** miara `dhw_cycle` brała tylko cykle typu „zegar” (04:00/08:00 ±60 s), których od 24.10 nie ma. Teraz bierze kompletne cykle rozpoczęte o 04, 06 lub 08 (od −1 do +5 min), bez kąpieli, nadwyżki PV i innych zmian celu. Działa też na starych rekordach.
 - Bez migracji bazy.
