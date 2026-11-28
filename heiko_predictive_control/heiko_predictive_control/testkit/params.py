@@ -37,7 +37,8 @@ OVERRIDABLE["tail_cut_enabled"] = None                # bool (E1): zakres None =
 
 # Nazwy mierzalnych wielkości (implementacja w E3).
 MEASURES = frozenset({"floor_cost", "kwh_day", "min_room_at", "safety_trips", "zone_spread", "excitation",
-                      "inertia_refit", "writes_confirmed", "kwh_hdd", "room_day", "tail_cuts"})
+                      "inertia_refit", "writes_confirmed", "kwh_hdd", "room_day", "tail_cuts",
+                      "dhw_cycle"})
 
 # Parametry miar: nazwa → {parametr: wymagany?}. Miary spoza słownika nie przyjmują parametrów.
 MEASURE_PARAMS: dict[str, dict[str, bool]] = {

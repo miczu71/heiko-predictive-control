@@ -35,6 +35,7 @@ MEASURE_TEXT = {
     "kwh_hdd": "energia pompy na stopniodzień grzania (kWh/HDD, niższy lepszy); doby z HDD poniżej 1 pomijane",
     "room_day": "komfort z całej doby: średnia dobowych średnich i najniższe minimum najzimniejszego pokoju",
     "tail_cuts": "średnia liczba odcięć ogona grzania na dobę (potwierdzone przełączenia na CWU)",
+    "dhw_cycle": "średnia energia cyklu CWU z zegara panelu (kWh, niższy lepszy); bez kąpieli i grzania z PV",
 }
 
 
@@ -204,6 +205,37 @@ def end_at(defn: dict, arms_by_day: dict[str, str]) -> datetime | None:
         if stop.date() > start.date():                                  # przechodzi przez północ
             extra = max(extra, stop - datetime.combine(stop.date(), time()))
     return end + extra
+
+
+def _measure_names(defn: dict) -> set[str]:
+    return {m["name"] if isinstance(m, dict) else m for m in defn.get("measures") or []}
+
+
+def needs_dhw_log(defn: dict) -> bool:
+    return "dhw_cycle" in _measure_names(defn)
+
+
+def ready_at(defn: dict, arms_by_day: dict[str, str]) -> datetime | None:
+    """Od kiedy można liczyć wynik: `end_at`, ale miary z nocnych dzienników czekają na ich zapis — cykle CWU (00:25)
+    do 00:45 po ostatniej dobie, przebiegi podłogówki (00:30) 45 min po końcu o północy. None = brak dób."""
+    end = end_at(defn, arms_by_day)
+    if end is None:
+        return None
+    names = _measure_names(defn)
+    if needs_dhw_log(defn):
+        last = (end - timedelta(microseconds=1)).date()
+        return datetime.combine(last + timedelta(days=1), time(0, 45))
+    if "floor_cost" in names and end.time() == time():
+        return end + timedelta(minutes=45)
+    return end
+
+
+def waits_for_dhw_log(defn: dict, arms_by_day: dict[str, str], now: datetime) -> bool:
+    """Test z zapisami po ostatnim kroku: czy czekać z wynikiem na dziennik cykli CWU."""
+    if not needs_dhw_log(defn):
+        return False
+    ready = ready_at(defn, arms_by_day)
+    return ready is not None and now < ready
 
 
 # --- wariant doby i nakładka ---

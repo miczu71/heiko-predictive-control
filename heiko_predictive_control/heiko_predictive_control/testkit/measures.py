@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from .. import db as dbm
 from .. import experiments as ex
-from .. import floor_learn, heating_runs, summaries
+from .. import dhw_cycles, floor_learn, heating_runs, summaries
 from .verdict import decide
 
 _WINDOW_RE = re.compile(r"(\d{2}):(\d{2})\s*(?:→|-)\s*(\d{2}):(\d{2})")   # ta sama gramatyka co schema.WINDOW_RE
@@ -219,6 +219,34 @@ def tail_cuts(ctx: Ctx, days: list[ArmDay]) -> dict:
     return {"value": value, "n": len(per_day), "per_day": per_day}
 
 
+# Pole cyklu CWU → liczba miejsc po przecinku; `kwh_total` jest wartością miary.
+_DHW_FIELDS = {"kwh_total": 3, "duration_min": 1, "ah_kwh": 3, "ah_min": 1, "cost_pln": 2}
+
+
+def _mean_known(values: list) -> float | None:
+    known = [v for v in values if v is not None]
+    return mean(known) if known else None
+
+
+def dhw_cycle(ctx: Ctx, days: list[ArmDay]) -> dict:
+    """Cykl CWU z zegara panelu (bez kąpieli, PV i zapotrzebowania): per doba średnie z kompletnych cykli, wariant =
+    średnia dób. `dhw_cycles.start` to UTC, doby wariantu są lokalne. Doba bez cyklu z energią pomijana."""
+    per_day = []
+    for d in days:
+        cycles = [c for c in dhw_cycles.load_range(ctx.conn, _to_utc(d.start, ctx.tz), _to_utc(d.end, ctx.tz))
+                  if c.get("complete") and c.get("type") == "zegar"]
+        means = {k: _mean_known([c.get(k) for c in cycles]) for k in _DHW_FIELDS}
+        if means["kwh_total"] is not None:
+            per_day.append({"day": d.start.date().isoformat(), **means})
+
+    def rounded(source: dict) -> dict:
+        return {k: None if source[k] is None else round(source[k], digits) for k, digits in _DHW_FIELDS.items()}
+
+    total = rounded({k: _mean_known([p[k] for p in per_day]) for k in _DHW_FIELDS})
+    return {"value": total["kwh_total"], **total, "n": len(per_day),
+            "per_day": [{"day": p["day"], "value": rounded(p)["kwh_total"], **rounded(p)} for p in per_day]}
+
+
 # --- miary `test` ---
 
 def excitation(ctx: Ctx) -> dict:
@@ -251,6 +279,7 @@ CATALOG: dict[str, Measure] = {
     "kwh_hdd": Measure("arm", kwh_hdd),
     "room_day": Measure("arm", room_day),
     "tail_cuts": Measure("arm", tail_cuts),
+    "dhw_cycle": Measure("arm", dhw_cycle),
     "excitation": Measure("test", excitation),
     "inertia_refit": Measure("test", inertia_refit),
     "writes_confirmed": Measure("test", writes_confirmed),

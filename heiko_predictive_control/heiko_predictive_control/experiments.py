@@ -670,10 +670,8 @@ def _tick_overlay(conn, settings: dict, test, defn: dict, now: datetime, notify)
     from .testkit import engine
     arms = json.loads(test["arms_json"] or "{}")
     end = engine.end_at(defn, arms)
-    # Okno kończące się o północy: przebiegi podłogówki ostatniej doby zapisuje dopiero zadanie o 00:30.
-    names = {m["name"] if isinstance(m, dict) else m for m in defn.get("measures", [])}
-    settle = timedelta(minutes=45) if end and end.time() == time() and "floor_cost" in names else timedelta(0)
-    if end is None or now >= end + settle:
+    ready = engine.ready_at(defn, arms)
+    if ready is None or now >= ready:
         return _complete(conn, settings, test, defn, now, notify, _title(test))
     return {"status": RUNNING, "arm": engine.arm_for_day(test, now.date()), "until": _iso(end)}
 
@@ -702,6 +700,13 @@ def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_
                           now, writer, notify)
         if any(w["confirmed_at"] is None for w in last):
             return {"status": RUNNING, "waiting": "potwierdzenie zapisu"}
+        schedule = json.loads(test["schedule"])
+        # Po ostatnim kroku nastawa jest już bazowa i test czeka tylko na dziennik cykli CWU: zmiany ręczne w tym oknie
+        # (i przy jego końcu) nie mogą przerwać testu i skasować wyniku.
+        if test["step"] >= len(schedule) and engine.needs_dhw_log(defn):
+            if engine.waits_for_dhw_log(defn, json.loads(test["arms_json"] or "{}"), now):
+                return {"status": RUNNING, "waiting": "zapis cykli CWU"}
+            return _complete(conn, settings, test, defn, now, notify, title)
         if current is None:
             logger.warning("Test #%d: brak odczytu %s — czekam", test["id"], what)
             return {"status": RUNNING, "waiting": f"odczyt {what}"}
@@ -714,7 +719,6 @@ def tick(conn, settings: dict, now: datetime, get_numeric=ha_client.get_numeric_
         if comfort.sustained_cold(comfort.recent_rows(conn, now), minimum):
             return _abort(conn, settings, test, f"najzimniejszy pokój poniżej {minimum:g}°C dłużej niż "
                           f"{comfort.ALARM_MINUTES} min", now, writer, notify)
-        schedule = json.loads(test["schedule"])
         if test["step"] < len(schedule):
             step = schedule[test["step"]]
             if now < datetime.fromisoformat(step["at"]):

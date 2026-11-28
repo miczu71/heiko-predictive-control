@@ -849,3 +849,36 @@ def test_overlay_floor_cost_waits_for_nightly_heating_runs(conn):
     assert end.hour == 0
     assert _tick(conn, pump, end + timedelta(minutes=10))["status"] == ex.RUNNING    # przed zapisem przebiegów 00:30
     assert _tick(conn, pump, end + timedelta(minutes=45))["status"] == ex.DONE
+
+
+def test_overlay_dhw_cycle_waits_for_nightly_dhw_log(conn):
+    defn = dict(PREHEAT, key="night_dhw", measures=["dhw_cycle"],
+                verdict=dict(PREHEAT["verdict"], primary="dhw_cycle", guards=[]))
+    _add_def(conn, defn)
+    pump = Pump(curve="on")
+    assert _start(conn, pump, "night_dhw")["ok"]
+    row = _test(conn)
+    end = engine.end_at(engine.frozen_def(row), json.loads(row["arms_json"]))
+    assert end.hour == 0
+    assert _tick(conn, pump, end + timedelta(minutes=10))["status"] == ex.RUNNING    # przed zapisem cykli 00:25
+    assert _tick(conn, pump, end + timedelta(minutes=45))["status"] == ex.DONE
+
+
+def test_dhw_cycle_writing_test_waits_for_last_day_log(conn, monkeypatch):
+    defn = dict(_fixture("dhw_setpoint_ab"), measures=["dhw_cycle"],
+                verdict=dict(_fixture("dhw_setpoint_ab")["verdict"], primary="dhw_cycle", guards=[]))
+    _add_def(conn, defn)
+    pump = _ent_pump(monkeypatch)
+    _run(conn, pump, "dhw_setpoint_ab", DHW_ENT)
+    row = _test(conn)
+    assert row["status"] == ex.RUNNING and row["step"] == len(json.loads(row["schedule"]))
+    end = engine.end_at(engine.frozen_def(row), json.loads(row["arms_json"]))
+    base = pump.vals[DHW_ENT]
+    at_0010 = end + timedelta(minutes=10)
+    assert _tick(conn, pump, at_0010)["status"] == ex.RUNNING
+    pump.vals[DHW_ENT] = 45.0 if base != 45.0 else 50.0                 # ręczna zmiana nastawy CWU w oknie czekania
+    out = _tick(conn, pump, at_0010 + timedelta(minutes=5))
+    assert out["status"] == ex.RUNNING and out["waiting"] == "zapis cykli CWU"
+    calls = len(pump.calls)
+    assert _tick(conn, pump, end + timedelta(minutes=45))["status"] == ex.DONE      # zmiana nadal trwa
+    assert len(pump.calls) == calls                                                 # i nie jest nadpisywana

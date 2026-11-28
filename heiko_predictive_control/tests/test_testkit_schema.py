@@ -326,7 +326,8 @@ def test_overridable_excludes_forbidden_options():
 
 def test_measures_names():
     assert MEASURES == {"floor_cost", "kwh_day", "min_room_at", "safety_trips", "zone_spread",
-                        "excitation", "inertia_refit", "writes_confirmed", "kwh_hdd", "room_day", "tail_cuts"}
+                        "excitation", "inertia_refit", "writes_confirmed", "kwh_hdd", "room_day", "tail_cuts",
+                        "dhw_cycle"}
     assert params.MEASURE_PARAMS["floor_cost"]["window"] is True
 
 
